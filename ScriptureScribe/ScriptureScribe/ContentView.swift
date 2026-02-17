@@ -14,7 +14,7 @@ import SwiftUI
 struct ContentView: View {
     var body: some View {
         TabView {
-            ReaderPlaceholderView()
+            ReaderView()
                 .tabItem {
                     Label("Reader", systemImage: "book.fill")
                 }
@@ -43,16 +43,6 @@ struct ContentView: View {
 }
 
 // MARK: - Placeholder Views (each replaced in its respective phase)
-
-private struct ReaderPlaceholderView: View {
-    var body: some View {
-        NavigationStack {
-            Text("Bible Reader — Phase 1")
-                .foregroundStyle(.secondary)
-                .navigationTitle("Reader")
-        }
-    }
-}
 
 private struct DailyPlaceholderView: View {
     var body: some View {

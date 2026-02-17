@@ -37,5 +37,5 @@ enum AppConfig {
         return key
     }()
 
-    static let bibleAPIBaseURL = "https://api.scripture.api.bible/v1"
+    static let bibleAPIBaseURL = "https://rest.api.bible/v1"
 }
