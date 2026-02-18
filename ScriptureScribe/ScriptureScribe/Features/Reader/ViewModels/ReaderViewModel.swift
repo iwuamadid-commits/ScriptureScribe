@@ -44,7 +44,8 @@ final class ReaderViewModel: ObservableObject {
     @AppStorage("fontSize")       var fontSize:      Double = 18
     @AppStorage("lineSpacing")    var lineSpacing:   Double = 10
     @AppStorage("fontChoice")     var fontChoice:    String = "System"
-    @AppStorage("showRedLetters") var showRedLetters: Bool  = true
+    @AppStorage("showRedLetters") var showRedLetters: Bool   = true
+    @AppStorage("textAlignment")  var textAlignment:  String = "leading"
 
     // MARK: - Restore Last Position
 

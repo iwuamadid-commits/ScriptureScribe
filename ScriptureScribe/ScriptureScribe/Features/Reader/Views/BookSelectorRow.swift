@@ -77,7 +77,7 @@ private struct BookChip: View {
     let theme:      any AppTheme
 
     var body: some View {
-        Text(book.abbreviation.isEmpty ? book.name : book.abbreviation)
+        Text(book.name)
             .font(.footnote.weight(isSelected ? .bold : .regular))
             .lineLimit(1)
             .padding(.horizontal, 10)

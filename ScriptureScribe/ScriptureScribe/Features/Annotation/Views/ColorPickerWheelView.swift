@@ -2,40 +2,32 @@
 //  ColorPickerWheelView.swift
 //  ScriptureScribe
 //
-//  A color picker sheet with two ways to choose a color:
-//    1. A color wheel (the same one built into iOS — just tap a color)
-//    2. A hex text field (type in a code like "FF5733" for a precise color)
-//
-//  Both controls stay in sync: changing one immediately updates the other.
+//  Full-screen color picker with a large color wheel and a hex text field.
+//  The wheel takes up most of the screen so it's easy to tap precisely.
 //
 
 import SwiftUI
 
 struct ColorPickerWheelView: View {
 
-    /// The color the user has picked — written back to AnnotationViewModel.selectedColor.
     @Binding var selectedColor: UIColor
-
     @Environment(\.dismiss) private var dismiss
 
-    // Local state: the hex text the user is typing
-    @State private var hexText: String = ""
-    // Tracks if the hex text field is being edited (avoids overwriting mid-type)
-    @State private var isEditingHex = false
+    @State private var hexText = ""
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 24) {
+            VStack(spacing: 20) {
 
-                // — Color Wheel —
-                // SwiftUI's built-in ColorPicker wraps iOS's UIColorPickerViewController.
-                // supportsOpacity: false → no transparency slider (simpler UX).
+                // Large color wheel — fills available width
                 ColorPicker("", selection: colorBinding, supportsOpacity: false)
                     .labelsHidden()
-                    .frame(width: 260, height: 260)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 380)   // much larger than the default compact size
+                    .padding(.horizontal, 16)
                     .padding(.top, 8)
 
-                // — Hex Code Field —
+                // Hex text field
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Or type a hex code:")
                         .font(.caption)
@@ -45,29 +37,25 @@ struct ColorPickerWheelView: View {
                         Text("#")
                             .font(.system(.body, design: .monospaced).weight(.medium))
                             .foregroundStyle(.secondary)
-
                         TextField("e.g. 5C8A6B", text: $hexText)
                             .font(.system(.body, design: .monospaced))
                             .textInputAutocapitalization(.characters)
                             .autocorrectionDisabled()
-                            .onChange(of: hexText) { _, newValue in
-                                applyHex(newValue)
+                            .onChange(of: hexText) { _, v in
+                                if let c = UIColor(hexString: v) { selectedColor = c }
                             }
                     }
                     .padding(10)
                     .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
                 }
-                .padding(.horizontal, 32)
+                .padding(.horizontal, 24)
 
-                // — Current Color Preview —
+                // Live color preview swatch
                 RoundedRectangle(cornerRadius: 12)
                     .fill(Color(selectedColor))
-                    .frame(height: 48)
-                    .padding(.horizontal, 32)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(.separator, lineWidth: 1)
-                    )
+                    .frame(height: 52)
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(.separator, lineWidth: 1))
+                    .padding(.horizontal, 24)
 
                 Spacer()
             }
@@ -75,33 +63,17 @@ struct ColorPickerWheelView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }
-                        .fontWeight(.semibold)
+                    Button("Done") { dismiss() }.fontWeight(.semibold)
                 }
             }
         }
-        .onAppear {
-            hexText = selectedColor.hexString
-        }
+        .onAppear { hexText = selectedColor.hexString }
     }
 
-    // MARK: - Helpers
-
-    /// Binding that keeps SwiftUI Color and UIColor in sync.
     private var colorBinding: Binding<Color> {
         Binding(
             get: { Color(selectedColor) },
-            set: { newColor in
-                selectedColor = UIColor(newColor)
-                hexText = selectedColor.hexString
-            }
+            set: { selectedColor = UIColor($0); hexText = selectedColor.hexString }
         )
-    }
-
-    /// Tries to parse the hex text as a UIColor. Only updates if the string is a valid 6-digit hex.
-    private func applyHex(_ text: String) {
-        let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard clean.count == 6, let color = UIColor(hexString: clean) else { return }
-        selectedColor = color
     }
 }

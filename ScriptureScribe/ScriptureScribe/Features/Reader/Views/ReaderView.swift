@@ -2,18 +2,26 @@
 //  ReaderView.swift
 //  ScriptureScribe
 //
-//  The main Bible reading screen. Assembles all reader, annotation, note, and bookmark components:
-//    • Navigation bar: translation picker, streak badge, annotation toggle, bookmark, more menu
-//    • Book selector row (horizontal scroll of book names)
-//    • Chapter selector row (horizontal scroll of chapter numbers)
-//    • Bible text with pinch-to-zoom
-//    • Annotation canvas + guide lines + toolbar (Phase 2)
-//    • Draggable note tiles floating on top of the text (Phase 3)
-//
-//  Swipe left/right to move between chapters (like turning a page).
+//  The main Bible reading screen. Key architecture:
+//    • The ScrollView lives HERE (not inside BibleTextView).
+//    • BibleTextView + AnnotationCanvasView + NoteTiles are all inside
+//      the same ScrollView > ZStack so annotations scroll with the text.
+//    • A PreferenceKey (ContentHeightKey) measures the text height so the
+//      canvas frame matches the full scrollable content.
+//    • Split-view mode shows Bible on the left, a lined notebook on the right.
+//    • Long-pressing a verse opens the bookmark picker for that verse.
 //
 
 import SwiftUI
+
+// MARK: - ContentHeightKey
+// Measures the rendered height of the Bible text so the canvas can match it.
+private struct ContentHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
 
 struct ReaderView: View {
 
@@ -27,10 +35,13 @@ struct ReaderView: View {
 
     @EnvironmentObject var themeManager: ThemeManager
 
-    // MARK: - Sheet State
+    // MARK: - State
 
-    @State private var showBookmarkPicker = false
-    @State private var showBookmarkList   = false
+    @State private var showBookmarkPicker     = false
+    @State private var showBookmarkList       = false
+    @State private var contentHeight: CGFloat = 800   // updated live by PreferenceKey
+    @State private var longPressedVerseId:    String?
+    @State private var longPressedVerseText:  String?
 
     var body: some View {
         NavigationStack {
@@ -43,7 +54,7 @@ struct ReaderView: View {
 
                 // Chapter selector row (only visible once a book is selected)
                 if !vm.chapters.isEmpty {
-                    ChapterSelectorRow(vm: vm)
+                    ChapterSelectorRow(vm: vm, annotationVM: annotationVM)
                     Divider()
                 }
 
@@ -62,42 +73,11 @@ struct ReaderView: View {
                         ProgressView()
                     } else if let content = vm.chapterContent {
 
-                        // All visible layers stacked on top of each other
-                        ZStack {
-
-                            // Layer 1: Scrollable Bible text
-                            BibleTextView(content: content, vm: vm)
-                                .gesture(annotationVM.isAnnotating ? nil : swipeGesture)
-
-                            // Layer 2: Draggable note tiles
-                            // GeometryReader measures the content area so notes position correctly
-                            GeometryReader { geo in
-                                ForEach(notesVM.notes(for: vm.selectedChapter?.id ?? "")) { note in
-                                    NoteTileView(
-                                        note:     note,
-                                        areaSize: geo.size,
-                                        notesVM:  notesVM
-                                    )
-                                }
-                            }
-                            .allowsHitTesting(!annotationVM.isAnnotating) // notes pause during drawing
-
-                            // Layer 3: Guide lines (lined-paper effect during annotation)
-                            if annotationVM.isAnnotating && annotationVM.showGuidelines {
-                                GuideLineOverlayView(spacing: annotationVM.guideSpacing)
-                            }
-
-                            // Layer 4: Transparent drawing canvas
-                            AnnotationCanvasView(
-                                vm:        annotationVM,
-                                chapterId: vm.selectedChapter?.id ?? ""
-                            )
-                            .allowsHitTesting(annotationVM.isAnnotating)
-
-                            // Layer 5: Annotation toolbar (only in annotation mode)
-                            if annotationVM.isAnnotating {
-                                AnnotationToolbarView(vm: annotationVM)
-                            }
+                        switch annotationVM.layoutMode {
+                        case .fullWidth:
+                            fullWidthContent(content: content)
+                        case .splitView:
+                            splitViewContent(content: content)
                         }
 
                     } else if let error = vm.errorMessage {
@@ -120,7 +100,7 @@ struct ReaderView: View {
             }
             .sheet(isPresented: $showBookmarkPicker) {
                 BookmarkPickerView(
-                    chapterReference: vm.selectedChapter?.reference ?? "",
+                    chapterReference: verseBookmarkReference,
                     isAlreadyBookmarked: isCurrentChapterBookmarked,
                     onSave: { colorHex, emoji in
                         guard
@@ -157,6 +137,104 @@ struct ReaderView: View {
         }
     }
 
+    // MARK: - Layout Builders
+
+    /// Full-width mode: single column — scrollable text with canvas overlay.
+    @ViewBuilder
+    private func fullWidthContent(content: BibleChapterContent) -> some View {
+        scrollableReaderStack(content: content)
+            .gesture(annotationVM.isAnnotating ? nil : swipeGesture)
+    }
+
+    /// Split-view mode: Bible on the left, lined notebook on the right.
+    @ViewBuilder
+    private func splitViewContent(content: BibleChapterContent) -> some View {
+        HStack(spacing: 0) {
+            scrollableReaderStack(content: content)
+                .frame(maxWidth: .infinity)
+                .gesture(annotationVM.isAnnotating ? nil : swipeGesture)
+
+            Divider()
+
+            NotebookView(
+                vm:        annotationVM,
+                chapterId: vm.selectedChapter?.id ?? ""
+            )
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    /// The core scrollable ZStack: Bible text + floating notes + drawing canvas.
+    /// ScrollView lives here so drawing annotations scroll with the text.
+    @ViewBuilder
+    private func scrollableReaderStack(content: BibleChapterContent) -> some View {
+        ScrollView {
+            ZStack(alignment: .topLeading) {
+
+                // Layer 1 — Bible text
+                // A background GeometryReader measures height and reports it via PreferenceKey.
+                BibleTextView(
+                    content: content,
+                    vm:      vm,
+                    onLongPressVerse: { verseId, verseText in
+                        longPressedVerseId   = verseId
+                        longPressedVerseText = verseText
+                        showBookmarkPicker   = true
+                    }
+                )
+                .background(
+                    GeometryReader { geo in
+                        Color.clear.preference(
+                            key:   ContentHeightKey.self,
+                            value: geo.size.height
+                        )
+                    }
+                )
+
+                // Layer 2 — Draggable typed note tiles
+                GeometryReader { geo in
+                    ForEach(notesVM.notes(for: vm.selectedChapter?.id ?? "")) { note in
+                        NoteTileView(
+                            note:     note,
+                            areaSize: geo.size,
+                            notesVM:  notesVM
+                        )
+                    }
+                }
+                .frame(height: contentHeight)
+                .allowsHitTesting(!annotationVM.isAnnotating)
+
+                // Layer 3 — PencilKit drawing canvas (same height as text)
+                AnnotationCanvasView(
+                    vm:            annotationVM,
+                    chapterId:     vm.selectedChapter?.id ?? "",
+                    contentHeight: contentHeight
+                )
+                .allowsHitTesting(annotationVM.isAnnotating)
+
+                // Layer 4 — Guide lines (drawn on top of the canvas, no hit-testing)
+                if annotationVM.isAnnotating && annotationVM.showGuidelines {
+                    GuideLineOverlayView(spacing: annotationVM.guideSpacing)
+                        .frame(height: contentHeight)
+                        .allowsHitTesting(false)
+                }
+            }
+            .frame(minHeight: contentHeight)
+        }
+        // Lock scrolling while drawing so touches go to PencilKit instead
+        .scrollDisabled(annotationVM.isAnnotating)
+        // Receive height updates from the text layer
+        .onPreferenceChange(ContentHeightKey.self) { h in
+            if h > 0 { contentHeight = h }
+        }
+        // Annotation toolbar floats in the top-right corner (outside the scroll)
+        .overlay(alignment: .topTrailing) {
+            if annotationVM.isAnnotating {
+                AnnotationToolbarView(vm: annotationVM)
+            }
+        }
+    }
+
     // MARK: - Toolbar
 
     @ToolbarContentBuilder
@@ -179,10 +257,10 @@ struct ReaderView: View {
             StreakBadgeView(streak: streakVM.currentStreak)
         }
 
-        // Right: context-sensitive buttons
+        // Right: annotation toggle, bookmark, more menu
         ToolbarItemGroup(placement: .topBarTrailing) {
 
-            // Annotation mode toggle (pencil icon)
+            // Annotation mode toggle
             Button {
                 annotationVM.toggleAnnotating()
             } label: {
@@ -198,10 +276,12 @@ struct ReaderView: View {
             }
             .accessibilityLabel(annotationVM.isAnnotating ? "Stop annotating" : "Start annotating")
 
-            // Bookmark icon (filled = currently bookmarked)
+            // Bookmark button (chapter-level bookmark)
             if vm.chapterContent != nil && !annotationVM.isAnnotating {
                 Button {
-                    showBookmarkPicker = true
+                    longPressedVerseId   = nil
+                    longPressedVerseText = nil
+                    showBookmarkPicker   = true
                 } label: {
                     Image(systemName: isCurrentChapterBookmarked
                           ? "bookmark.fill"
@@ -212,13 +292,15 @@ struct ReaderView: View {
                                 : themeManager.currentTheme.textSecondary
                         )
                 }
-                .accessibilityLabel(isCurrentChapterBookmarked ? "Remove bookmark" : "Bookmark this chapter")
+                .accessibilityLabel(isCurrentChapterBookmarked
+                                    ? "Remove bookmark"
+                                    : "Bookmark this chapter")
             }
 
-            // More menu (shown when not annotating)
+            // More menu
             if !annotationVM.isAnnotating {
                 Menu {
-                    // — Notes —
+
                     Section("Notes") {
                         Button {
                             if let id = vm.selectedChapter?.id {
@@ -230,7 +312,6 @@ struct ReaderView: View {
                         .disabled(vm.chapterContent == nil)
                     }
 
-                    // — Bookmarks —
                     Section("Bookmarks") {
                         Button {
                             showBookmarkList = true
@@ -239,7 +320,56 @@ struct ReaderView: View {
                         }
                     }
 
-                    // — Font Size —
+                    Section("Layout") {
+                        Button {
+                            withAnimation { annotationVM.layoutMode = .fullWidth }
+                        } label: {
+                            Label(
+                                "Full-Width Bible",
+                                systemImage: annotationVM.layoutMode == .fullWidth
+                                    ? "checkmark"
+                                    : "rectangle"
+                            )
+                        }
+                        Button {
+                            withAnimation { annotationVM.layoutMode = .splitView }
+                        } label: {
+                            Label(
+                                "Bible + Notebook",
+                                systemImage: annotationVM.layoutMode == .splitView
+                                    ? "checkmark"
+                                    : "rectangle.split.2x1"
+                            )
+                        }
+                    }
+
+                    Section("Text Alignment") {
+                        Button {
+                            vm.textAlignment = "leading"
+                        } label: {
+                            Label("Left",
+                                  systemImage: vm.textAlignment == "leading"
+                                      ? "checkmark"
+                                      : "text.alignleft")
+                        }
+                        Button {
+                            vm.textAlignment = "center"
+                        } label: {
+                            Label("Center",
+                                  systemImage: vm.textAlignment == "center"
+                                      ? "checkmark"
+                                      : "text.aligncenter")
+                        }
+                        Button {
+                            vm.textAlignment = "trailing"
+                        } label: {
+                            Label("Right",
+                                  systemImage: vm.textAlignment == "trailing"
+                                      ? "checkmark"
+                                      : "text.alignright")
+                        }
+                    }
+
                     Section("Font Size") {
                         Button {
                             vm.fontSize = min(vm.fontSize + 2, 36)
@@ -253,7 +383,6 @@ struct ReaderView: View {
                         }
                     }
 
-                    // — Font Choice —
                     Section("Font") {
                         ForEach(["System", "Georgia", "Palatino", "Baskerville"], id: \.self) { font in
                             Button {
@@ -264,19 +393,22 @@ struct ReaderView: View {
                         }
                     }
 
-                    // — Book Sort Order —
                     Section("Book Order") {
                         Button {
                             vm.bookSortOrder = .canonical
                         } label: {
                             Label("Bible Order",
-                                  systemImage: vm.bookSortOrder == .canonical ? "checkmark" : "list.number")
+                                  systemImage: vm.bookSortOrder == .canonical
+                                      ? "checkmark"
+                                      : "list.number")
                         }
                         Button {
                             vm.bookSortOrder = .alphabetical
                         } label: {
                             Label("A–Z Order",
-                                  systemImage: vm.bookSortOrder == .alphabetical ? "checkmark" : "textformat.abc")
+                                  systemImage: vm.bookSortOrder == .alphabetical
+                                      ? "checkmark"
+                                      : "textformat.abc")
                         }
                     }
 
@@ -293,6 +425,16 @@ struct ReaderView: View {
     private var isCurrentChapterBookmarked: Bool {
         guard let id = vm.selectedChapter?.id else { return false }
         return bookmarksVM.isBookmarked(chapterId: id)
+    }
+
+    /// Reference label shown in the bookmark picker.
+    /// Uses the verse reference when a verse was long-pressed;
+    /// falls back to the whole chapter reference for the toolbar bookmark button.
+    private var verseBookmarkReference: String {
+        if let id = longPressedVerseId, !id.isEmpty {
+            return "\(vm.selectedChapter?.reference ?? "") v\(id)"
+        }
+        return vm.selectedChapter?.reference ?? ""
     }
 
     // MARK: - Swipe to Turn Pages
