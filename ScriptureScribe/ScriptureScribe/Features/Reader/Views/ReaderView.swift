@@ -98,6 +98,13 @@ struct ReaderView: View {
                     }
                 }
             }
+            // Free-floating annotation toolbar: positioned absolutely over the whole
+            // reading area (including selectors) so it can be dragged anywhere.
+            .overlay(alignment: .topLeading) {
+                if annotationVM.isAnnotating {
+                    AnnotationToolbarView(vm: annotationVM)
+                }
+            }
             .navigationTitle(vm.selectedChapter?.reference ?? "Scripture Scribe")
             .navigationBarTitleDisplayMode(.inline)
             .background(themeManager.currentTheme.background)
@@ -160,15 +167,24 @@ struct ReaderView: View {
 
     @ViewBuilder
     private func splitViewContent(content: BibleChapterContent) -> some View {
+        // isLeftHanded now controls which SIDE the notebook appears on.
+        // Left-handed → notebook on the left; right-handed → notebook on the right.
+        let bible = scrollableReaderStack(content: content)
+            .frame(maxWidth: .infinity)
+            .gesture(annotationVM.isAnnotating ? nil : swipeGesture)
+        let notebook = NotebookView(vm: annotationVM, chapterId: vm.selectedChapter?.id ?? "")
+            .frame(maxWidth: .infinity)
+
         HStack(spacing: 0) {
-            scrollableReaderStack(content: content)
-                .frame(maxWidth: .infinity)
-                .gesture(annotationVM.isAnnotating ? nil : swipeGesture)
-
-            Divider()
-
-            NotebookView(vm: annotationVM, chapterId: vm.selectedChapter?.id ?? "")
-                .frame(maxWidth: .infinity)
+            if annotationVM.isLeftHanded {
+                notebook
+                Divider()
+                bible
+            } else {
+                bible
+                Divider()
+                notebook
+            }
         }
     }
 
@@ -229,18 +245,17 @@ struct ReaderView: View {
             }
             .scrollDisabled(annotationVM.isAnnotating)
             .onPreferenceChange(ContentHeightKey.self) { h in if h > 0 { contentHeight = h } }
-            .overlay(alignment: .topTrailing) {
-                if annotationVM.isAnnotating {
-                    AnnotationToolbarView(vm: annotationVM)
-                }
-            }
         }
         // ── Pinch-to-zoom: simultaneous so it fires alongside PencilKit ───
         // Works whether the toolbar is visible, collapsed, or hidden.
         .simultaneousGesture(pinchGesture)
-        // Double-tap resets to 1×
+        // Double-tap: adds a note (when that setting is on) or resets zoom
         .onTapGesture(count: 2) {
-            withAnimation(.spring(duration: 0.3)) { zoomScale = 1.0 }
+            if annotationVM.useDoubleTapForNote {
+                if let id = vm.selectedChapter?.id { notesVM.addNote(to: id) }
+            } else {
+                withAnimation(.spring(duration: 0.3)) { zoomScale = 1.0 }
+            }
         }
     }
 

@@ -48,14 +48,15 @@ struct NoteTileView: View {
             }
             .background(Color(hex: note.colorHex).opacity(0.7))
 
-            // Note text — always black, fits to content width
+            // Note text — always black. Width is fixed to 150 pt (compact sticky-note)
+            // so the tile never looks oversized; height auto-grows with the content.
             Text(note.text.isEmpty ? "Tap ✎ to write…" : note.text)
                 .font(.system(size: 13))
                 .foregroundStyle(note.text.isEmpty ? Color.black.opacity(0.4) : Color.black)
-                .lineLimit(6)
+                .lineLimit(4)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(8)
-                .frame(minWidth: 100, maxWidth: 200, alignment: .leading)
+                .frame(width: 150, alignment: .leading)
         }
         .background(Color(hex: note.colorHex))
         .clipShape(RoundedRectangle(cornerRadius: 8))

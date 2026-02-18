@@ -61,10 +61,21 @@ final class AnnotationViewModel: ObservableObject {
     @Published var showColorPicker   = false
     @Published var layoutMode:       LayoutMode   = .fullWidth
 
+    // MARK: - Toolbar Position (free-floating drag state)
+    // Stores the toolbar's offset from the top-left of the reading area.
+    // CGPoint can't be @AppStorage directly, so it resets to the top-right
+    // corner on each launch — a sensible default.
+    @Published var toolbarPosition: CGPoint = CGPoint(
+        x: UIScreen.main.bounds.width - 60,
+        y: 80
+    )
+
     // MARK: - Persisted Preferences
 
-    @AppStorage("isLeftHanded")       var isLeftHanded:       Bool = false
-    @AppStorage("allowFingerDrawing") var allowFingerDrawing: Bool = true
+    @AppStorage("isLeftHanded")          var isLeftHanded:          Bool = false  // controls notebook side in split view
+    @AppStorage("allowFingerDrawing")    var allowFingerDrawing:    Bool = true
+    @AppStorage("isToolbarHorizontal")   var isToolbarHorizontal:   Bool = false
+    @AppStorage("useDoubleTapForNote")   var useDoubleTapForNote:   Bool = false
 
     // MARK: - Canvas Callbacks (set by AnnotationCanvasView)
 
