@@ -28,14 +28,14 @@ struct AnnotationToolbarView: View {
     @EnvironmentObject var themeManager: ThemeManager
 
     // Live drag offset while the user is dragging the handle
-    @GestureState private var drag: CGSize = .zero
+    @State private var dragOffset: CGSize = .zero
 
     var body: some View {
         content
             // Apply committed position + live drag as an offset from the top-left
             .offset(
-                x: vm.toolbarPosition.x + drag.width,
-                y: vm.toolbarPosition.y + drag.height
+                x: vm.toolbarPosition.x + dragOffset.width,
+                y: vm.toolbarPosition.y + dragOffset.height
             )
             .sheet(isPresented: $vm.showColorPicker) {
                 ColorPickerWheelView(selectedColor: $vm.selectedColor)
@@ -119,11 +119,6 @@ struct AnnotationToolbarView: View {
 
             vDivider
 
-            guidelineButton
-            if vm.showGuidelines { guideSpacingMenu }
-
-            vDivider
-
             toolbarButton(systemImage: "arrow.uturn.backward", label: "Undo") { vm.undo() }
             toolbarButton(systemImage: "arrow.uturn.forward",  label: "Redo") { vm.redo() }
 
@@ -169,11 +164,6 @@ struct AnnotationToolbarView: View {
             colorSwatch
 
             strokeSliderHorizontal
-
-            hDivider
-
-            guidelineButton
-            if vm.showGuidelines { guideSpacingMenu }
 
             hDivider
 
@@ -228,31 +218,6 @@ struct AnnotationToolbarView: View {
             Slider(value: $vm.strokeWidth, in: 1...12, step: 0.5)
                 .frame(width: 80)
                 .tint(Color(vm.selectedColor))
-        }
-    }
-
-    private var guidelineButton: some View {
-        toolbarButton(
-            systemImage: vm.showGuidelines ? "line.3.horizontal" : "line.horizontal.3",
-            label:       "Guidelines",
-            isSelected:  vm.showGuidelines
-        ) {
-            vm.showGuidelines.toggle()
-        }
-    }
-
-    private var guideSpacingMenu: some View {
-        Menu {
-            ForEach(AnnotationViewModel.GuideSpacing.allCases, id: \.self) { s in
-                Button { vm.guideSpacing = s } label: {
-                    Label(s.rawValue, systemImage: vm.guideSpacing == s ? "checkmark" : "")
-                }
-            }
-        } label: {
-            Image(systemName: "slider.horizontal.3")
-                .font(.system(size: 16))
-                .frame(width: 44, height: 36)
-                .foregroundStyle(themeManager.currentTheme.primary)
         }
     }
 
@@ -379,17 +344,23 @@ struct AnnotationToolbarView: View {
 
     private var handleDragGesture: some Gesture {
         DragGesture(minimumDistance: 3)
-            .updating($drag) { value, state, _ in
-                state = value.translation
+            .onChanged { value in
+                // Update live offset — @State, so both commit + reset happen
+                // in one render cycle, eliminating the visual vibration that
+                // @GestureState causes (it resets in a separate pass).
+                dragOffset = value.translation
             }
             .onEnded { value in
                 let screen = screenBounds
+                // Commit final position
                 vm.toolbarPosition = CGPoint(
                     x: (vm.toolbarPosition.x + value.translation.width)
                         .clamped(to: 0...(screen.width  - 60)),
                     y: (vm.toolbarPosition.y + value.translation.height)
                         .clamped(to: 0...(screen.height - 60))
                 )
+                // Reset offset in the same cycle — no jump
+                dragOffset = .zero
             }
     }
 

@@ -68,9 +68,6 @@ struct ColorPickerWheelView: View {
                     .padding(.top, 20)
 
                 Spacer()
-
-                // ── Bottom Tabs ──────────────────────────────────────────
-                bottomTabBar
             }
         }
         .onAppear {
@@ -156,44 +153,6 @@ struct ColorPickerWheelView: View {
                 }
             }
             .frame(height: 42)
-        }
-    }
-
-    // MARK: - Bottom Tab Bar
-
-    private var bottomTabBar: some View {
-        HStack(spacing: 0) {
-            ForEach(PickerTab.allCases) { tab in
-                Button {} label: {
-                    VStack(spacing: 5) {
-                        Image(systemName: tab.icon)
-                            .font(.system(size: 17))
-                        Text(tab.title)
-                            .font(.system(size: 10))
-                    }
-                    .frame(maxWidth: .infinity)
-                    .foregroundStyle(tab == .classic
-                                     ? Color.white
-                                     : Color.white.opacity(0.35))
-                }
-            }
-        }
-        .padding(.vertical, 12)
-        .background(Color(white: 0.09))
-    }
-
-    private enum PickerTab: String, CaseIterable, Identifiable {
-        case disc, classic, harmony, value, palettes
-        var id: String { rawValue }
-        var title: String { rawValue.capitalized }
-        var icon: String {
-            switch self {
-            case .disc:     return "circle.lefthalf.filled"
-            case .classic:  return "square.grid.2x2.fill"
-            case .harmony:  return "circle.grid.3x3.fill"
-            case .value:    return "slider.horizontal.3"
-            case .palettes: return "rectangle.grid.3x2.fill"
-            }
         }
     }
 

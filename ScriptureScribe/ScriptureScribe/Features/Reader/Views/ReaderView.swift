@@ -236,12 +236,21 @@ struct ReaderView: View {
                             .allowsHitTesting(false)
                     }
                 }
-                // ── Zoom: scale visually, then override frame so ScrollView
-                //    knows the true (scaled) content size ───────────────────
+                // ── Zoom: scale visually, then extend the layout frame so
+                //    ScrollView knows the true (scaled) content size.
+                //
+                //    We do NOT set an explicit height in the outer .frame
+                //    because that would cap scrolling at the initial
+                //    contentHeight (800) before PreferenceKey fires.
+                //    Instead we let the ZStack use its natural height (the
+                //    full Bible text height) and add bottom padding equal to
+                //    the extra height that the zoom introduces.
+                //      • zoom = 1 → padding = 0   (no change)
+                //      • zoom = 2 → padding = contentHeight (doubles area)
                 .frame(width: geo.size.width)
                 .scaleEffect(totalZoom, anchor: .topLeading)
-                .frame(width:  geo.size.width  * totalZoom,
-                       height: contentHeight   * totalZoom)
+                .frame(width: geo.size.width * totalZoom)
+                .padding(.bottom, contentHeight * max(0, totalZoom - 1))
             }
             .scrollDisabled(annotationVM.isAnnotating)
             .onPreferenceChange(ContentHeightKey.self) { h in if h > 0 { contentHeight = h } }

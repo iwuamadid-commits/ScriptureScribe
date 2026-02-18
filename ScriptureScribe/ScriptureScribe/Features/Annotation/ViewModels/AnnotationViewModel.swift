@@ -62,9 +62,8 @@ final class AnnotationViewModel: ObservableObject {
     @Published var layoutMode:       LayoutMode   = .fullWidth
 
     // MARK: - Toolbar Position (free-floating drag state)
-    // Stores the toolbar's offset from the top-left of the reading area.
-    // CGPoint can't be @AppStorage directly, so it resets to the top-right
-    // corner on each launch — a sensible default.
+    // CGPoint can't be stored in @AppStorage directly, so we persist the two
+    // components (x, y) individually via UserDefaults and load them in init().
     @Published var toolbarPosition: CGPoint = CGPoint(x: 280, y: 80)
 
     // MARK: - Persisted Preferences
@@ -73,6 +72,55 @@ final class AnnotationViewModel: ObservableObject {
     @AppStorage("allowFingerDrawing")    var allowFingerDrawing:    Bool = true
     @AppStorage("isToolbarHorizontal")   var isToolbarHorizontal:   Bool = false
     @AppStorage("useDoubleTapForNote")   var useDoubleTapForNote:   Bool = false
+
+    // MARK: - Combine persistence subscriptions
+
+    private var cancellables = Set<AnyCancellable>()
+
+    // MARK: - Init
+
+    init() {
+        // ── Restore toolbar position ─────────────────────────────────────
+        let savedX = UserDefaults.standard.double(forKey: "ss_toolbarPosX")
+        let savedY = UserDefaults.standard.double(forKey: "ss_toolbarPosY")
+        // Only restore if a value was actually saved (both default to 0.0)
+        if savedX != 0 || savedY != 0 {
+            toolbarPosition = CGPoint(
+                x: savedX > 0 ? savedX : 280,
+                y: savedY > 0 ? savedY : 80
+            )
+        }
+
+        // ── Restore layout mode ──────────────────────────────────────────
+        if let raw  = UserDefaults.standard.string(forKey: "ss_layoutMode"),
+           let mode = LayoutMode(rawValue: raw) {
+            layoutMode = mode
+        }
+
+        // ── Restore toolbar collapsed state ──────────────────────────────
+        if UserDefaults.standard.object(forKey: "ss_isToolbarCollapsed") != nil {
+            isToolbarCollapsed = UserDefaults.standard.bool(forKey: "ss_isToolbarCollapsed")
+        }
+
+        // ── Subscribe: persist changes whenever they happen ──────────────
+        $toolbarPosition
+            .dropFirst()
+            .sink { pos in
+                UserDefaults.standard.set(Double(pos.x), forKey: "ss_toolbarPosX")
+                UserDefaults.standard.set(Double(pos.y), forKey: "ss_toolbarPosY")
+            }
+            .store(in: &cancellables)
+
+        $layoutMode
+            .dropFirst()
+            .sink { UserDefaults.standard.set($0.rawValue, forKey: "ss_layoutMode") }
+            .store(in: &cancellables)
+
+        $isToolbarCollapsed
+            .dropFirst()
+            .sink { UserDefaults.standard.set($0, forKey: "ss_isToolbarCollapsed") }
+            .store(in: &cancellables)
+    }
 
     // MARK: - Canvas Callbacks (set by AnnotationCanvasView)
 
