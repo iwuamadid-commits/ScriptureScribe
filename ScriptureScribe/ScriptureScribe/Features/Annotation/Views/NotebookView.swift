@@ -21,32 +21,34 @@ struct NotebookView: View {
     private var notebookChapterId: String { "notebook_\(chapterId)" }
 
     var body: some View {
-        ZStack {
-            // Notebook background
-            themeManager.currentTheme.surface
-                .ignoresSafeArea()
+        GeometryReader { geo in
+            ZStack {
+                // Notebook background
+                themeManager.currentTheme.surface
+                    .ignoresSafeArea()
 
-            // Guide lines (always on in notebook mode)
-            Canvas { context, size in
-                let lineColor = themeManager.currentTheme.border.opacity(0.5)
-                var path = Path()
-                var y = vm.guideSpacing.lineInterval
-                while y < size.height {
-                    path.move(to: CGPoint(x: 0, y: y))
-                    path.addLine(to: CGPoint(x: size.width, y: y))
-                    y += vm.guideSpacing.lineInterval
+                // Guide lines (always on in notebook mode)
+                Canvas { context, size in
+                    let lineColor = themeManager.currentTheme.border.opacity(0.5)
+                    var path = Path()
+                    var y = vm.guideSpacing.lineInterval
+                    while y < size.height {
+                        path.move(to: CGPoint(x: 0, y: y))
+                        path.addLine(to: CGPoint(x: size.width, y: y))
+                        y += vm.guideSpacing.lineInterval
+                    }
+                    context.stroke(path, with: .color(lineColor), lineWidth: 0.75)
                 }
-                context.stroke(path, with: .color(lineColor), lineWidth: 0.75)
-            }
-            .allowsHitTesting(false)
+                .allowsHitTesting(false)
 
-            // Drawing canvas
-            AnnotationCanvasView(
-                vm:            vm,
-                chapterId:     notebookChapterId,
-                contentHeight: UIScreen.main.bounds.height
-            )
-            .allowsHitTesting(true)
+                // Drawing canvas — use actual view height instead of UIScreen.main
+                AnnotationCanvasView(
+                    vm:            vm,
+                    chapterId:     notebookChapterId,
+                    contentHeight: geo.size.height
+                )
+                .allowsHitTesting(true)
+            }
         }
         .overlay(alignment: .top) {
             // Spacing picker at the top of the notebook

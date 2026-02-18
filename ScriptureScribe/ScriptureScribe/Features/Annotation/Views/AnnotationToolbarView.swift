@@ -369,13 +369,21 @@ struct AnnotationToolbarView: View {
             .gesture(handleDragGesture)
     }
 
+    /// Screen bounds using the modern UIWindowScene API (UIScreen.main is deprecated in iOS 26).
+    private var screenBounds: CGRect {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first?.screen.bounds
+            ?? CGRect(x: 0, y: 0, width: 390, height: 844)
+    }
+
     private var handleDragGesture: some Gesture {
         DragGesture(minimumDistance: 3)
             .updating($drag) { value, state, _ in
                 state = value.translation
             }
             .onEnded { value in
-                let screen = UIScreen.main.bounds
+                let screen = screenBounds
                 vm.toolbarPosition = CGPoint(
                     x: (vm.toolbarPosition.x + value.translation.width)
                         .clamped(to: 0...(screen.width  - 60)),

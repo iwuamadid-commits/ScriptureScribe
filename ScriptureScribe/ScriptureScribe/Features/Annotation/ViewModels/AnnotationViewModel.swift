@@ -65,10 +65,7 @@ final class AnnotationViewModel: ObservableObject {
     // Stores the toolbar's offset from the top-left of the reading area.
     // CGPoint can't be @AppStorage directly, so it resets to the top-right
     // corner on each launch — a sensible default.
-    @Published var toolbarPosition: CGPoint = CGPoint(
-        x: UIScreen.main.bounds.width - 60,
-        y: 80
-    )
+    @Published var toolbarPosition: CGPoint = CGPoint(x: 280, y: 80)
 
     // MARK: - Persisted Preferences
 
