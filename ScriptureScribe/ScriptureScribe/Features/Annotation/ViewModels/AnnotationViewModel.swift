@@ -13,6 +13,7 @@
 //  so annotations survive app restarts. Firebase Storage upload is wired in Phase 6.
 //
 
+import Combine
 import SwiftUI
 import PencilKit
 

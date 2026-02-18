@@ -14,6 +14,7 @@
 //  Firebase sync will be added in Phase 6.
 //
 
+import Combine
 import SwiftUI
 
 @MainActor
