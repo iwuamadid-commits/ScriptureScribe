@@ -2,8 +2,13 @@
 //  ColorPickerWheelView.swift
 //  ScriptureScribe
 //
-//  Full-screen color picker with a large color wheel and a hex text field.
-//  The wheel takes up most of the screen so it's easy to tap precisely.
+//  A Procreate-style color picker with a dark theme.
+//  Layout mirrors the Procreate "Classic" color panel:
+//    • Header   — "Colors" title + original vs new color swatches + Done
+//    • Square   — drag to pick saturation (X) and brightness (Y)
+//    • Hue bar  — rainbow slider to set the hue
+//    • History  — recently used colors (saved to UserDefaults)
+//    • Tab bar  — Disc / Classic / Harmony / Value / Palettes (Classic active)
 //
 
 import SwiftUI
@@ -13,67 +18,291 @@ struct ColorPickerWheelView: View {
     @Binding var selectedColor: UIColor
     @Environment(\.dismiss) private var dismiss
 
-    @State private var hexText = ""
+    // Live HSB components
+    @State private var hue:        Double = 0
+    @State private var saturation: Double = 1
+    @State private var brightness: Double = 1
+
+    // The color as it was when the sheet opened (left swatch)
+    @State private var originalColor: UIColor = .white
+
+    // Recent-color history (stored as hex strings)
+    @State private var history: [String] = []
+    private let historyKey = "ss_colorPickerHistory"
+    private let maxHistory = 12
+
+    // Computed current color from the live HSB values
+    private var currentUIColor: UIColor {
+        UIColor(hue:        CGFloat(hue),
+                saturation: CGFloat(saturation),
+                brightness: CGFloat(brightness),
+                alpha:      1)
+    }
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 20) {
+        ZStack {
+            Color(white: 0.13).ignoresSafeArea()
 
-                // Large color wheel — fills available width
-                ColorPicker("", selection: colorBinding, supportsOpacity: false)
-                    .labelsHidden()
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 380)   // much larger than the default compact size
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
+            VStack(spacing: 0) {
 
-                // Hex text field
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Or type a hex code:")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                headerRow
+                    .padding(.horizontal, 20)
+                    .padding(.top, 20)
+                    .padding(.bottom, 18)
 
-                    HStack(spacing: 4) {
-                        Text("#")
-                            .font(.system(.body, design: .monospaced).weight(.medium))
-                            .foregroundStyle(.secondary)
-                        TextField("e.g. 5C8A6B", text: $hexText)
-                            .font(.system(.body, design: .monospaced))
-                            .textInputAutocapitalization(.characters)
-                            .autocorrectionDisabled()
-                            .onChange(of: hexText) { _, v in
-                                if let c = UIColor(hexString: v) { selectedColor = c }
-                            }
-                    }
-                    .padding(10)
-                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
-                }
-                .padding(.horizontal, 24)
+                // ── HSB Square ───────────────────────────────────────────
+                HSBSquareView(hue: $hue, saturation: $saturation, brightness: $brightness)
+                    .aspectRatio(1, contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .padding(.horizontal, 20)
 
-                // Live color preview swatch
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color(selectedColor))
-                    .frame(height: 52)
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(.separator, lineWidth: 1))
-                    .padding(.horizontal, 24)
+                // ── Hue Slider ───────────────────────────────────────────
+                HueSliderView(hue: $hue)
+                    .frame(height: 30)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 20)
+
+                // ── History ──────────────────────────────────────────────
+                historySection
+                    .padding(.horizontal, 20)
+                    .padding(.top, 20)
 
                 Spacer()
+
+                // ── Bottom Tabs ──────────────────────────────────────────
+                bottomTabBar
             }
-            .navigationTitle("Choose Color")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }.fontWeight(.semibold)
+        }
+        .onAppear {
+            originalColor = selectedColor
+            initHSB(from: selectedColor)
+            loadHistory()
+        }
+        // Keep selectedColor in sync while the user drags
+        .onChange(of: hue)        { _, _ in selectedColor = currentUIColor }
+        .onChange(of: saturation) { _, _ in selectedColor = currentUIColor }
+        .onChange(of: brightness) { _, _ in selectedColor = currentUIColor }
+    }
+
+    // MARK: - Header
+
+    private var headerRow: some View {
+        HStack(alignment: .center, spacing: 12) {
+
+            Text("Colors")
+                .font(.title2.weight(.bold))
+                .foregroundStyle(.white)
+
+            Spacer()
+
+            // Original color (left) | New color (right) — like Procreate's two swatches
+            HStack(spacing: 0) {
+                Rectangle()
+                    .fill(Color(originalColor))
+                    .frame(width: 44, height: 34)
+                Rectangle()
+                    .fill(Color(currentUIColor))
+                    .frame(width: 44, height: 34)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.white.opacity(0.25), lineWidth: 1))
+
+            Button("Done") {
+                selectedColor = currentUIColor
+                saveToHistory(currentUIColor)
+                dismiss()
+            }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.white)
+        }
+    }
+
+    // MARK: - History
+
+    private var historySection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("History")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                Spacer()
+                Button("Clear") {
+                    history = []
+                    UserDefaults.standard.removeObject(forKey: historyKey)
+                }
+                .font(.subheadline)
+                .foregroundStyle(Color(white: 0.55))
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    if history.isEmpty {
+                        Text("No recent colors")
+                            .font(.caption)
+                            .foregroundStyle(Color(white: 0.45))
+                            .frame(height: 38)
+                    } else {
+                        ForEach(history, id: \.self) { hex in
+                            if let color = UIColor(hexString: hex) {
+                                Circle()
+                                    .fill(Color(color))
+                                    .frame(width: 38, height: 38)
+                                    .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 1))
+                                    .onTapGesture { initHSB(from: color) }
+                            }
+                        }
+                    }
+                }
+            }
+            .frame(height: 42)
+        }
+    }
+
+    // MARK: - Bottom Tab Bar
+
+    private var bottomTabBar: some View {
+        HStack(spacing: 0) {
+            ForEach(PickerTab.allCases) { tab in
+                Button {} label: {
+                    VStack(spacing: 5) {
+                        Image(systemName: tab.icon)
+                            .font(.system(size: 17))
+                        Text(tab.title)
+                            .font(.system(size: 10))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .foregroundStyle(tab == .classic
+                                     ? Color.white
+                                     : Color.white.opacity(0.35))
                 }
             }
         }
-        .onAppear { hexText = selectedColor.hexString }
+        .padding(.vertical, 12)
+        .background(Color(white: 0.09))
     }
 
-    private var colorBinding: Binding<Color> {
-        Binding(
-            get: { Color(selectedColor) },
-            set: { selectedColor = UIColor($0); hexText = selectedColor.hexString }
-        )
+    private enum PickerTab: String, CaseIterable, Identifiable {
+        case disc, classic, harmony, value, palettes
+        var id: String { rawValue }
+        var title: String { rawValue.capitalized }
+        var icon: String {
+            switch self {
+            case .disc:     return "circle.lefthalf.filled"
+            case .classic:  return "square.grid.2x2.fill"
+            case .harmony:  return "circle.grid.3x3.fill"
+            case .value:    return "slider.horizontal.3"
+            case .palettes: return "rectangle.grid.3x2.fill"
+            }
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func initHSB(from color: UIColor) {
+        var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        color.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+        hue        = Double(h)
+        saturation = Double(s)
+        brightness = Double(b)
+    }
+
+    private func saveToHistory(_ color: UIColor) {
+        let hex     = color.hexString
+        var updated = history.filter { $0 != hex }
+        updated.insert(hex, at: 0)
+        if updated.count > maxHistory { updated = Array(updated.prefix(maxHistory)) }
+        history = updated
+        UserDefaults.standard.set(updated, forKey: historyKey)
+    }
+
+    private func loadHistory() {
+        history = UserDefaults.standard.stringArray(forKey: historyKey) ?? []
+    }
+}
+
+// MARK: - HSB Square
+
+/// 2-D color field: saturation on the X axis, brightness on the Y axis.
+private struct HSBSquareView: View {
+
+    @Binding var hue:        Double
+    @Binding var saturation: Double
+    @Binding var brightness: Double
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack {
+                // White → current hue (left to right = saturation 0→1)
+                LinearGradient(
+                    colors: [.white, Color(hue: hue, saturation: 1, brightness: 1)],
+                    startPoint: .leading,
+                    endPoint:   .trailing
+                )
+                // Transparent → black (top to bottom = brightness 1→0)
+                LinearGradient(
+                    colors: [Color.clear, Color.black],
+                    startPoint: .top,
+                    endPoint:   .bottom
+                )
+                // Circular handle
+                let x = CGFloat(saturation) * geo.size.width
+                let y = CGFloat(1 - brightness) * geo.size.height
+                Circle()
+                    .stroke(Color.white, lineWidth: 2.5)
+                    .shadow(color: .black.opacity(0.5), radius: 3)
+                    .frame(width: 24, height: 24)
+                    .position(x: x, y: y)
+            }
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        saturation = min(max(Double(value.location.x / geo.size.width),       0), 1)
+                        brightness = min(max(Double(1 - value.location.y / geo.size.height),  0), 1)
+                    }
+            )
+        }
+    }
+}
+
+// MARK: - Hue Slider
+
+/// Horizontal rainbow bar — drag to set the hue.
+private struct HueSliderView: View {
+
+    @Binding var hue: Double
+
+    private let rainbowColors: [Color] = stride(from: 0.0, through: 1.0, by: 1.0 / 20.0)
+        .map { Color(hue: $0, saturation: 1, brightness: 1) }
+
+    var body: some View {
+        GeometryReader { geo in
+            let handleSize: CGFloat = geo.size.height + 8
+            let trackWidth          = geo.size.width - handleSize
+            let handleOffset        = CGFloat(hue) * trackWidth
+
+            ZStack(alignment: .leading) {
+                LinearGradient(colors: rainbowColors,
+                               startPoint: .leading,
+                               endPoint:   .trailing)
+                    .clipShape(Capsule())
+                    .frame(height: geo.size.height)
+
+                Circle()
+                    .fill(Color(hue: hue, saturation: 1, brightness: 1))
+                    .overlay(Circle().stroke(Color.white, lineWidth: 2.5))
+                    .shadow(color: .black.opacity(0.35), radius: 3)
+                    .frame(width: handleSize, height: handleSize)
+                    .offset(x: handleOffset)
+            }
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        hue = min(max(Double(value.location.x / geo.size.width), 0), 1)
+                    }
+            )
+        }
     }
 }

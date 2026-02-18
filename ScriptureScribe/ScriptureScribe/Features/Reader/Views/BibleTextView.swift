@@ -16,7 +16,6 @@ struct BibleTextView: View {
     let onLongPressVerse:   (String, String) -> Void  // (verseNumber, verseText)
 
     @EnvironmentObject var themeManager: ThemeManager
-    @GestureState private var zoomDelta: CGFloat = 1.0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -61,15 +60,8 @@ struct BibleTextView: View {
             ChapterNavigationFooter(vm: vm)
                 .padding(.bottom, 40)
         }
-        // Pinch-to-zoom: two-finger spread/pinch adjusts font size
-        .gesture(
-            MagnificationGesture()
-                .updating($zoomDelta) { value, state, _ in state = value }
-                .onEnded { value in
-                    vm.fontSize = min(36, max(12, vm.fontSize * value))
-                }
-        )
-        .scaleEffect(zoomDelta, anchor: .topLeading)
+        // Zoom is handled at ReaderView level via scaleEffect so that
+        // the canvas and notes all scale together with the text.
     }
 
     // MARK: - Font

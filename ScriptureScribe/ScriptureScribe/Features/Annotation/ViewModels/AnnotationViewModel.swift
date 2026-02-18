@@ -96,10 +96,11 @@ final class AnnotationViewModel: ObservableObject {
 
     // MARK: - Annotation Indicator
 
-    /// Returns true if a saved drawing file exists for the given chapter.
-    /// Used to show a dot indicator on the chapter chip.
+    /// Returns true if a saved drawing file exists for the given chapter
+    /// on either the main Bible canvas OR the notebook panel.
     func hasAnnotation(for chapterId: String) -> Bool {
-        FileManager.default.fileExists(atPath: drawingURL(for: chapterId).path)
+        FileManager.default.fileExists(atPath: drawingURL(for: chapterId).path) ||
+        FileManager.default.fileExists(atPath: drawingURL(for: "notebook_\(chapterId)").path)
     }
 
     // MARK: - Persistence
