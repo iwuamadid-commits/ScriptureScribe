@@ -4,7 +4,12 @@
 //
 //  A draggable sticky-note tile that floats inside the scrollable Bible content.
 //  Because it lives inside the same ScrollView as the text, it scrolls with the page.
-//  Text is always black for maximum readability. The tile width fits the note text.
+//
+//  Behaviour:
+//    • Collapsed (default) — shows only the note text. No buttons visible.
+//    • Expanded (tap the text) — header appears with a pencil (edit) and ✕ (delete) button.
+//    • Drag anywhere on the tile to reposition it.
+//    • Text always wraps within the tile. Height grows/shrinks with the content.
 //
 
 import SwiftUI
@@ -16,48 +21,59 @@ struct NoteTileView: View {
     let notesVM:   NotesViewModel
 
     @GestureState private var dragOffset: CGSize = .zero
+    @State private var isExpanded: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
 
-            // Header bar
-            HStack(spacing: 0) {
-                Button {
-                    notesVM.startEditing(note)
-                } label: {
-                    Image(systemName: "pencil")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.black.opacity(0.5))
-                        .padding(.leading, 8)
-                        .padding(.vertical, 5)
-                }
-                .accessibilityLabel("Edit note")
+            // ── Header (only visible when expanded) ─────────────────────────
+            if isExpanded {
+                HStack(spacing: 0) {
+                    Button {
+                        notesVM.startEditing(note)
+                    } label: {
+                        Image(systemName: "pencil")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.black.opacity(0.5))
+                            .padding(.leading, 8)
+                            .padding(.vertical, 5)
+                    }
+                    .accessibilityLabel("Edit note")
 
-                Spacer(minLength: 0)
+                    Spacer(minLength: 0)
 
-                Button(role: .destructive) {
-                    notesVM.deleteNote(id: note.id)
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(.black.opacity(0.5))
-                        .padding(.trailing, 8)
-                        .padding(.vertical, 5)
+                    Button(role: .destructive) {
+                        notesVM.deleteNote(id: note.id)
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(.black.opacity(0.5))
+                            .padding(.trailing, 8)
+                            .padding(.vertical, 5)
+                    }
+                    .accessibilityLabel("Delete note")
                 }
-                .accessibilityLabel("Delete note")
+                .background(Color(hex: note.colorHex).opacity(0.7))
             }
-            .background(Color(hex: note.colorHex).opacity(0.7))
 
-            // Note text — always black. Width is fixed to 150 pt (compact sticky-note)
-            // so the tile never looks oversized; height auto-grows with the content.
-            Text(note.text.isEmpty ? "Tap ✎ to write…" : note.text)
+            // ── Note text ────────────────────────────────────────────────────
+            // Tap the text to expand / collapse the header.
+            // fixedSize(horizontal: false, vertical: true) means the text wraps
+            // at the tile width and the tile grows taller for more content.
+            Text(note.text.isEmpty ? "Tap to expand…" : note.text)
                 .font(.system(size: 13))
                 .foregroundStyle(note.text.isEmpty ? Color.black.opacity(0.4) : Color.black)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(8)
+                .onTapGesture {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        isExpanded.toggle()
+                    }
+                }
         }
+        .frame(width: 160)                              // fixed width so text always wraps cleanly
         .background(Color(hex: note.colorHex))
-        .fixedSize(horizontal: true, vertical: true)
-        .frame(maxWidth: 220)
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .shadow(color: .black.opacity(0.18), radius: 4, y: 2)
         .position(
@@ -65,7 +81,7 @@ struct NoteTileView: View {
             y: note.positionY * areaSize.height + dragOffset.height
         )
         .gesture(
-            DragGesture()
+            DragGesture(minimumDistance: 8)             // 8 pt minimum so quick taps reach the text
                 .updating($dragOffset) { value, state, _ in
                     state = value.translation
                 }
