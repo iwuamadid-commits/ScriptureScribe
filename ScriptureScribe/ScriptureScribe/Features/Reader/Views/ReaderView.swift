@@ -166,35 +166,119 @@ struct ReaderView: View {
 
     @ViewBuilder
     private func splitViewContent(content: BibleChapterContent) -> some View {
-        // The Bible column and the Notebook column share the same background so
-        // they look like one continuous page rather than two separate panels.
-        // A hairline shadow replaces the hard Divider to give a subtle page-fold.
-        // The selectors (book + chapter rows) are embedded here so they only
-        // appear above the Bible text, keeping the notebook side clean.
-        let bibleColumn = VStack(spacing: 0) {
-            BookSelectorRow(vm: vm)
-            Divider()
-            if !vm.chapters.isEmpty {
-                ChapterSelectorRow(vm: vm, annotationVM: annotationVM)
+        // ── Single continuous page ──────────────────────────────────────────────
+        // The Bible text and the ruled margin are one unbroken canvas that scrolls
+        // and zooms together.  There is no split: it feels like reading a printed
+        // Bible and writing in the wider-than-usual margin on the side.
+        // Bible text occupies 60 % of the width; the ruled margin gets the rest.
+        GeometryReader { geo in
+            let isLeft       = annotationVM.isLeftHanded
+            let bibleWidth   = floor(geo.size.width * 0.60)
+            let marginWidth  = geo.size.width - bibleWidth - 1   // -1 for separator
+            let bibleOffset: CGFloat   = isLeft ? marginWidth + 1 : 0
+            let marginOffset: CGFloat  = isLeft ? 0 : bibleWidth + 1
+
+            VStack(spacing: 0) {
+
+                BookSelectorRow(vm: vm)
                 Divider()
-            }
-            scrollableReaderStack(content: content)
+                if !vm.chapters.isEmpty {
+                    ChapterSelectorRow(vm: vm, annotationVM: annotationVM)
+                    Divider()
+                }
+
+                ZoomScrollView(
+                    minScale:            0.5,
+                    maxScale:            4.0,
+                    isScrollingDisabled: annotationVM.isAnnotating
+                ) {
+                    ZStack(alignment: .topLeading) {
+
+                        // ── Background: one unbroken page ─────────────────
+                        HStack(spacing: 0) {
+                            themeManager.currentTheme.background
+                                .frame(width: isLeft ? marginWidth : bibleWidth)
+                            themeManager.currentTheme.border.opacity(0.15)
+                                .frame(width: 1)
+                            themeManager.currentTheme.surface
+                                .frame(width: isLeft ? bibleWidth : marginWidth)
+                        }
+                        .frame(height: contentHeight)
+
+                        // ── Bible text ─────────────────────────────────────
+                        BibleTextView(
+                            content: content,
+                            vm: vm,
+                            onLongPressVerse: { verseId, verseText in
+                                longPressedVerseId   = verseId
+                                longPressedVerseText = verseText
+                                showBookmarkPicker   = true
+                            }
+                        )
+                        .frame(width: bibleWidth)
+                        .background(
+                            GeometryReader { g in
+                                Color.clear.preference(
+                                    key: ContentHeightKey.self,
+                                    value: g.size.height
+                                )
+                            }
+                        )
+                        .offset(x: bibleOffset)
+
+                        // ── Margin guide lines (always visible) ───────────
+                        // These ruled lines give the margin a notebook-paper
+                        // feel — always present, not just when annotating.
+                        Canvas { context, size in
+                            let color = themeManager.currentTheme.border.opacity(0.4)
+                            var path  = Path()
+                            var y     = annotationVM.guideSpacing.lineInterval
+                            while y < size.height {
+                                path.move(to: CGPoint(x: 0, y: y))
+                                path.addLine(to: CGPoint(x: size.width, y: y))
+                                y += annotationVM.guideSpacing.lineInterval
+                            }
+                            context.stroke(path, with: .color(color), lineWidth: 0.75)
+                        }
+                        .frame(width: marginWidth, height: contentHeight)
+                        .offset(x: marginOffset)
+                        .allowsHitTesting(false)
+
+                        // ── Note tiles ─────────────────────────────────────
+                        GeometryReader { g in
+                            ForEach(notesVM.notes(for: vm.selectedChapter?.id ?? "")) { note in
+                                NoteTileView(note: note, areaSize: g.size, notesVM: notesVM)
+                            }
+                        }
+                        .frame(height: contentHeight)
+                        .allowsHitTesting(!annotationVM.isAnnotating)
+
+                        // ── Drawing canvas (spans the full page width) ─────
+                        AnnotationCanvasView(
+                            vm:             annotationVM,
+                            chapterId:      vm.selectedChapter?.id ?? "",
+                            contentHeight:  contentHeight,
+                            containerWidth: geo.size.width
+                        )
+                        .allowsHitTesting(annotationVM.isAnnotating)
+
+                        // ── Bible-side guide lines (annotation mode only) ──
+                        if annotationVM.isAnnotating && annotationVM.showGuidelines {
+                            GuideLineOverlayView(spacing: annotationVM.guideSpacing)
+                                .frame(width: bibleWidth, height: contentHeight)
+                                .offset(x: bibleOffset)
+                                .allowsHitTesting(false)
+                        }
+                    }
+                    .frame(width: geo.size.width)
+                    .onTapGesture(count: 2) {
+                        if annotationVM.useDoubleTapForNote {
+                            if let id = vm.selectedChapter?.id { notesVM.addNote(to: id) }
+                        }
+                    }
+                }
+                .onPreferenceChange(ContentHeightKey.self) { h in if h > 0 { contentHeight = h } }
                 .gesture(annotationVM.isAnnotating ? nil : swipeGesture)
-        }
-        .frame(maxWidth: .infinity)
-        // Subtle edge shadow to suggest a page fold, not a wall
-        .shadow(color: .black.opacity(0.08), radius: 4, x: annotationVM.isLeftHanded ? -4 : 4, y: 0)
-
-        let notebookColumn = NotebookView(vm: annotationVM, chapterId: vm.selectedChapter?.id ?? "")
-            .frame(maxWidth: .infinity)
-
-        HStack(spacing: 0) {
-            if annotationVM.isLeftHanded {
-                notebookColumn
-                bibleColumn
-            } else {
-                bibleColumn
-                notebookColumn
             }
         }
     }
