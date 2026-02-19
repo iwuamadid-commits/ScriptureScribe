@@ -200,7 +200,7 @@ struct ReaderView: View {
                                 .frame(width: isLeft ? marginWidth : bibleWidth)
                             themeManager.currentTheme.border.opacity(0.15)
                                 .frame(width: 1)
-                            themeManager.currentTheme.surface
+                            themeManager.currentTheme.background
                                 .frame(width: isLeft ? bibleWidth : marginWidth)
                         }
                         .frame(height: contentHeight)
@@ -230,7 +230,7 @@ struct ReaderView: View {
                         // These ruled lines give the margin a notebook-paper
                         // feel — always present, not just when annotating.
                         Canvas { context, size in
-                            let color = themeManager.currentTheme.border.opacity(0.4)
+                            let color = themeManager.currentTheme.textSecondary.opacity(0.55)
                             var path  = Path()
                             var y     = annotationVM.guideSpacing.lineInterval
                             while y < size.height {
@@ -448,6 +448,20 @@ struct ReaderView: View {
                             Label("Bible + Notebook",
                                   systemImage: annotationVM.layoutMode == .splitView
                                       ? "checkmark" : "rectangle.split.2x1")
+                        }
+                    }
+
+                    if annotationVM.layoutMode == .splitView {
+                        Section("Margin Line Spacing") {
+                            ForEach(AnnotationViewModel.GuideSpacing.allCases, id: \.self) { spacing in
+                                Button {
+                                    annotationVM.guideSpacing = spacing
+                                } label: {
+                                    Label(spacing.rawValue,
+                                          systemImage: annotationVM.guideSpacing == spacing
+                                              ? "checkmark" : "line.3.horizontal")
+                                }
+                            }
                         }
                     }
 
