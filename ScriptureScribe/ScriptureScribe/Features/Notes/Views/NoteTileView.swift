@@ -33,7 +33,7 @@ struct NoteTileView: View {
                 }
                 .accessibilityLabel("Edit note")
 
-                Spacer()
+                Spacer(minLength: 0)
 
                 Button(role: .destructive) {
                     notesVM.deleteNote(id: note.id)
@@ -53,12 +53,11 @@ struct NoteTileView: View {
             Text(note.text.isEmpty ? "Tap ✎ to write…" : note.text)
                 .font(.system(size: 13))
                 .foregroundStyle(note.text.isEmpty ? Color.black.opacity(0.4) : Color.black)
-                .lineLimit(4)
-                .fixedSize(horizontal: false, vertical: true)
                 .padding(8)
-                .frame(width: 150, alignment: .leading)
         }
         .background(Color(hex: note.colorHex))
+        .fixedSize(horizontal: true, vertical: true)
+        .frame(maxWidth: 220)
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .shadow(color: .black.opacity(0.18), radius: 4, y: 2)
         .position(
