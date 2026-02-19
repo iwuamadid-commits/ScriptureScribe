@@ -6,8 +6,12 @@
 //  It is placed INSIDE the parent ScrollView (same ZStack as the text),
 //  so annotations scroll with the text rather than staying fixed on screen.
 //
-//  contentHeight must be passed in from the parent so the canvas is tall
-//  enough to cover the entire chapter — not just the visible screen area.
+//  contentHeight  — must match the text content height so the canvas covers
+//                   the entire chapter, not just the visible screen area.
+//  containerWidth — used to scale strokes proportionally when the layout
+//                   switches (e.g. full-width → split-view). Without this,
+//                   a stroke at x=700 on a 1024-wide canvas would be clipped
+//                   when the canvas narrows to 512 in split view.
 //
 
 import SwiftUI
@@ -16,8 +20,9 @@ import PencilKit
 struct AnnotationCanvasView: UIViewRepresentable {
 
     @ObservedObject var vm: AnnotationViewModel
-    let chapterId:    String
-    let contentHeight: CGFloat   // must match the text content height
+    let chapterId:      String
+    let contentHeight:  CGFloat   // must match the text content height
+    let containerWidth: CGFloat   // used to scale strokes when layout changes
 
     func makeUIView(context: Context) -> PKCanvasView {
         let canvas = PKCanvasView()
@@ -30,6 +35,7 @@ struct AnnotationCanvasView: UIViewRepresentable {
 
         context.coordinator.canvas           = canvas
         context.coordinator.currentChapterId = chapterId
+        context.coordinator.lastContainerWidth = containerWidth
 
         if let saved = vm.loadDrawing(for: chapterId) {
             canvas.drawing = saved
@@ -49,7 +55,23 @@ struct AnnotationCanvasView: UIViewRepresentable {
             if !old.isEmpty { vm.saveDrawing(canvas.drawing, for: old) }
             canvas.drawing = vm.loadDrawing(for: chapterId) ?? PKDrawing()
             context.coordinator.currentChapterId = chapterId
+            // Reset width tracking for the new chapter so we don't mis-scale
+            context.coordinator.lastContainerWidth = containerWidth
         }
+
+        // Container width changed (e.g. full-width ↔ split-view) →
+        // scale the drawing so strokes stay proportionally in the same place.
+        let previousWidth = context.coordinator.lastContainerWidth
+        if previousWidth > 1 && containerWidth > 1 &&
+           abs(previousWidth - containerWidth) > 2 {
+            let scale     = containerWidth / previousWidth
+            let transform = CGAffineTransform(scaleX: scale, y: scale)
+            let scaled    = canvas.drawing.transformed(using: transform)
+            canvas.drawing = scaled
+            vm.saveDrawing(scaled, for: chapterId)
+        }
+        context.coordinator.lastContainerWidth = containerWidth
+
         canvas.tool            = vm.pkTool
         canvas.drawingPolicy   = vm.allowFingerDrawing ? .anyInput : .pencilOnly
         canvas.isUserInteractionEnabled = vm.isAnnotating
@@ -59,7 +81,8 @@ struct AnnotationCanvasView: UIViewRepresentable {
 
     class Coordinator: NSObject, PKCanvasViewDelegate {
         let vm: AnnotationViewModel
-        var currentChapterId = ""
+        var currentChapterId   = ""
+        var lastContainerWidth: CGFloat = 0
         weak var canvas: PKCanvasView?
 
         init(vm: AnnotationViewModel) { self.vm = vm }

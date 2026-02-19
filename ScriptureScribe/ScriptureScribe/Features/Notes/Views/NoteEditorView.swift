@@ -39,25 +39,29 @@ struct NoteEditorView: View {
                 Divider()
 
                 // — Text editor — fills the rest of the screen
+                // The background is the note color; text is always black for
+                // readability regardless of the system color scheme.
                 ZStack(alignment: .topLeading) {
-                    Color(hex: noteColorHex)
-
                     if noteText.isEmpty {
                         Text("Write your note here…")
                             .font(.body)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Color.black.opacity(0.35))
                             .padding(.horizontal, 16)
                             .padding(.top, 16)
+                            .allowsHitTesting(false)
                     }
 
                     TextEditor(text: $noteText)
                         .scrollContentBackground(.hidden)
                         .background(.clear)
                         .font(.body)
+                        .foregroundStyle(.black)      // always black — note bg is colorful
+                        .tint(.black)                 // cursor color
                         .padding(.horizontal, 12)
                         .padding(.top, 10)
                         .focused($textFieldFocused)
                 }
+                .background(Color(hex: noteColorHex))
             }
             .navigationTitle("Note")
             .navigationBarTitleDisplayMode(.inline)

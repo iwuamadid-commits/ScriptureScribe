@@ -2,7 +2,9 @@
 //  Bookmark.swift
 //  ScriptureScribe
 //
-//  Represents a single bookmarked Bible chapter.
+//  Represents a single bookmarked Bible verse (or chapter).
+//  verseId / verseText are optional fields for verse-level bookmarks;
+//  both default to "" so old saved data (chapter-level) still decodes fine.
 //  Stored locally on the device (synced to Firebase in Phase 6 when login is complete).
 //
 
@@ -14,10 +16,37 @@ struct Bookmark: Identifiable, Codable {
     let bibleId:          String
     let bookId:           String
     let chapterId:        String
-    let chapterReference: String   // e.g. "Genesis 1" — for display in the list
+    let chapterReference: String   // e.g. "Genesis 1 v3" — for display in the list
+    var verseId:          String   // verse number, or "" for a chapter-level bookmark
+    var verseText:        String   // the verse text, or "" for a chapter-level bookmark
     var colorHex:         String   // e.g. "FF5733" — the ribbon color the user chose
     var emoji:            String   // e.g. "⭐" — the emoji the user chose
     let createdAt:        Date
+
+    // Custom init so callers can omit verseId/verseText (defaults to "")
+    init(
+        id:               String = UUID().uuidString,
+        bibleId:          String,
+        bookId:           String,
+        chapterId:        String,
+        chapterReference: String,
+        verseId:          String = "",
+        verseText:        String = "",
+        colorHex:         String,
+        emoji:            String,
+        createdAt:        Date
+    ) {
+        self.id               = id
+        self.bibleId          = bibleId
+        self.bookId           = bookId
+        self.chapterId        = chapterId
+        self.chapterReference = chapterReference
+        self.verseId          = verseId
+        self.verseText        = verseText
+        self.colorHex         = colorHex
+        self.emoji            = emoji
+        self.createdAt        = createdAt
+    }
 
     // MARK: - Preset Colors
 

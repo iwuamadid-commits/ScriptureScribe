@@ -39,14 +39,7 @@ struct ReaderView: View {
 
     @EnvironmentObject var themeManager: ThemeManager
 
-    // MARK: - Zoom State
-
-    @State private var zoomScale: CGFloat   = 1.0
-    @GestureState private var pinchDelta: CGFloat = 1.0
-
-    private var totalZoom: CGFloat { (zoomScale * pinchDelta).clamped(to: 0.5...4.0) }
-
-    // MARK: - Other State
+    // MARK: - State
 
     @State private var showBookmarkPicker    = false
     @State private var showBookmarkList      = false
@@ -61,12 +54,16 @@ struct ReaderView: View {
         NavigationStack {
             VStack(spacing: 0) {
 
-                BookSelectorRow(vm: vm)
-                Divider()
-
-                if !vm.chapters.isEmpty {
-                    ChapterSelectorRow(vm: vm, annotationVM: annotationVM)
+                // In full-width mode the selectors span the whole screen.
+                // In split-view mode we embed them INSIDE the Bible column
+                // (via splitViewContent) so the Notebook side stays clean.
+                if annotationVM.layoutMode == .fullWidth {
+                    BookSelectorRow(vm: vm)
                     Divider()
+                    if !vm.chapters.isEmpty {
+                        ChapterSelectorRow(vm: vm, annotationVM: annotationVM)
+                        Divider()
+                    }
                 }
 
                 ZStack {
@@ -124,11 +121,13 @@ struct ReaderView: View {
                             let book    = vm.selectedBook
                         else { return }
                         bookmarksVM.addBookmark(
-                            bibleId:  bible.id,
-                            bookId:   book.id,
-                            chapter:  chapter,
-                            colorHex: colorHex,
-                            emoji:    emoji
+                            bibleId:   bible.id,
+                            bookId:    book.id,
+                            chapter:   chapter,
+                            verseId:   longPressedVerseId   ?? "",
+                            verseText: longPressedVerseText ?? "",
+                            colorHex:  colorHex,
+                            emoji:     emoji
                         )
                     },
                     onRemove: {
@@ -167,32 +166,50 @@ struct ReaderView: View {
 
     @ViewBuilder
     private func splitViewContent(content: BibleChapterContent) -> some View {
-        // isLeftHanded now controls which SIDE the notebook appears on.
-        // Left-handed → notebook on the left; right-handed → notebook on the right.
-        let bible = scrollableReaderStack(content: content)
-            .frame(maxWidth: .infinity)
-            .gesture(annotationVM.isAnnotating ? nil : swipeGesture)
-        let notebook = NotebookView(vm: annotationVM, chapterId: vm.selectedChapter?.id ?? "")
+        // The Bible column and the Notebook column share the same background so
+        // they look like one continuous page rather than two separate panels.
+        // A hairline shadow replaces the hard Divider to give a subtle page-fold.
+        // The selectors (book + chapter rows) are embedded here so they only
+        // appear above the Bible text, keeping the notebook side clean.
+        let bibleColumn = VStack(spacing: 0) {
+            BookSelectorRow(vm: vm)
+            Divider()
+            if !vm.chapters.isEmpty {
+                ChapterSelectorRow(vm: vm, annotationVM: annotationVM)
+                Divider()
+            }
+            scrollableReaderStack(content: content)
+                .gesture(annotationVM.isAnnotating ? nil : swipeGesture)
+        }
+        .frame(maxWidth: .infinity)
+        // Subtle edge shadow to suggest a page fold, not a wall
+        .shadow(color: .black.opacity(0.08), radius: 4, x: annotationVM.isLeftHanded ? -4 : 4, y: 0)
+
+        let notebookColumn = NotebookView(vm: annotationVM, chapterId: vm.selectedChapter?.id ?? "")
             .frame(maxWidth: .infinity)
 
         HStack(spacing: 0) {
             if annotationVM.isLeftHanded {
-                notebook
-                Divider()
-                bible
+                notebookColumn
+                bibleColumn
             } else {
-                bible
-                Divider()
-                notebook
+                bibleColumn
+                notebookColumn
             }
         }
     }
 
-    /// Scrollable ZStack: text + notes + canvas, all scaled together.
+    /// Scrollable ZStack: text + notes + canvas.
+    /// ZoomScrollView wraps a UIScrollView for true focal-point pinch zoom,
+    /// pan with momentum, and double-tap to reset — all native iOS behaviour.
     @ViewBuilder
     private func scrollableReaderStack(content: BibleChapterContent) -> some View {
         GeometryReader { geo in
-            ScrollView {
+            ZoomScrollView(
+                minScale:            0.5,
+                maxScale:            4.0,
+                isScrollingDisabled: annotationVM.isAnnotating
+            ) {
                 ZStack(alignment: .topLeading) {
 
                     // Layer 1 — Bible text (reports its natural height)
@@ -223,9 +240,10 @@ struct ReaderView: View {
 
                     // Layer 3 — Drawing canvas
                     AnnotationCanvasView(
-                        vm:            annotationVM,
-                        chapterId:     vm.selectedChapter?.id ?? "",
-                        contentHeight: contentHeight
+                        vm:             annotationVM,
+                        chapterId:      vm.selectedChapter?.id ?? "",
+                        contentHeight:  contentHeight,
+                        containerWidth: geo.size.width
                     )
                     .allowsHitTesting(annotationVM.isAnnotating)
 
@@ -236,47 +254,17 @@ struct ReaderView: View {
                             .allowsHitTesting(false)
                     }
                 }
-                // ── Zoom: scale visually, then extend the layout frame so
-                //    ScrollView knows the true (scaled) content size.
-                //
-                //    We do NOT set an explicit height in the outer .frame
-                //    because that would cap scrolling at the initial
-                //    contentHeight (800) before PreferenceKey fires.
-                //    Instead we let the ZStack use its natural height (the
-                //    full Bible text height) and add bottom padding equal to
-                //    the extra height that the zoom introduces.
-                //      • zoom = 1 → padding = 0   (no change)
-                //      • zoom = 2 → padding = contentHeight (doubles area)
                 .frame(width: geo.size.width)
-                .scaleEffect(totalZoom, anchor: .topLeading)
-                .frame(width: geo.size.width * totalZoom)
-                .padding(.bottom, contentHeight * max(0, totalZoom - 1))
+                // Double-tap to add a note when that setting is on
+                .onTapGesture(count: 2) {
+                    if annotationVM.useDoubleTapForNote {
+                        if let id = vm.selectedChapter?.id { notesVM.addNote(to: id) }
+                    }
+                    // Double-tap zoom reset is handled by ZoomScrollView natively
+                }
             }
-            .scrollDisabled(annotationVM.isAnnotating)
             .onPreferenceChange(ContentHeightKey.self) { h in if h > 0 { contentHeight = h } }
         }
-        // ── Pinch-to-zoom: simultaneous so it fires alongside PencilKit ───
-        // Works whether the toolbar is visible, collapsed, or hidden.
-        .simultaneousGesture(pinchGesture)
-        // Double-tap: adds a note (when that setting is on) or resets zoom
-        .onTapGesture(count: 2) {
-            if annotationVM.useDoubleTapForNote {
-                if let id = vm.selectedChapter?.id { notesVM.addNote(to: id) }
-            } else {
-                withAnimation(.spring(duration: 0.3)) { zoomScale = 1.0 }
-            }
-        }
-    }
-
-    // MARK: - Pinch Gesture
-
-    private var pinchGesture: some Gesture {
-        MagnificationGesture()
-            .updating($pinchDelta) { value, state, _ in state = value }
-            .onEnded { value in
-                let committed = (zoomScale * value).clamped(to: 0.5...4.0)
-                zoomScale = committed
-            }
     }
 
     // MARK: - Font Size Sheet
@@ -458,13 +446,6 @@ struct ReaderView: View {
                     Task { await vm.goToPreviousChapter() }
                 }
             }
-    }
-}
-
-// MARK: - Comparable clamp helper
-private extension Comparable {
-    func clamped(to range: ClosedRange<Self>) -> Self {
-        min(max(self, range.lowerBound), range.upperBound)
     }
 }
 

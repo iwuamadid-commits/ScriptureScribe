@@ -41,11 +41,12 @@ struct NotebookView: View {
                 }
                 .allowsHitTesting(false)
 
-                // Drawing canvas — use actual view height instead of UIScreen.main
+                // Drawing canvas — use actual view dimensions instead of UIScreen.main
                 AnnotationCanvasView(
-                    vm:            vm,
-                    chapterId:     notebookChapterId,
-                    contentHeight: geo.size.height
+                    vm:             vm,
+                    chapterId:      notebookChapterId,
+                    contentHeight:  geo.size.height,
+                    containerWidth: geo.size.width
                 )
                 .allowsHitTesting(true)
             }

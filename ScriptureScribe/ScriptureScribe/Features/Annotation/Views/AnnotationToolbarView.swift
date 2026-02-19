@@ -5,9 +5,10 @@
 //  Freely draggable floating toolbar for the annotation engine.
 //
 //  How it moves:
-//    • vm.toolbarPosition holds the committed offset from the overlay's top-left.
-//    • A @GestureState (drag) adds live translation while the finger is down.
-//    • The combined offset is applied to the whole view via .offset().
+//    • livePosition (@State) is the single source of truth for the visual position.
+//    • During drag, .onChanged writes vm.toolbarPosition + translation directly
+//      into livePosition — no offset + reset, so there is zero vibration.
+//    • On drag end, vm.toolbarPosition is updated to match livePosition (persistence only).
 //    • The drag handle (≡ strip) is the ONLY hit area for dragging, so all
 //      buttons and menus inside still respond to taps normally.
 //
@@ -27,16 +28,19 @@ struct AnnotationToolbarView: View {
     @ObservedObject var vm: AnnotationViewModel
     @EnvironmentObject var themeManager: ThemeManager
 
-    // Live drag offset while the user is dragging the handle
-    @State private var dragOffset: CGSize = .zero
+    // Single source of truth for the toolbar's on-screen position.
+    // During drag, livePosition updates live via .onChanged — smooth with no jump.
+    // On drag end, we write that same value back to vm.toolbarPosition purely
+    // for persistence. No reset step means zero vibration.
+    @State private var livePosition: CGPoint = CGPoint(x: 280, y: 80)
 
     var body: some View {
         content
-            // Apply committed position + live drag as an offset from the top-left
-            .offset(
-                x: vm.toolbarPosition.x + dragOffset.width,
-                y: vm.toolbarPosition.y + dragOffset.height
-            )
+            .offset(x: livePosition.x, y: livePosition.y)
+            // Sync livePosition whenever the vm's stored position changes
+            // (e.g. app launch loading the persisted value)
+            .onAppear { livePosition = vm.toolbarPosition }
+            .onChange(of: vm.toolbarPosition) { _, new in livePosition = new }
             .sheet(isPresented: $vm.showColorPicker) {
                 ColorPickerWheelView(selectedColor: $vm.selectedColor)
                     .presentationDetents([.large])
@@ -345,22 +349,22 @@ struct AnnotationToolbarView: View {
     private var handleDragGesture: some Gesture {
         DragGesture(minimumDistance: 3)
             .onChanged { value in
-                // Update live offset — @State, so both commit + reset happen
-                // in one render cycle, eliminating the visual vibration that
-                // @GestureState causes (it resets in a separate pass).
-                dragOffset = value.translation
-            }
-            .onEnded { value in
+                // Compute the clamped target position and write it directly into
+                // livePosition. value.translation is always relative to where the
+                // gesture STARTED, so vm.toolbarPosition (the start position) +
+                // current translation = correct current position.
                 let screen = screenBounds
-                // Commit final position
-                vm.toolbarPosition = CGPoint(
+                livePosition = CGPoint(
                     x: (vm.toolbarPosition.x + value.translation.width)
                         .clamped(to: 0...(screen.width  - 60)),
                     y: (vm.toolbarPosition.y + value.translation.height)
                         .clamped(to: 0...(screen.height - 60))
                 )
-                // Reset offset in the same cycle — no jump
-                dragOffset = .zero
+            }
+            .onEnded { _ in
+                // livePosition already holds the final clamped position —
+                // just persist it. No reset, so there is no visual jump.
+                vm.toolbarPosition = livePosition
             }
     }
 
