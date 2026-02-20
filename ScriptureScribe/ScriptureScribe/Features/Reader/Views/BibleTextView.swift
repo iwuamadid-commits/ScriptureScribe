@@ -95,6 +95,19 @@ struct BibleTextView: View {
         var currentWords = [String]()
 
         for word in words {
+            // Try to match verse numbers in square brackets: [1], [2], etc.
+            if word.hasPrefix("["), word.hasSuffix("]") {
+                let stripped = String(word.dropFirst().dropLast())
+                if let num = Int(stripped), num >= 1, num <= 176 {
+                    if !currentNum.isEmpty {
+                        verses.append((currentNum, currentWords.joined(separator: " ")))
+                    }
+                    currentNum   = stripped
+                    currentWords = []
+                    continue
+                }
+            }
+            // Also try plain numbers (for translations that don't use brackets)
             if let num = Int(word), num >= 1, num <= 176 {
                 if !currentNum.isEmpty {
                     verses.append((currentNum, currentWords.joined(separator: " ")))
