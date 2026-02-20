@@ -13,9 +13,12 @@ struct BibleTextView: View {
 
     let content:            BibleChapterContent
     @ObservedObject var vm: ReaderViewModel
-    let onLongPressVerse:   (String, String) -> Void  // (verseNumber, verseText)
+    let onLongPressVerse:   (String, String?, String) -> Void  // (startVerse, endVerse?, text)
 
     @EnvironmentObject var themeManager: ThemeManager
+
+    @State private var selectedRangeStart: Int?
+    @State private var selectedRangeEnd:   Int?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -28,17 +31,20 @@ struct BibleTextView: View {
                 .padding(.top, 20)
                 .padding(.bottom, 16)
 
-            // Verse rows — each one can be long-pressed to bookmark
+            // Verse rows — long-press and drag to select a range
             let verses = Self.parseVerses(from: content.textContent)
-            ForEach(Array(verses.enumerated()), id: \.offset) { _, verse in
+            ForEach(Array(verses.enumerated()), id: \.offset) { index, verse in
                 VerseRow(
-                    number:      verse.number,
-                    text:        verse.text,
-                    font:        bodyFont,
-                    spacing:     vm.lineSpacing,
-                    alignment:   swiftUIAlignment,
-                    theme:       themeManager.currentTheme,
-                    onLongPress: { onLongPressVerse(verse.number, verse.text) }
+                    number:                     verse.number,
+                    text:                       verse.text,
+                    font:                       bodyFont,
+                    spacing:                    vm.lineSpacing,
+                    alignment:                  swiftUIAlignment,
+                    theme:                      themeManager.currentTheme,
+                    isInSelectedRange:          isVerseInRange(index),
+                    onStartRangeSelection:      { startRangeSelection(at: index) },
+                    onUpdateRangeSelection:     { dragHeight in updateRangeSelection(from: index, dragHeight: dragHeight, totalVerses: verses.count) },
+                    onCompleteRangeSelection:   { completeRangeSelection(verses: verses) }
                 )
             }
 
@@ -82,6 +88,57 @@ struct BibleTextView: View {
         case "trailing": return .trailing
         default:         return .leading
         }
+    }
+
+    // MARK: - Range Selection
+
+    private func isVerseInRange(_ index: Int) -> Bool {
+        guard let start = selectedRangeStart, let end = selectedRangeEnd else {
+            return false
+        }
+        let minIndex = min(start, end)
+        let maxIndex = max(start, end)
+        return index >= minIndex && index <= maxIndex
+    }
+
+    private func startRangeSelection(at index: Int) {
+        selectedRangeStart = index
+        selectedRangeEnd   = index
+    }
+
+    private func updateRangeSelection(from startIndex: Int, dragHeight: CGFloat, totalVerses: Int) {
+        // Estimate verse height (roughly 40-50pt depending on font size and line spacing)
+        let estimatedVerseHeight: CGFloat = 45
+        let draggedVerses = Int(round(dragHeight / estimatedVerseHeight))
+
+        let endIndex = startIndex + draggedVerses
+        selectedRangeEnd = max(0, min(totalVerses - 1, endIndex))
+    }
+
+    private func completeRangeSelection(verses: [(number: String, text: String)]) {
+        guard let start = selectedRangeStart, let end = selectedRangeEnd else {
+            return
+        }
+
+        let minIndex = min(start, end)
+        let maxIndex = max(start, end)
+
+        let startVerse = verses[minIndex].number
+        let endVerse   = verses[maxIndex].number
+
+        // Combine text from all verses in range
+        let combinedText = verses[minIndex...maxIndex]
+            .map { $0.text }
+            .joined(separator: " ")
+
+        // If it's a single verse, pass nil for endVerse
+        let endVerseOrNil = (startVerse == endVerse) ? nil : endVerse
+
+        onLongPressVerse(startVerse, endVerseOrNil, combinedText)
+
+        // Clear selection
+        selectedRangeStart = nil
+        selectedRangeEnd   = nil
     }
 
     // MARK: - Verse Parser
@@ -129,13 +186,16 @@ struct BibleTextView: View {
 
 private struct VerseRow: View {
 
-    let number:      String
-    let text:        String
-    let font:        Font
-    let spacing:     Double
-    let alignment:   TextAlignment
-    let theme:       any AppTheme
-    let onLongPress: () -> Void
+    let number:                    String
+    let text:                      String
+    let font:                      Font
+    let spacing:                   Double
+    let alignment:                 TextAlignment
+    let theme:                     any AppTheme
+    let isInSelectedRange:         Bool
+    let onStartRangeSelection:     () -> Void
+    let onUpdateRangeSelection:    (CGFloat) -> Void
+    let onCompleteRangeSelection:  () -> Void
 
     @State private var isHighlighted = false
 
@@ -159,14 +219,49 @@ private struct VerseRow: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 4)
-        .background(isHighlighted ? theme.primary.opacity(0.10) : Color.clear)
+        .background(backgroundHighlight)
         .contentShape(Rectangle())
-        .onLongPressGesture(minimumDuration: 0.5) {
-            isHighlighted = false
-            onLongPress()
-        } onPressingChanged: { pressing in
-            withAnimation(.easeInOut(duration: 0.1)) { isHighlighted = pressing }
+        .gesture(rangeSelectionGesture)
+    }
+
+    private var backgroundHighlight: some View {
+        Group {
+            if isInSelectedRange {
+                theme.primary.opacity(0.20)
+            } else if isHighlighted {
+                theme.primary.opacity(0.10)
+            } else {
+                Color.clear
+            }
         }
+    }
+
+    private var rangeSelectionGesture: some Gesture {
+        LongPressGesture(minimumDuration: 0.3)
+            .onChanged { _ in
+                withAnimation(.easeInOut(duration: 0.1)) {
+                    isHighlighted = true
+                }
+            }
+            .onEnded { _ in
+                isHighlighted = false
+                onStartRangeSelection()
+            }
+            .sequenced(before: DragGesture(minimumDistance: 0))
+            .onChanged { value in
+                switch value {
+                case .second(true, let drag):
+                    if let dragValue = drag {
+                        onUpdateRangeSelection(dragValue.translation.height)
+                    }
+                default:
+                    break
+                }
+            }
+            .onEnded { _ in
+                isHighlighted = false
+                onCompleteRangeSelection()
+            }
     }
 
     private func frameAlignment(for ta: TextAlignment) -> Alignment {

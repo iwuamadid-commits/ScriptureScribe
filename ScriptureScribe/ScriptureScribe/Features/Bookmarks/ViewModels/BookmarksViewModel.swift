@@ -36,21 +36,27 @@ final class BookmarksViewModel: ObservableObject {
     // MARK: - Public Actions
 
     /// Saves a new bookmark. When verseId is non-empty this is a verse-level
-    /// bookmark — multiple verses in the same chapter can each be bookmarked
-    /// independently. When verseId is empty it is a chapter-level bookmark.
+    /// bookmark. If verseIdEnd is also non-empty, this is a verse range bookmark
+    /// (e.g., v3-5). When verseId is empty it is a chapter-level bookmark.
     func addBookmark(
-        bibleId:   String,
-        bookId:    String,
-        chapter:   BibleChapter,
-        verseId:   String = "",
-        verseText: String = "",
-        colorHex:  String,
-        emoji:     String
+        bibleId:    String,
+        bookId:     String,
+        chapter:    BibleChapter,
+        verseId:    String = "",
+        verseIdEnd: String = "",
+        verseText:  String = "",
+        colorHex:   String,
+        emoji:      String
     ) {
-        // Build the display reference: "Genesis 1" or "Genesis 1 v3"
-        let ref = verseId.isEmpty
-            ? chapter.reference
-            : "\(chapter.reference) v\(verseId)"
+        // Build the display reference: "Genesis 1", "Genesis 1 v3", or "Genesis 1 v3-5"
+        let ref: String
+        if verseId.isEmpty {
+            ref = chapter.reference
+        } else if verseIdEnd.isEmpty || verseIdEnd == verseId {
+            ref = "\(chapter.reference) v\(verseId)"
+        } else {
+            ref = "\(chapter.reference) v\(verseId)-\(verseIdEnd)"
+        }
 
         // Deduplicate: don't allow the exact same verse to be bookmarked twice.
         // (For chapter-level bookmarks: one per chapter. For verse-level: one per verse.)
@@ -66,6 +72,7 @@ final class BookmarksViewModel: ObservableObject {
             chapterId:        chapter.id,
             chapterReference: ref,
             verseId:          verseId,
+            verseIdEnd:       verseIdEnd,
             verseText:        verseText,
             colorHex:         colorHex,
             emoji:            emoji,

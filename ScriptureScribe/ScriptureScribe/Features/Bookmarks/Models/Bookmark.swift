@@ -16,14 +16,15 @@ struct Bookmark: Identifiable, Codable {
     let bibleId:          String
     let bookId:           String
     let chapterId:        String
-    let chapterReference: String   // e.g. "Genesis 1 v3" — for display in the list
+    let chapterReference: String   // e.g. "Genesis 1 v3-5" — for display in the list
     var verseId:          String   // verse number, or "" for a chapter-level bookmark
-    var verseText:        String   // the verse text, or "" for a chapter-level bookmark
+    var verseIdEnd:       String   // end of range (e.g. "5" for v3-5), or "" for single verse
+    var verseText:        String   // the verse text (or combined text for range), or "" for chapter
     var colorHex:         String   // e.g. "FF5733" — the ribbon color the user chose
     var emoji:            String   // e.g. "⭐" — the emoji the user chose
     let createdAt:        Date
 
-    // Custom init so callers can omit verseId/verseText (defaults to "")
+    // Custom init so callers can omit verseId/verseIdEnd/verseText (defaults to "")
     init(
         id:               String = UUID().uuidString,
         bibleId:          String,
@@ -31,6 +32,7 @@ struct Bookmark: Identifiable, Codable {
         chapterId:        String,
         chapterReference: String,
         verseId:          String = "",
+        verseIdEnd:       String = "",
         verseText:        String = "",
         colorHex:         String,
         emoji:            String,
@@ -42,6 +44,7 @@ struct Bookmark: Identifiable, Codable {
         self.chapterId        = chapterId
         self.chapterReference = chapterReference
         self.verseId          = verseId
+        self.verseIdEnd       = verseIdEnd
         self.verseText        = verseText
         self.colorHex         = colorHex
         self.emoji            = emoji

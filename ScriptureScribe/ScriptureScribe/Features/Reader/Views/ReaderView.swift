@@ -45,8 +45,9 @@ struct ReaderView: View {
     @State private var showBookmarkList      = false
     @State private var showFontSizeSlider    = false
     @State private var contentHeight: CGFloat = 800
-    @State private var longPressedVerseId:   String?
-    @State private var longPressedVerseText: String?
+    @State private var longPressedVerseId:      String?
+    @State private var longPressedVerseIdEnd:   String?
+    @State private var longPressedVerseText:    String?
 
     // MARK: - Body
 
@@ -121,13 +122,14 @@ struct ReaderView: View {
                             let book    = vm.selectedBook
                         else { return }
                         bookmarksVM.addBookmark(
-                            bibleId:   bible.id,
-                            bookId:    book.id,
-                            chapter:   chapter,
-                            verseId:   longPressedVerseId   ?? "",
-                            verseText: longPressedVerseText ?? "",
-                            colorHex:  colorHex,
-                            emoji:     emoji
+                            bibleId:    bible.id,
+                            bookId:     book.id,
+                            chapter:    chapter,
+                            verseId:    longPressedVerseId      ?? "",
+                            verseIdEnd: longPressedVerseIdEnd   ?? "",
+                            verseText:  longPressedVerseText    ?? "",
+                            colorHex:   colorHex,
+                            emoji:      emoji
                         )
                     },
                     onRemove: {
@@ -209,10 +211,11 @@ struct ReaderView: View {
                         BibleTextView(
                             content: content,
                             vm: vm,
-                            onLongPressVerse: { verseId, verseText in
-                                longPressedVerseId   = verseId
-                                longPressedVerseText = verseText
-                                showBookmarkPicker   = true
+                            onLongPressVerse: { startVerseId, endVerseId, verseText in
+                                longPressedVerseId      = startVerseId
+                                longPressedVerseIdEnd   = endVerseId
+                                longPressedVerseText    = verseText
+                                showBookmarkPicker      = true
                             }
                         )
                         .frame(width: bibleWidth)
@@ -522,10 +525,14 @@ struct ReaderView: View {
 
     // MARK: - Helpers
 
-    /// Reference label shown in the bookmark picker for the long-pressed verse.
+    /// Reference label shown in the bookmark picker for the long-pressed verse or range.
     private var verseBookmarkReference: String {
-        if let id = longPressedVerseId, !id.isEmpty {
-            return "\(vm.selectedChapter?.reference ?? "") v\(id)"
+        if let startId = longPressedVerseId, !startId.isEmpty {
+            if let endId = longPressedVerseIdEnd, !endId.isEmpty, endId != startId {
+                return "\(vm.selectedChapter?.reference ?? "") v\(startId)-\(endId)"
+            } else {
+                return "\(vm.selectedChapter?.reference ?? "") v\(startId)"
+            }
         }
         return vm.selectedChapter?.reference ?? ""
     }
