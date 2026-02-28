@@ -794,7 +794,7 @@ struct ReaderView: View {
                 vm.showTranslationBrowser = true
             } label: {
                 HStack(spacing: 4) {
-                    Text(vm.selectedTranslation?.abbreviation ?? "Bible")
+                    Text(vm.selectedTranslation?.displayAbbreviation ?? "Bible")
                         .font(.subheadline.weight(.semibold))
                     Image(systemName: "chevron.down")
                         .font(.caption2)

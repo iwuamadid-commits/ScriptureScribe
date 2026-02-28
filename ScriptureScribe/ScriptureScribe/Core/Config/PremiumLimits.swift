@@ -25,13 +25,13 @@ enum PremiumLimits {
     /// Maximum habits on the free plan.
     static let maxFreeHabits = 3
 
-    /// Bible version IDs available on the free plan.
-    /// KJV (de4e12af7f28f599-02) + one additional free translation.
+    /// Bible version IDs available on the free plan (all public domain).
     static let freeBibleIds: Set<String> = [
-        "de4e12af7f28f599-02",  // KJV
-        "9879dbb7cfe39e4d-04",  // ASV (American Standard Version — public domain)
+        "de4e12af7f28f599-02",  // KJV  — King James Version
+        "9879dbb7cfe39e4d-01",  // WEB  — World English Bible (verify ID against API.Bible)
+        "9879dbb7cfe39e4d-04",  // ASV  — American Standard Version
     ]
 
     /// Maximum number of Bible versions on the free plan.
-    static let maxFreeBibleVersions = 2
+    static let maxFreeBibleVersions = 3
 }

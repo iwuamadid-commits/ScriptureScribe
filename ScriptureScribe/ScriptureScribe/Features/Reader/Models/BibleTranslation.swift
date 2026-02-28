@@ -29,4 +29,11 @@ struct BibleTranslation: Identifiable, Codable, Hashable {
 
     /// Convenience: should text be displayed right-to-left?
     var isRightToLeft: Bool { language.scriptDirection == "RTL" }
+
+    /// Clean abbreviation with any leading lowercase language-code prefix stripped.
+    /// e.g. "engKJV" → "KJV",  "spaRVR60" → "RVR60",  "KJV" → "KJV"
+    var displayAbbreviation: String {
+        let stripped = abbreviation.drop(while: { $0.isLowercase })
+        return stripped.isEmpty ? abbreviation : String(stripped)
+    }
 }

@@ -53,6 +53,27 @@ final class ReaderViewModel: ObservableObject {
     @AppStorage("lastBookId")    private var lastBookId:    String = ""
     @AppStorage("lastChapterId") private var lastChapterId: String = ""
 
+    // MARK: - My Versions (user's saved translations)
+
+    /// Ordered list of translation IDs the user has added. Persisted in UserDefaults.
+    @Published var myVersionIds: [String] = UserDefaults.standard.stringArray(forKey: "myVersionIds") ?? []
+
+    /// Resolves IDs to full BibleTranslation objects (in order).
+    var myVersions: [BibleTranslation] {
+        myVersionIds.compactMap { id in translations.first(where: { $0.id == id }) }
+    }
+
+    func addToMyVersions(_ translation: BibleTranslation) {
+        guard !myVersionIds.contains(translation.id) else { return }
+        myVersionIds.append(translation.id)
+        UserDefaults.standard.set(myVersionIds, forKey: "myVersionIds")
+    }
+
+    func removeFromMyVersions(_ translation: BibleTranslation) {
+        myVersionIds.removeAll { $0 == translation.id }
+        UserDefaults.standard.set(myVersionIds, forKey: "myVersionIds")
+    }
+
     // MARK: - Computed
 
     /// Books in the user's chosen order (canonical = Bible order, alphabetical = A–Z).
@@ -95,6 +116,7 @@ final class ReaderViewModel: ObservableObject {
     func selectTranslation(_ translation: BibleTranslation) async {
         selectedTranslation = translation
         lastBibleId = translation.id
+        addToMyVersions(translation)
         // Reset downstream selections when translation changes
         selectedBook    = nil
         selectedChapter = nil
