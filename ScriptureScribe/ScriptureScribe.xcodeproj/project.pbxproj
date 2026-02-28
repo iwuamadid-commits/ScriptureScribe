@@ -12,6 +12,8 @@
 		9FC447CA2F44381D00CC8954 /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = 9FC447C92F44381D00CC8954 /* FirebaseMessaging */; };
 		9FC447CC2F44381D00CC8954 /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = 9FC447CB2F44381D00CC8954 /* FirebaseStorage */; };
 		9FC447D22F443F5C00CC8954 /* Secrets.xcconfig in Resources */ = {isa = PBXBuildFile; fileRef = 9FC447D12F443F5C00CC8954 /* Secrets.xcconfig */; };
+		CB4CF0412F4BC690008BF233 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = CB4CF0402F4BC690008BF233 /* GoogleSignIn */; };
+		CB4CF0432F4BC690008BF233 /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = CB4CF0422F4BC690008BF233 /* GoogleSignInSwift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -36,6 +38,7 @@
 		9FC4475C2F442C1700CC8954 /* ScriptureScribeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ScriptureScribeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		9FC447662F442C1700CC8954 /* ScriptureScribeUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ScriptureScribeUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		9FC447D12F443F5C00CC8954 /* Secrets.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Secrets.xcconfig; sourceTree = "<group>"; };
+		CB4CF0502F510A0000BF0001 /* Products.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = Products.storekit; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -74,8 +77,10 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				CB4CF0412F4BC690008BF233 /* GoogleSignIn in Frameworks */,
 				9FC447CA2F44381D00CC8954 /* FirebaseMessaging in Frameworks */,
 				9FC447CC2F44381D00CC8954 /* FirebaseStorage in Frameworks */,
+				CB4CF0432F4BC690008BF233 /* GoogleSignInSwift in Frameworks */,
 				9FC447C62F44381D00CC8954 /* FirebaseAuth in Frameworks */,
 				9FC447C82F44381D00CC8954 /* FirebaseFirestore in Frameworks */,
 			);
@@ -106,6 +111,7 @@
 				9FC447692F442C1700CC8954 /* ScriptureScribeUITests */,
 				9FC4474E2F442C1500CC8954 /* Products */,
 				9FC447D12F443F5C00CC8954 /* Secrets.xcconfig */,
+				CB4CF0502F510A0000BF0001 /* Products.storekit */,
 			);
 			sourceTree = "<group>";
 		};
@@ -143,6 +149,8 @@
 				9FC447C72F44381D00CC8954 /* FirebaseFirestore */,
 				9FC447C92F44381D00CC8954 /* FirebaseMessaging */,
 				9FC447CB2F44381D00CC8954 /* FirebaseStorage */,
+				CB4CF0402F4BC690008BF233 /* GoogleSignIn */,
+				CB4CF0422F4BC690008BF233 /* GoogleSignInSwift */,
 			);
 			productName = ScriptureScribe;
 			productReference = 9FC4474D2F442C1500CC8954 /* ScriptureScribe.app */;
@@ -228,6 +236,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				9FC447C42F44381D00CC8954 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+				CB4CF03F2F4BC690008BF233 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 9FC4474E2F442C1500CC8954 /* Products */;
@@ -425,6 +434,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = ScriptureScribe/ScriptureScribe.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 8ZBDQ228TD;
@@ -433,6 +443,8 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ScriptureScribe/Info.plist;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Scripture Scribe needs camera access to add phots to your Bible annotations.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Scripture Scribe needs photo library access to add photos to your Bible annotations.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -469,6 +481,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = ScriptureScribe/ScriptureScribe.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 8ZBDQ228TD;
@@ -477,6 +490,8 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ScriptureScribe/Info.plist;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Scripture Scribe needs camera access to add phots to your Bible annotations.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Scripture Scribe needs photo library access to add photos to your Bible annotations.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -656,6 +671,14 @@
 				minimumVersion = 11.0.0;
 			};
 		};
+		CB4CF03F2F4BC690008BF233 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/GoogleSignIn-iOS";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 9.1.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -678,6 +701,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 9FC447C42F44381D00CC8954 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseStorage;
+		};
+		CB4CF0402F4BC690008BF233 /* GoogleSignIn */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CB4CF03F2F4BC690008BF233 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignIn;
+		};
+		CB4CF0422F4BC690008BF233 /* GoogleSignInSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CB4CF03F2F4BC690008BF233 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignInSwift;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

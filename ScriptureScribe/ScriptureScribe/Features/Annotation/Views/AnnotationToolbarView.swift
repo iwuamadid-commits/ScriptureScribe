@@ -2,23 +2,15 @@
 //  AnnotationToolbarView.swift
 //  ScriptureScribe
 //
-//  Freely draggable floating toolbar for the annotation engine.
+//  Minimal horizontal annotation toolbar (Noteful style, enhanced).
+//  Icon-only design with saved colors row. Color and stroke settings appear
+//  as a sheet when tapping the active tool again.
 //
-//  How it moves:
-//    • livePosition (@State) is the single source of truth for the visual position.
-//    • During drag, .onChanged writes vm.toolbarPosition + translation directly
-//      into livePosition — no offset + reset, so there is zero vibration.
-//    • On drag end, vm.toolbarPosition is updated to match livePosition (persistence only).
-//    • The drag handle (≡ strip) is the ONLY hit area for dragging, so all
-//      buttons and menus inside still respond to taps normally.
-//
-//  Orientation:
-//    • Vertical (default): standard tall pill, one button per row.
-//    • Horizontal: same buttons laid out left-to-right.
-//
-//  Notebook side (left/right-handed):
-//    • Controlled from the settings menu inside this toolbar.
-//    • Changes the side the notebook panel appears on in split-view mode.
+//  Color circle behavior:
+//    • Single tap  → select that color
+//    • Double tap  → select that color AND open the full color picker
+//    • Long press  → delete from saved list
+//  "+" button → opens the full color picker to pick and save a new color.
 //
 
 import SwiftUI
@@ -28,205 +20,261 @@ struct AnnotationToolbarView: View {
     @ObservedObject var vm: AnnotationViewModel
     @EnvironmentObject var themeManager: ThemeManager
 
-    // Single source of truth for the toolbar's on-screen position.
-    // During drag, livePosition updates live via .onChanged — smooth with no jump.
-    // On drag end, we write that same value back to vm.toolbarPosition purely
-    // for persistence. No reset step means zero vibration.
-    @State private var livePosition: CGPoint = CGPoint(x: 280, y: 80)
+    @State private var showColorPicker       = false
+    @State private var showToolSettings      = false
+    @State private var showPhotoSourcePicker = false
+    @State private var showImagePicker       = false
+    @State private var showClearConfirmation = false
+    @State private var imagePickerSource     = UIImagePickerController.SourceType.photoLibrary
 
     var body: some View {
-        content
-            .offset(x: livePosition.x, y: livePosition.y)
-            // Sync livePosition whenever the vm's stored position changes
-            // (e.g. app launch loading the persisted value)
-            .onAppear { livePosition = vm.toolbarPosition }
-            .onChange(of: vm.toolbarPosition) { _, new in livePosition = new }
-            .sheet(isPresented: $vm.showColorPicker) {
-                ColorPickerWheelView(selectedColor: $vm.selectedColor)
-                    .presentationDetents([.large])
+        HStack(spacing: 8) {
+
+            // ── Tool buttons + camera ────────────────────────────────────
+            HStack(spacing: 8) {
+                ForEach(AnnotationViewModel.DrawingTool.allCases, id: \.self) { tool in
+                    toolButton(for: tool)
+                }
+
+                // Camera button — sits right next to the hand tool
+                Button {
+                    showPhotoSourcePicker = true
+                } label: {
+                    Image(systemName: "camera")
+                        .font(.title3)
+                        .frame(width: 44, height: 44)
+                        .foregroundStyle(themeManager.currentTheme.textSecondary)
+                }
+                .accessibilityLabel("Add Photo")
             }
-    }
 
-    // MARK: - Collapsed vs Expanded
+            // ── Saved Colors (inline, always visible, scrollable) ────────
+            Divider()
+                .frame(height: 28)
+                .padding(.horizontal, 2)
 
-    @ViewBuilder
-    private var content: some View {
-        if vm.isToolbarCollapsed {
-            collapsedButton
-        } else {
-            expandedPanel
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(Array(vm.savedColors.enumerated()), id: \.offset) { index, savedColor in
+                        let isSelected = savedColor.colorHex == vm.selectedColor.hexString
+
+                        ZStack {
+                            Circle().fill(Color(savedColor.uiColor))
+                            Circle().strokeBorder(
+                                isSelected
+                                    ? themeManager.currentTheme.primary
+                                    : Color.white.opacity(0.3),
+                                lineWidth: isSelected ? 2.5 : 1.5
+                            )
+                        }
+                        .frame(width: 28, height: 28)
+                        .scaleEffect(isSelected ? 1.25 : 1.0)
+                        .shadow(color: .black.opacity(0.15), radius: 2)
+                        .animation(.easeInOut(duration: 0.15), value: isSelected)
+                            // Double-tap: select AND open color picker
+                            .onTapGesture(count: 2) {
+                                vm.selectedColor = savedColor.uiColor
+                                vm.saveCurrentToolSettings()
+                                showColorPicker = true
+                            }
+                            // Single-tap: select only
+                            .onTapGesture(count: 1) {
+                                vm.selectedColor = savedColor.uiColor
+                                vm.saveCurrentToolSettings()
+                            }
+                            // Long-press: remove from list
+                            .onLongPressGesture {
+                                vm.removeSavedColor(at: index)
+                            }
+                    }
+
+                    // "+" button → open color picker to pick a new color to save
+                    Button {
+                        showColorPicker = true
+                    } label: {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.body)
+                            .foregroundStyle(themeManager.currentTheme.primary)
+                            .frame(width: 28, height: 28)
+                    }
+                    .accessibilityLabel("Add new color")
+                }
+                .padding(.horizontal, 4)
+                .padding(.vertical, 6)
+            }
+            .frame(maxWidth: .infinity)
+
+            // ── Right: Undo / Redo / Settings ───────────────────────────
+            HStack(spacing: 8) {
+                Button { vm.undo() } label: {
+                    Image(systemName: "arrow.uturn.backward")
+                        .font(.title3)
+                        .frame(width: 44, height: 44)
+                }
+                .accessibilityLabel("Undo")
+
+                Button { vm.redo() } label: {
+                    Image(systemName: "arrow.uturn.forward")
+                        .font(.title3)
+                        .frame(width: 44, height: 44)
+                }
+                .accessibilityLabel("Redo")
+
+                settingsMenu
+            }
+            .foregroundStyle(themeManager.currentTheme.textSecondary)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(themeManager.currentTheme.surface)
+        // Tool settings panel — pen style, eraser type, size favorites
+        .sheet(isPresented: $showToolSettings) {
+            ToolSettingsPanelView(
+                vm: vm,
+                tool: vm.selectedTool,
+                onOpenColorPicker: {
+                    showColorPicker = true
+                }
+            )
+        }
+        // Full Procreate-style color picker
+        .sheet(isPresented: $showColorPicker) {
+            ColorPickerWheelView(
+                selectedColor: $vm.selectedColor,
+                onSave: { color in
+                    vm.addSavedColor(color)
+                    vm.saveCurrentToolSettings()
+                }
+            )
+        }
+        // Photo source: take photo or choose from library
+        .confirmationDialog("Add Photo", isPresented: $showPhotoSourcePicker) {
+            if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                Button("Take Photo") {
+                    imagePickerSource = .camera
+                    // Small delay lets the dialog fully dismiss before the sheet opens
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        showImagePicker = true
+                    }
+                }
+            }
+            Button("Choose from Library") {
+                imagePickerSource = .photoLibrary
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    showImagePicker = true
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+        // System image picker (camera or library)
+        .sheet(isPresented: $showImagePicker) {
+            ImagePickerView(sourceType: imagePickerSource) { image in
+                vm.pendingPhoto = image
+            }
+        }
+        // Confirmation before clearing the page
+        .alert("Clear Page?", isPresented: $showClearConfirmation) {
+            Button("Clear", role: .destructive) {
+                vm.clearCanvas()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will erase everything on the current page. You can undo this action.")
         }
     }
 
-    // MARK: - Collapsed State
+    // MARK: - Tool Button
 
-    private var collapsedButton: some View {
-        VStack(spacing: 4) {
-            dragHandleStrip   // drag here when collapsed
-            Button { vm.isToolbarCollapsed = false } label: {
-                Image(systemName: "pencil.circle.fill")
-                    .font(.title)
-                    .foregroundStyle(themeManager.currentTheme.primary)
+    private func toolButton(for tool: AnnotationViewModel.DrawingTool) -> some View {
+        let isSelected = vm.selectedTool == tool
+        let tint = isSelected
+            ? themeManager.currentTheme.primary
+            : themeManager.currentTheme.textSecondary
+
+        return Button {
+            if vm.selectedTool == tool {
+                // Tool already selected → open settings panel
+                if tool == .pen || tool == .highlighter || tool == .eraser {
+                    showToolSettings = true
+                }
+            } else {
+                // Switch to this tool and load its saved settings
+                vm.selectedTool = tool
+                vm.loadToolSettings(for: tool)
+            }
+        } label: {
+            Group {
+                if tool == .highlighter {
+                    highlighterMarkerIcon
+                } else {
+                    Image(systemName: tool.systemImage)
+                        .font(.title3)
+                }
             }
             .frame(width: 44, height: 44)
-            .accessibilityLabel("Expand toolbar")
+            .foregroundStyle(tint)
+            .background(
+                isSelected
+                    ? themeManager.currentTheme.primary.opacity(0.15)
+                    : Color.clear,
+                in: RoundedRectangle(cornerRadius: 10)
+            )
         }
-        .padding(6)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
-        .shadow(color: .black.opacity(0.15), radius: 6, y: 3)
+        .accessibilityLabel(tool.label)
     }
 
-    // MARK: - Expanded Panel (Vertical or Horizontal)
+    // MARK: - Custom Highlighter Icon (Noteful-style chisel marker)
 
-    @ViewBuilder
-    private var expandedPanel: some View {
-        if vm.isToolbarHorizontal {
-            horizontalPanel
-        } else {
-            verticalPanel
-        }
-    }
-
-    // ── Vertical Layout ──────────────────────────────────────────────────
-
-    private var verticalPanel: some View {
-        VStack(spacing: 4) {
-            dragHandleStrip
-
-            toolbarButton(systemImage: "chevron.right", label: "Collapse", isAccent: true) {
-                vm.isToolbarCollapsed = true
+    private var highlighterMarkerIcon: some View {
+        ZStack {
+            // Cap / top band
+            Path { p in
+                p.move(to: CGPoint(x: 8, y: 0))
+                p.addLine(to: CGPoint(x: 14, y: 0))
+                p.addLine(to: CGPoint(x: 14, y: 3))
+                p.addLine(to: CGPoint(x: 8, y: 3))
+                p.closeSubpath()
             }
-            toolbarButton(systemImage: "xmark.circle.fill", label: "Done", isAccent: true) {
-                vm.toggleAnnotating()
+            .fill()
+            .opacity(0.55)
+
+            // Marker barrel (wide rectangular body)
+            Path { p in
+                p.move(to: CGPoint(x: 7, y: 3))
+                p.addLine(to: CGPoint(x: 15, y: 3))
+                p.addLine(to: CGPoint(x: 15, y: 15))
+                p.addLine(to: CGPoint(x: 7, y: 15))
+                p.closeSubpath()
             }
+            .fill()
 
-            vDivider
-
-            ForEach(AnnotationViewModel.DrawingTool.allCases, id: \.self) { tool in
-                VStack(spacing: 0) {
-                    toolbarButton(systemImage: tool.systemImage,
-                                  label: tool.label,
-                                  isSelected: vm.selectedTool == tool) {
-                        vm.selectedTool = tool
-                    }
-                    if tool == .eraser && vm.selectedTool == .eraser {
-                        eraserTypePicker(horizontal: false)
-                    }
-                }
+            // Chisel tip (angled flat nib)
+            Path { p in
+                p.move(to: CGPoint(x: 7, y: 15))
+                p.addLine(to: CGPoint(x: 15, y: 15))
+                p.addLine(to: CGPoint(x: 13, y: 20))
+                p.addLine(to: CGPoint(x: 9, y: 20))
+                p.closeSubpath()
             }
+            .fill()
+            .opacity(0.65)
 
-            vDivider
-
-            colorSwatch
-
-            strokeSliderVertical
-
-            vDivider
-
-            toolbarButton(systemImage: "arrow.uturn.backward", label: "Undo") { vm.undo() }
-            toolbarButton(systemImage: "arrow.uturn.forward",  label: "Redo") { vm.redo() }
-
-            vDivider
-
-            settingsMenu
+            // Highlight stroke mark under the tip
+            Path { p in
+                p.move(to: CGPoint(x: 5, y: 21.5))
+                p.addLine(to: CGPoint(x: 17, y: 21.5))
+            }
+            .stroke(style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+            .opacity(0.3)
         }
-        .padding(.vertical, 8)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
-        .shadow(color: .black.opacity(0.12), radius: 8, y: 4)
+        .frame(width: 22, height: 22)
     }
 
-    // ── Horizontal Layout ────────────────────────────────────────────────
-
-    private var horizontalPanel: some View {
-        HStack(spacing: 4) {
-            dragHandleStripHorizontal
-
-            toolbarButton(systemImage: "chevron.down", label: "Collapse", isAccent: true) {
-                vm.isToolbarCollapsed = true
-            }
-            toolbarButton(systemImage: "xmark.circle.fill", label: "Done", isAccent: true) {
-                vm.toggleAnnotating()
-            }
-
-            hDivider
-
-            ForEach(AnnotationViewModel.DrawingTool.allCases, id: \.self) { tool in
-                HStack(spacing: 0) {
-                    toolbarButton(systemImage: tool.systemImage,
-                                  label: tool.label,
-                                  isSelected: vm.selectedTool == tool) {
-                        vm.selectedTool = tool
-                    }
-                    if tool == .eraser && vm.selectedTool == .eraser {
-                        eraserTypePicker(horizontal: true)
-                    }
-                }
-            }
-
-            hDivider
-
-            colorSwatch
-
-            strokeSliderHorizontal
-
-            hDivider
-
-            toolbarButton(systemImage: "arrow.uturn.backward", label: "Undo") { vm.undo() }
-            toolbarButton(systemImage: "arrow.uturn.forward",  label: "Redo") { vm.redo() }
-
-            hDivider
-
-            settingsMenu
-        }
-        .padding(.horizontal, 8)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
-        .shadow(color: .black.opacity(0.12), radius: 8, y: 4)
-    }
-
-    // MARK: - Shared Sub-Views
-
-    private var colorSwatch: some View {
-        Button { vm.showColorPicker = true } label: {
-            Circle()
-                .fill(Color(vm.selectedColor))
-                .frame(width: 28, height: 28)
-                .overlay(Circle().stroke(.white.opacity(0.8), lineWidth: 2))
-                .shadow(color: .black.opacity(0.2), radius: 2, y: 1)
-        }
-        .frame(width: 44, height: 44)
-        .accessibilityLabel("Choose color")
-    }
-
-    private var strokeSliderVertical: some View {
-        VStack(spacing: 2) {
-            Circle()
-                .fill(Color(vm.selectedColor))
-                .frame(width: min(vm.strokeWidth * 2.5, 22),
-                       height: min(vm.strokeWidth * 2.5, 22))
-                .frame(width: 22, height: 22)
-            Slider(value: $vm.strokeWidth, in: 1...12, step: 0.5)
-                .frame(width: 36)
-                .rotationEffect(.degrees(-90))
-                .frame(width: 44, height: 100)
-                .tint(Color(vm.selectedColor))
-        }
-    }
-
-    private var strokeSliderHorizontal: some View {
-        HStack(spacing: 4) {
-            Circle()
-                .fill(Color(vm.selectedColor))
-                .frame(width: min(vm.strokeWidth * 2.0, 18),
-                       height: min(vm.strokeWidth * 2.0, 18))
-                .frame(width: 18, height: 18)
-            Slider(value: $vm.strokeWidth, in: 1...12, step: 0.5)
-                .frame(width: 80)
-                .tint(Color(vm.selectedColor))
-        }
-    }
+    // MARK: - Settings Menu
 
     private var settingsMenu: some View {
         Menu {
+
             // Notebook side (left or right in split-view)
             Section("Notebook Side") {
                 Button { vm.isLeftHanded = false } label: {
@@ -234,16 +282,6 @@ struct AnnotationToolbarView: View {
                 }
                 Button { vm.isLeftHanded = true } label: {
                     Label("Left Side", systemImage: vm.isLeftHanded ? "checkmark" : "")
-                }
-            }
-
-            // Toolbar orientation
-            Section("Toolbar Layout") {
-                Button { vm.isToolbarHorizontal = false } label: {
-                    Label("Vertical",   systemImage: vm.isToolbarHorizontal ? "" : "checkmark")
-                }
-                Button { vm.isToolbarHorizontal = true } label: {
-                    Label("Horizontal", systemImage: vm.isToolbarHorizontal ? "checkmark" : "")
                 }
             }
 
@@ -269,147 +307,17 @@ struct AnnotationToolbarView: View {
 
             // Canvas
             Section("Canvas") {
-                Button(role: .destructive) { vm.clearCanvas() } label: {
+                Button(role: .destructive) { showClearConfirmation = true } label: {
                     Label("Clear Page", systemImage: "trash")
                 }
             }
+
         } label: {
-            Image(systemName: "ellipsis.circle")
-                .font(.system(size: 18))
+            Image(systemName: "gearshape")
+                .font(.title3)
                 .frame(width: 44, height: 44)
                 .foregroundStyle(themeManager.currentTheme.primary)
         }
-    }
-
-    // MARK: - Eraser Type Sub-Picker
-
-    private func eraserTypePicker(horizontal: Bool) -> some View {
-        let buttons = ForEach(AnnotationViewModel.EraserType.allCases, id: \.self) { type in
-            Button { vm.eraserType = type } label: {
-                Text(type == .wholeLine ? "Line" : "Pixel")
-                    .font(.system(size: 10, weight: .medium))
-                    .frame(width: 38, height: 26)
-                    .background(
-                        vm.eraserType == type
-                            ? themeManager.currentTheme.primary.opacity(0.15)
-                            : Color.clear,
-                        in: RoundedRectangle(cornerRadius: 6)
-                    )
-                    .foregroundStyle(
-                        vm.eraserType == type
-                            ? themeManager.currentTheme.primary
-                            : themeManager.currentTheme.textSecondary
-                    )
-            }
-        }
-        return Group {
-            if horizontal {
-                HStack(spacing: 2) { buttons }.padding(.trailing, 4)
-            } else {
-                VStack(spacing: 2) { buttons }.padding(.bottom, 4)
-            }
-        }
-    }
-
-    // MARK: - Drag Handle
-
-    /// Vertical layout: a small ≡ pill at the very top of the toolbar.
-    /// This is the ONLY drag target so buttons below still respond to taps.
-    private var dragHandleStrip: some View {
-        RoundedRectangle(cornerRadius: 2.5)
-            .fill(Color.gray.opacity(0.45))
-            .frame(width: 28, height: 4)
-            .padding(.top, 4)
-            .padding(.bottom, 2)
-            .contentShape(Rectangle().size(CGSize(width: 44, height: 20)))
-            .frame(width: 44, height: 20)
-            .gesture(handleDragGesture)
-    }
-
-    /// Horizontal layout: a vertical ≡ pill on the far left of the toolbar.
-    private var dragHandleStripHorizontal: some View {
-        RoundedRectangle(cornerRadius: 2.5)
-            .fill(Color.gray.opacity(0.45))
-            .frame(width: 4, height: 28)
-            .padding(.leading, 4)
-            .padding(.trailing, 2)
-            .contentShape(Rectangle().size(CGSize(width: 20, height: 44)))
-            .frame(width: 20, height: 44)
-            .gesture(handleDragGesture)
-    }
-
-    /// Screen bounds using the modern UIWindowScene API (UIScreen.main is deprecated in iOS 26).
-    private var screenBounds: CGRect {
-        UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first?.screen.bounds
-            ?? CGRect(x: 0, y: 0, width: 390, height: 844)
-    }
-
-    private var handleDragGesture: some Gesture {
-        DragGesture(minimumDistance: 3)
-            .onChanged { value in
-                // Compute the clamped target position and write it directly into
-                // livePosition. value.translation is always relative to where the
-                // gesture STARTED, so vm.toolbarPosition (the start position) +
-                // current translation = correct current position.
-                let screen = screenBounds
-                livePosition = CGPoint(
-                    x: (vm.toolbarPosition.x + value.translation.width)
-                        .clamped(to: 0...(screen.width  - 60)),
-                    y: (vm.toolbarPosition.y + value.translation.height)
-                        .clamped(to: 0...(screen.height - 60))
-                )
-            }
-            .onEnded { _ in
-                // livePosition already holds the final clamped position —
-                // just persist it. No reset, so there is no visual jump.
-                vm.toolbarPosition = livePosition
-            }
-    }
-
-    // MARK: - Reusable Button
-
-    private func toolbarButton(
-        systemImage: String,
-        label:       String,
-        isSelected:  Bool    = false,
-        isAccent:    Bool    = false,
-        action:      @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: isAccent ? 20 : 18))
-                .frame(width: 44, height: 44)
-                .foregroundStyle(
-                    isAccent || isSelected
-                        ? themeManager.currentTheme.primary
-                        : themeManager.currentTheme.textSecondary
-                )
-                .background(
-                    isSelected
-                        ? themeManager.currentTheme.primary.opacity(0.15)
-                        : Color.clear,
-                    in: RoundedRectangle(cornerRadius: 10)
-                )
-        }
-        .accessibilityLabel(label)
-    }
-
-    // MARK: - Dividers
-
-    private var vDivider: some View {
-        Divider().frame(width: 28).padding(.vertical, 2)
-    }
-
-    private var hDivider: some View {
-        Divider().frame(height: 28).padding(.horizontal, 2)
-    }
-}
-
-// MARK: - Comparable clamp
-private extension Comparable {
-    func clamped(to range: ClosedRange<Self>) -> Self {
-        min(max(self, range.lowerBound), range.upperBound)
+        .accessibilityLabel("Settings")
     }
 }

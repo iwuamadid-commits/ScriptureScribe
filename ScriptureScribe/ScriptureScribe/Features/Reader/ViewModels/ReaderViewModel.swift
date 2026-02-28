@@ -107,10 +107,11 @@ final class ReaderViewModel: ObservableObject {
 
     func selectBook(_ book: BibleBook) async {
         selectedBook    = book
-        lastBookId      = book.id
         selectedChapter = nil
-        chapterContent  = nil
+        // Keep chapterContent as-is while the new chapter loads so the screen
+        // never goes blank — the old text fades out when new content arrives.
         chapters        = []
+        lastBookId      = book.id
         await loadChapters(for: book)
     }
 
@@ -134,6 +135,25 @@ final class ReaderViewModel: ObservableObject {
               idx > 0
         else { return }
         await selectChapter(chapters[idx - 1])
+    }
+
+    /// Navigates to the chapter identified by `chapterId` (e.g. "GEN.1").
+    /// Called by ReaderView when the user taps "Open Chapter" from a handwriting search result.
+    func navigateTo(chapterId: String) async {
+        let parts  = chapterId.components(separatedBy: ".")
+        guard !parts.isEmpty else { return }
+        let bookId = parts[0]
+        // Load books if not yet fetched (edge case: app launched on Search tab first).
+        if books.isEmpty, let translation = selectedTranslation {
+            await loadBooks(for: translation)
+        }
+        guard let book = books.first(where: { $0.id == bookId }) else { return }
+        // Only reload book+chapters if we're switching to a different book.
+        if selectedBook?.id != bookId { await selectBook(book) }
+        // After selectBook, chapters is populated; select the target.
+        if let chapter = chapters.first(where: { $0.id == chapterId }) {
+            await selectChapter(chapter)
+        }
     }
 
     // MARK: - Private Loaders

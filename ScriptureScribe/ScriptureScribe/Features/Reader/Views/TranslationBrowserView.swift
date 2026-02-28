@@ -12,9 +12,11 @@ struct TranslationBrowserView: View {
 
     @ObservedObject var vm: ReaderViewModel
     @EnvironmentObject var themeManager: ThemeManager
+    @EnvironmentObject var subscriptionVM: SubscriptionViewModel
     @Environment(\.dismiss) private var dismiss
 
-    @State private var searchText = ""
+    @State private var searchText  = ""
+    @State private var showPaywall = false
 
     var body: some View {
         NavigationStack {
@@ -29,12 +31,19 @@ struct TranslationBrowserView: View {
                         if !english.isEmpty {
                             Section("English") {
                                 ForEach(english) { translation in
+                                    let isLocked = !subscriptionVM.isPremium
+                                        && !PremiumLimits.freeBibleIds.contains(translation.id)
                                     TranslationRow(
                                         translation: translation,
-                                        isSelected: vm.selectedTranslation?.id == translation.id
+                                        isSelected: vm.selectedTranslation?.id == translation.id,
+                                        isLocked: isLocked
                                     )
                                     .onTapGesture {
-                                        Task { await vm.selectTranslation(translation) }
+                                        if isLocked {
+                                            showPaywall = true
+                                        } else {
+                                            Task { await vm.selectTranslation(translation) }
+                                        }
                                     }
                                 }
                             }
@@ -46,12 +55,19 @@ struct TranslationBrowserView: View {
                         ForEach(grouped.keys.sorted(), id: \.self) { language in
                             Section(language) {
                                 ForEach(grouped[language] ?? []) { translation in
+                                    let isLocked = !subscriptionVM.isPremium
+                                        && !PremiumLimits.freeBibleIds.contains(translation.id)
                                     TranslationRow(
                                         translation: translation,
-                                        isSelected: vm.selectedTranslation?.id == translation.id
+                                        isSelected: vm.selectedTranslation?.id == translation.id,
+                                        isLocked: isLocked
                                     )
                                     .onTapGesture {
-                                        Task { await vm.selectTranslation(translation) }
+                                        if isLocked {
+                                            showPaywall = true
+                                        } else {
+                                            Task { await vm.selectTranslation(translation) }
+                                        }
                                     }
                                 }
                             }
@@ -67,6 +83,9 @@ struct TranslationBrowserView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
                 }
+            }
+            .sheet(isPresented: $showPaywall) {
+                PaywallView()
             }
         }
     }
@@ -90,6 +109,7 @@ private struct TranslationRow: View {
 
     let translation: BibleTranslation
     let isSelected:  Bool
+    var isLocked:    Bool = false
 
     var body: some View {
         HStack {
@@ -105,6 +125,7 @@ private struct TranslationRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(translation.name)
                     .font(.body)
+                    .foregroundStyle(isLocked ? .secondary : .primary)
                 Text(translation.language.nameLocal)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -116,6 +137,10 @@ private struct TranslationRow: View {
                 Image(systemName: "checkmark")
                     .foregroundStyle(Color.accentColor)
                     .fontWeight(.semibold)
+            } else if isLocked {
+                Image(systemName: "lock.fill")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .contentShape(Rectangle()) // makes the whole row tappable

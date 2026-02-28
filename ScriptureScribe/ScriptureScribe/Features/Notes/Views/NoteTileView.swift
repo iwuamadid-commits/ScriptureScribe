@@ -6,22 +6,23 @@
 //  Because it lives inside the same ScrollView as the text, it scrolls with the page.
 //
 //  Behaviour:
-//    • Collapsed (default) — shows only the note text. No buttons visible.
-//    • Expanded (tap the text) — header appears with a pencil (edit) and ✕ (delete) button.
+//    • Collapsed (default) — compact bubble fitted to the note text. No buttons.
+//    • Expanded (tap the text) — wider card with a pencil (edit) and ✕ (delete) button.
 //    • Drag anywhere on the tile to reposition it.
-//    • Text always wraps within the tile. Height grows/shrinks with the content.
+//    • Tapping anywhere outside the note collapses it (handled by parent).
 //
 
 import SwiftUI
 
 struct NoteTileView: View {
 
-    let note:      UserNote
-    let areaSize:  CGSize
-    let notesVM:   NotesViewModel
+    let note:     UserNote
+    let areaSize: CGSize
+    @ObservedObject var notesVM: NotesViewModel
 
     @GestureState private var dragOffset: CGSize = .zero
-    @State private var isExpanded: Bool = false
+
+    private var isExpanded: Bool { notesVM.expandedNoteId == note.id }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -43,7 +44,9 @@ struct NoteTileView: View {
                     Spacer(minLength: 0)
 
                     Button(role: .destructive) {
-                        notesVM.deleteNote(id: note.id)
+                        withAnimation(.easeOut(duration: 0.3)) {
+                            notesVM.deleteNote(id: note.id)
+                        }
                     } label: {
                         Image(systemName: "xmark")
                             .font(.caption.weight(.bold))
@@ -57,31 +60,33 @@ struct NoteTileView: View {
             }
 
             // ── Note text ────────────────────────────────────────────────────
-            // Tap the text to expand / collapse the header.
-            // fixedSize(horizontal: false, vertical: true) means the text wraps
-            // at the tile width and the tile grows taller for more content.
             Text(note.text.isEmpty ? "Tap to expand…" : note.text)
                 .font(.system(size: 13))
                 .foregroundStyle(note.text.isEmpty ? Color.black.opacity(0.4) : Color.black)
-                .lineLimit(nil)
+                .lineLimit(isExpanded ? nil : 2)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(8)
+                .frame(maxWidth: isExpanded ? 144 : 140)
+                .padding(.horizontal, isExpanded ? 8 : 6)
+                .padding(.vertical, isExpanded ? 8 : 4)
                 .onTapGesture {
                     withAnimation(.easeInOut(duration: 0.15)) {
-                        isExpanded.toggle()
+                        notesVM.expandedNoteId = isExpanded ? nil : note.id
                     }
                 }
         }
-        .frame(width: 160)                              // fixed width so text always wraps cleanly
+        // Expanded: fixed width for the action buttons.
+        // Collapsed: hug the text content (fixedSize).
+        .frame(width: isExpanded ? 160 : nil)
+        .fixedSize(horizontal: !isExpanded, vertical: !isExpanded)
         .background(Color(hex: note.colorHex))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .shadow(color: .black.opacity(0.18), radius: 4, y: 2)
+        .clipShape(RoundedRectangle(cornerRadius: isExpanded ? 8 : 6))
+        .shadow(color: .black.opacity(0.18), radius: isExpanded ? 4 : 2, y: 2)
         .position(
             x: note.positionX * areaSize.width  + dragOffset.width,
             y: note.positionY * areaSize.height + dragOffset.height
         )
         .gesture(
-            DragGesture(minimumDistance: 8)             // 8 pt minimum so quick taps reach the text
+            DragGesture(minimumDistance: 8)
                 .updating($dragOffset) { value, state, _ in
                     state = value.translation
                 }
@@ -97,6 +102,7 @@ struct NoteTileView: View {
                     notesVM.updatePosition(id: note.id, x: newX, y: newY)
                 }
         )
+        .animation(.easeInOut(duration: 0.15), value: isExpanded)
     }
 
     private func clamp(_ v: Double, lo: Double, hi: Double) -> Double {

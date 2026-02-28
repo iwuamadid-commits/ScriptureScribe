@@ -3,64 +3,184 @@
 //  ScriptureScribe
 //
 //  A transparent PencilKit drawing surface that overlays the Bible text.
-//  It is placed INSIDE the parent ScrollView (same ZStack as the text),
-//  so annotations scroll with the text rather than staying fixed on screen.
 //
-//  contentHeight  — must match the text content height so the canvas covers
-//                   the entire chapter, not just the visible screen area.
-//  containerWidth — used to scale strokes proportionally when the layout
-//                   switches (e.g. full-width → split-view). Without this,
-//                   a stroke at x=700 on a 1024-wide canvas would be clipped
-//                   when the canvas narrows to 512 in split view.
+//  Background OCR (GoodNotes-style):
+//    Whenever the drawing is saved, a Vision text-recognition job is queued
+//    on a background thread (debounced 2 s so rapid strokes don't spam OCR).
+//    The result is stored in HandwritingIndexService, making every chapter's
+//    handwriting instantly searchable from the Search tab.
+//
+//  Auto-shape (pen tool):
+//    Draw a shape, hold still at the end for ~0.5 s, then lift.
+//    The stroke snaps to a clean line, circle, or rectangle.
+//
+//  Straight-line (highlighter tool):
+//    Every committed stroke is straightened when the toggle is on.
 //
 
 import SwiftUI
 import PencilKit
+import Vision
+
+// MARK: - PassThroughPKCanvasView
+
+final class PassThroughPKCanvasView: PKCanvasView {
+
+    var allowFingerDrawing:  Bool = true
+    var isDrawingToolActive: Bool = false
+    var isLassoActive:       Bool = false
+
+    // MARK: Auto-shape hold detection
+
+    var autoShapeEnabled: Bool = false
+    var didHoldAtEnd:     Bool = false
+    private var lastMoveTime: Date = .distantPast
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        lastMoveTime = Date()
+        didHoldAtEnd = false
+        super.touchesBegan(touches, with: event)
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if autoShapeEnabled, let t = touches.first {
+            let cur  = t.location(in: self)
+            let prev = t.previousLocation(in: self)
+            if hypot(cur.x - prev.x, cur.y - prev.y) > 3 { lastMoveTime = Date() }
+        }
+        super.touchesMoved(touches, with: event)
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if autoShapeEnabled {
+            didHoldAtEnd = Date().timeIntervalSince(lastMoveTime) >= 0.5
+        }
+        super.touchesEnded(touches, with: event)
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        didHoldAtEnd = false
+        super.touchesCancelled(touches, with: event)
+    }
+
+    // MARK: Finger pass-through
+
+    private var _isUserInteractionEnabled: Bool = true
+    override var isUserInteractionEnabled: Bool {
+        get {
+            if !allowFingerDrawing && isDrawingToolActive { return true }
+            return _isUserInteractionEnabled
+        }
+        set { _isUserInteractionEnabled = newValue }
+    }
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        // Hand mode: pass ALL touches through the canvas.
+        // Pencil → scroll view handles scrolling
+        // Finger swipe → scroll view handles scrolling
+        // Finger long-press → BibleTextView handles bookmarking
+        if !isDrawingToolActive && !isLassoActive {
+            return nil
+        }
+
+        // Drawing tool with finger drawing: accept all touches for drawing
+        if allowFingerDrawing && isDrawingToolActive {
+            return super.hitTest(point, with: event)
+        }
+
+        // Pencil-only drawing or lasso mode:
+        // accept pencil, pass finger through for bookmarking
+        if let touches = event?.allTouches, !touches.isEmpty {
+            let allArePencil = touches.allSatisfy { $0.type == .pencil }
+            if !allArePencil { return nil }
+        }
+        return super.hitTest(point, with: event)
+    }
+}
+
+// MARK: - AnnotationCanvasView
 
 struct AnnotationCanvasView: UIViewRepresentable {
 
     @ObservedObject var vm: AnnotationViewModel
-    let chapterId:      String
-    let contentHeight:  CGFloat   // must match the text content height
-    let containerWidth: CGFloat   // used to scale strokes when layout changes
+    let chapterId:        String
+    let chapterReference: String   // e.g. "Genesis 1" — stored in OCR index
+    let contentHeight:    CGFloat
+    let containerWidth:   CGFloat
 
-    func makeUIView(context: Context) -> PKCanvasView {
-        let canvas = PKCanvasView()
+    func makeUIView(context: Context) -> PassThroughPKCanvasView {
+        let canvas = PassThroughPKCanvasView()
+        canvas.allowFingerDrawing  = vm.allowFingerDrawing
+        canvas.isDrawingToolActive = vm.isDrawingTool
+        canvas.isLassoActive       = vm.isLassoActive
+        canvas.autoShapeEnabled    = vm.highlighterStraightLines && vm.selectedTool == .pen
         canvas.backgroundColor = .clear
         canvas.isOpaque        = false
         canvas.tool            = vm.pkTool
         canvas.drawingPolicy   = vm.allowFingerDrawing ? .anyInput : .pencilOnly
-        canvas.isUserInteractionEnabled = vm.isAnnotating
+        canvas.isUserInteractionEnabled = vm.isDrawingTool || vm.isLassoActive
         canvas.delegate        = context.coordinator
+        applyFingerPolicy(to: canvas)
 
-        context.coordinator.canvas           = canvas
-        context.coordinator.currentChapterId = chapterId
-        context.coordinator.lastContainerWidth = containerWidth
+        context.coordinator.canvas               = canvas
+        context.coordinator.currentChapterId     = chapterId
+        context.coordinator.currentChapterRef    = chapterReference
+        context.coordinator.lastContainerWidth   = containerWidth
+        vm.currentChapterId = chapterId
 
         if let saved = vm.loadDrawing(for: chapterId) {
+            context.coordinator.previousStrokeCount = saved.strokes.count
             canvas.drawing = saved
         }
 
+        let coordinator = context.coordinator
         vm.undoAction        = { [weak canvas] in canvas?.undoManager?.undo() }
         vm.redoAction        = { [weak canvas] in canvas?.undoManager?.redo() }
-        vm.clearCanvasAction = { [weak canvas] in canvas?.drawing = PKDrawing() }
+        vm.clearCanvasAction = { [weak canvas, weak coordinator] in
+            guard let canvas = canvas else { return }
+            coordinator?.isRewriting = true
+            canvas.drawing = PKDrawing()
+            coordinator?.previousStrokeCount = 0
+            coordinator?.isRewriting = false
+        }
+        vm.getDrawingAction  = { [weak canvas] in canvas?.drawing ?? PKDrawing() }
+        vm.setDrawingAction  = { [weak canvas, weak coordinator] drawing in
+            guard let canvas = canvas else { return }
+            coordinator?.isRewriting = true
+            canvas.drawing = drawing
+            coordinator?.previousStrokeCount = drawing.strokes.count
+            coordinator?.isRewriting = false
+        }
 
         return canvas
     }
 
-    func updateUIView(_ canvas: PKCanvasView, context: Context) {
-        // Chapter changed → save old, load new
+    func updateUIView(_ canvas: PassThroughPKCanvasView, context: Context) {
+        canvas.allowFingerDrawing  = vm.allowFingerDrawing
+        canvas.isDrawingToolActive = vm.isDrawingTool
+        canvas.isLassoActive       = vm.isLassoActive
+        canvas.autoShapeEnabled    = vm.highlighterStraightLines && vm.selectedTool == .pen
+
+        context.coordinator.currentChapterRef = chapterReference
+
+        // Chapter changed → save old drawing, load new
         if context.coordinator.currentChapterId != chapterId {
-            let old = context.coordinator.currentChapterId
-            if !old.isEmpty { vm.saveDrawing(canvas.drawing, for: old) }
-            canvas.drawing = vm.loadDrawing(for: chapterId) ?? PKDrawing()
+            let oldId = context.coordinator.currentChapterId
+            if !oldId.isEmpty && !canvas.drawing.strokes.isEmpty {
+                vm.saveDrawing(canvas.drawing, for: oldId)
+            }
+
             context.coordinator.currentChapterId = chapterId
-            // Reset width tracking for the new chapter so we don't mis-scale
+            vm.currentChapterId = chapterId
+
+            let newDrawing = vm.loadDrawing(for: chapterId) ?? PKDrawing()
+            context.coordinator.previousStrokeCount = newDrawing.strokes.count
+            canvas.drawing = newDrawing
+
             context.coordinator.lastContainerWidth = containerWidth
         }
 
-        // Container width changed (e.g. full-width ↔ split-view) →
-        // scale the drawing so strokes stay proportionally in the same place.
+        // Container width changed (full-width ↔ split-view) → scale strokes
         let previousWidth = context.coordinator.lastContainerWidth
         if previousWidth > 1 && containerWidth > 1 &&
            abs(previousWidth - containerWidth) > 2 {
@@ -68,30 +188,360 @@ struct AnnotationCanvasView: UIViewRepresentable {
             let transform = CGAffineTransform(scaleX: scale, y: scale)
             let scaled    = canvas.drawing.transformed(using: transform)
             canvas.drawing = scaled
-            vm.saveDrawing(scaled, for: chapterId)
+            // Only persist if there is actual content — avoids creating empty files
+            // that would falsely trigger the annotation indicator dot.
+            if !scaled.strokes.isEmpty {
+                vm.saveDrawing(scaled, for: chapterId)
+            }
         }
         context.coordinator.lastContainerWidth = containerWidth
 
         canvas.tool            = vm.pkTool
         canvas.drawingPolicy   = vm.allowFingerDrawing ? .anyInput : .pencilOnly
-        canvas.isUserInteractionEnabled = vm.isAnnotating
+        canvas.isUserInteractionEnabled = vm.isDrawingTool || vm.isLassoActive
+        applyFingerPolicy(to: canvas)
+    }
+
+    // MARK: - Finger policy helper
+
+    private func applyFingerPolicy(to canvas: PKCanvasView) {
+        let pencilOnly: [NSNumber] = [NSNumber(value: UITouch.TouchType.pencil.rawValue)]
+        let anyInput:   [NSNumber] = [
+            NSNumber(value: UITouch.TouchType.direct.rawValue),
+            NSNumber(value: UITouch.TouchType.pencil.rawValue),
+            NSNumber(value: UITouch.TouchType.indirectPointer.rawValue)
+        ]
+        let allowed = vm.allowFingerDrawing ? anyInput : pencilOnly
+        for recognizer in canvas.gestureRecognizers ?? [] {
+            recognizer.allowedTouchTypes = allowed
+        }
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(vm: vm) }
 
+    // MARK: - Coordinator
+
     class Coordinator: NSObject, PKCanvasViewDelegate {
         let vm: AnnotationViewModel
-        var currentChapterId   = ""
+        var currentChapterId  = ""
+        var currentChapterRef = ""
         var lastContainerWidth: CGFloat = 0
         weak var canvas: PKCanvasView?
 
+        var previousStrokeCount = 0
+        var isRewriting = false
+        private var ocrTimer:    Timer?
+
         init(vm: AnnotationViewModel) { self.vm = vm }
+
+        // MARK: Drawing delegate
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
             guard !currentChapterId.isEmpty else { return }
-            let drawing = canvasView.drawing
-            let id      = currentChapterId
-            Task { @MainActor in self.vm.saveDrawing(drawing, for: id) }
+            guard !isRewriting             else { return }
+
+            // During lasso drag, setDrawingAction fires this delegate every frame.
+            // Skip saving/OCR to keep movement smooth — positions are persisted on drag end.
+            if vm.suppressCanvasSave {
+                previousStrokeCount = canvasView.drawing.strokes.count
+                return
+            }
+
+            let currentCount = canvasView.drawing.strokes.count
+            let strokeAdded  = currentCount > previousStrokeCount
+            previousStrokeCount = currentCount
+
+            // Lasso mode: capture the drawn stroke as a lasso path, then remove it.
+            // The canvas renders the blue lasso line in real-time via PencilKit;
+            // on completion we extract the points and hand them to LassoOverlayView.
+            if vm.isLassoActive && strokeAdded {
+                if let lastStroke = canvasView.drawing.strokes.last {
+                    let pathPoints = (0..<lastStroke.path.count).map {
+                        lastStroke.path[$0].location
+                    }
+
+                    // Remove the temporary lasso stroke from the canvas
+                    var drawing = canvasView.drawing
+                    drawing.strokes.removeLast()
+                    vm.suppressCanvasSave = true
+                    previousStrokeCount = drawing.strokes.count
+                    isRewriting = true
+                    canvasView.drawing = drawing
+                    isRewriting = false
+                    vm.suppressCanvasSave = false
+
+                    if pathPoints.count >= 3 {
+                        // Defer to next run-loop to avoid nested SwiftUI updates
+                        DispatchQueue.main.async { [weak self] in
+                            self?.vm.lassoPathPoints = pathPoints
+                        }
+                    }
+                }
+                return
+            }
+
+            if strokeAdded && vm.highlighterStraightLines {
+                switch vm.selectedTool {
+                case .pen:
+                    if let pcv = canvasView as? PassThroughPKCanvasView,
+                       pcv.didHoldAtEnd,
+                       snapToShape(in: canvasView) {
+                        return
+                    }
+                case .highlighter:
+                    straightenLastStroke(in: canvasView)
+                    return
+                default: break
+                }
+            }
+
+            save(canvasView.drawing)
+        }
+
+        // MARK: - Save + background OCR
+
+        private func save(_ drawing: PKDrawing) {
+            vm.saveDrawing(drawing, for: currentChapterId)
+            scheduleOCR(drawing: drawing)
+        }
+
+        /// Debounced: waits 2 s after the last change before running Vision OCR,
+        /// so rapid strokes don't each trigger a full recognition pass.
+        private func scheduleOCR(drawing: PKDrawing) {
+            ocrTimer?.invalidate()
+            let chapterId = currentChapterId
+            let reference = currentChapterRef
+            ocrTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { _ in
+                DispatchQueue.global(qos: .background).async {
+                    Self.runOCR(drawing: drawing, chapterId: chapterId, reference: reference)
+                }
+            }
+        }
+
+        /// Renders the drawing to an image and runs Vision text recognition.
+        /// Result is stored in HandwritingIndexService on the main thread.
+        private static func runOCR(drawing: PKDrawing, chapterId: String, reference: String) {
+            guard !drawing.strokes.isEmpty else {
+                DispatchQueue.main.async {
+                    HandwritingIndexService.shared.store(text: "", reference: reference, for: chapterId)
+                }
+                return
+            }
+
+            let bounds = drawing.bounds.isEmpty
+                ? CGRect(x: 0, y: 0, width: 100, height: 100)
+                : drawing.bounds.insetBy(dx: -20, dy: -20)
+            let image = drawing.image(from: bounds, scale: 2)
+            guard let cgImage = image.cgImage else { return }
+
+            let request = VNRecognizeTextRequest { req, _ in
+                let recognized = (req.results as? [VNRecognizedTextObservation] ?? [])
+                    .compactMap { $0.topCandidates(1).first?.string }
+                    .joined(separator: " ")
+                DispatchQueue.main.async {
+                    HandwritingIndexService.shared.store(text: recognized,
+                                                        reference: reference,
+                                                        for: chapterId)
+                }
+            }
+            request.recognitionLevel       = .accurate
+            request.usesLanguageCorrection = true
+            try? VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
+        }
+
+        // MARK: - Straight-line snapping (highlighter)
+
+        private func straightenLastStroke(in canvasView: PKCanvasView) {
+            let strokes = canvasView.drawing.strokes
+            guard let last = strokes.last, last.path.count >= 2 else {
+                save(canvasView.drawing); return
+            }
+            let p0 = last.path[0]
+            let p1 = last.path[last.path.count - 1]
+            let mid = PKStrokePoint(
+                location:   CGPoint(x: (p0.location.x + p1.location.x) / 2,
+                                    y: (p0.location.y + p1.location.y) / 2),
+                timeOffset: (p0.timeOffset + p1.timeOffset) / 2,
+                size:       CGSize(width:  (p0.size.width  + p1.size.width)  / 2,
+                                   height: (p0.size.height + p1.size.height) / 2),
+                opacity:    (p0.opacity  + p1.opacity)  / 2,
+                force:      (p0.force    + p1.force)    / 2,
+                azimuth:    (p0.azimuth  + p1.azimuth)  / 2,
+                altitude:   (p0.altitude + p1.altitude) / 2
+            )
+            let path     = PKStrokePath(controlPoints: [p0, mid, p1],
+                                        creationDate: last.path.creationDate)
+            let straight = PKStroke(ink: last.ink, path: path, transform: last.transform)
+            rewrite(canvasView: canvasView, replacing: strokes.count - 1, with: straight)
+        }
+
+        // MARK: - Auto-shape recognition (pen)
+
+        @discardableResult
+        private func snapToShape(in canvasView: PKCanvasView) -> Bool {
+            let strokes = canvasView.drawing.strokes
+            guard let last = strokes.last, last.path.count >= 3 else { return false }
+            let pts = (0..<last.path.count).map { last.path[$0].location }
+            guard let shaped = recognizeShape(points: pts, template: last) else { return false }
+            rewrite(canvasView: canvasView, replacing: strokes.count - 1, with: shaped)
+            return true
+        }
+
+        private func recognizeShape(points: [CGPoint], template: PKStroke) -> PKStroke? {
+            guard points.count >= 3 else { return nil }
+            if straightnessRatio(points) > 0.88 {
+                return lineStroke(from: points.first!, to: points.last!, template: template)
+            }
+            let span = boundingSpan(points)
+            guard span > 20 else { return nil }
+            let gap = hypot(points.first!.x - points.last!.x,
+                            points.first!.y - points.last!.y)
+            guard gap / span < 0.30 else { return nil }
+            if let (center, radius) = fitCircle(points) {
+                return circleStroke(center: center, radius: radius, template: template)
+            }
+            if let rect = fitRectangle(points) {
+                return rectangleStroke(rect: rect, template: template)
+            }
+            return nil
+        }
+
+        // MARK: Shape geometry
+
+        private func straightnessRatio(_ pts: [CGPoint]) -> CGFloat {
+            let arc = zip(pts, pts.dropFirst())
+                .reduce(CGFloat(0)) { $0 + hypot($1.1.x - $1.0.x, $1.1.y - $1.0.y) }
+            guard arc > 0 else { return 0 }
+            return hypot(pts.last!.x - pts.first!.x, pts.last!.y - pts.first!.y) / arc
+        }
+
+        private func boundingSpan(_ pts: [CGPoint]) -> CGFloat {
+            let minX = pts.map(\.x).min()!, maxX = pts.map(\.x).max()!
+            let minY = pts.map(\.y).min()!, maxY = pts.map(\.y).max()!
+            return hypot(maxX - minX, maxY - minY)
+        }
+
+        private func fitCircle(_ pts: [CGPoint]) -> (CGPoint, CGFloat)? {
+            let n  = CGFloat(pts.count)
+            let cx = pts.map(\.x).reduce(0, +) / n
+            let cy = pts.map(\.y).reduce(0, +) / n
+            let radii  = pts.map { hypot($0.x - cx, $0.y - cy) }
+            let mean   = radii.reduce(0, +) / n
+            guard mean > 10 else { return nil }
+            let stdDev = sqrt(radii.map { pow($0 - mean, 2) }.reduce(0, +) / n)
+            guard stdDev / mean < 0.18 else { return nil }
+            return (CGPoint(x: cx, y: cy), mean)
+        }
+
+        private func fitRectangle(_ pts: [CGPoint]) -> CGRect? {
+            let minX = pts.map(\.x).min()!, maxX = pts.map(\.x).max()!
+            let minY = pts.map(\.y).min()!, maxY = pts.map(\.y).max()!
+            let w = maxX - minX, h = maxY - minY
+            guard w > 20, h > 20 else { return nil }
+            let thr  = min(w, h) * 0.22
+            let near = pts.filter {
+                abs($0.x - minX) < thr || abs($0.x - maxX) < thr ||
+                abs($0.y - minY) < thr || abs($0.y - maxY) < thr
+            }
+            guard CGFloat(near.count) / CGFloat(pts.count) > 0.72 else { return nil }
+            return CGRect(x: minX, y: minY, width: w, height: h)
+        }
+
+        // MARK: Shape stroke builders
+
+        private func lineStroke(from start: CGPoint, to end: CGPoint,
+                                template: PKStroke) -> PKStroke {
+            let n  = template.path.count
+            let t0 = template.path[0], t1 = template.path[n - 1]
+            let mid = PKStrokePoint(
+                location:   CGPoint(x: (start.x + end.x) / 2, y: (start.y + end.y) / 2),
+                timeOffset: (t0.timeOffset + t1.timeOffset) / 2,
+                size:       CGSize(width:  (t0.size.width  + t1.size.width)  / 2,
+                                   height: (t0.size.height + t1.size.height) / 2),
+                opacity:    (t0.opacity  + t1.opacity)  / 2,
+                force:      (t0.force    + t1.force)    / 2,
+                azimuth:    (t0.azimuth  + t1.azimuth)  / 2,
+                altitude:   (t0.altitude + t1.altitude) / 2
+            )
+            let path = PKStrokePath(controlPoints: [t0, mid, t1],
+                                    creationDate: template.path.creationDate)
+            return PKStroke(ink: template.ink, path: path, transform: template.transform)
+        }
+
+        private func circleStroke(center: CGPoint, radius: CGFloat,
+                                  template: PKStroke) -> PKStroke {
+            let t0 = template.path[0]
+            let avgSize  = averageSize(template.path)
+            let avgProps = averageProps(template.path)
+            var cpts: [PKStrokePoint] = []
+            for i in 0...32 {
+                let angle = CGFloat(i) / 32 * 2 * .pi
+                cpts.append(PKStrokePoint(
+                    location:   CGPoint(x: center.x + radius * cos(angle),
+                                        y: center.y + radius * sin(angle)),
+                    timeOffset: t0.timeOffset + Double(i) * 0.01,
+                    size: avgSize, opacity: avgProps.opacity, force: avgProps.force,
+                    azimuth: t0.azimuth, altitude: t0.altitude
+                ))
+            }
+            let path = PKStrokePath(controlPoints: cpts, creationDate: template.path.creationDate)
+            return PKStroke(ink: template.ink, path: path, transform: template.transform)
+        }
+
+        private func rectangleStroke(rect: CGRect, template: PKStroke) -> PKStroke {
+            let t0       = template.path[0]
+            let avgSize  = averageSize(template.path)
+            let avgProps = averageProps(template.path)
+            let corners: [CGPoint] = [
+                CGPoint(x: rect.minX, y: rect.minY), CGPoint(x: rect.maxX, y: rect.minY),
+                CGPoint(x: rect.maxX, y: rect.maxY), CGPoint(x: rect.minX, y: rect.maxY),
+                CGPoint(x: rect.minX, y: rect.minY)
+            ]
+            var locs: [CGPoint] = []
+            for i in 0..<4 {
+                locs.append(corners[i])
+                locs.append(CGPoint(x: (corners[i].x + corners[i+1].x) / 2,
+                                    y: (corners[i].y + corners[i+1].y) / 2))
+            }
+            locs.append(corners[0])
+            let cpts = locs.enumerated().map { i, loc in
+                PKStrokePoint(location: loc, timeOffset: t0.timeOffset + Double(i) * 0.01,
+                              size: avgSize, opacity: avgProps.opacity, force: avgProps.force,
+                              azimuth: t0.azimuth, altitude: t0.altitude)
+            }
+            let path = PKStrokePath(controlPoints: cpts, creationDate: template.path.creationDate)
+            return PKStroke(ink: template.ink, path: path, transform: template.transform)
+        }
+
+        // MARK: Stroke attribute helpers
+
+        private func averageSize(_ path: PKStrokePath) -> CGSize {
+            let n = CGFloat(path.count)
+            let w = (0..<path.count).map { path[$0].size.width  }.reduce(0, +) / n
+            let h = (0..<path.count).map { path[$0].size.height }.reduce(0, +) / n
+            return CGSize(width: w, height: h)
+        }
+
+        private struct StrokeProps { let opacity: CGFloat; let force: CGFloat }
+        private func averageProps(_ path: PKStrokePath) -> StrokeProps {
+            let n = CGFloat(path.count)
+            let o = (0..<path.count).map { path[$0].opacity }.reduce(0, +) / n
+            let f = (0..<path.count).map { path[$0].force   }.reduce(0, +) / n
+            return StrokeProps(opacity: o, force: f)
+        }
+
+        // MARK: Write-back helper
+
+        private func rewrite(canvasView: PKCanvasView, replacing index: Int,
+                             with stroke: PKStroke) {
+            var strokes = canvasView.drawing.strokes
+            guard index < strokes.count else { return }
+            strokes[index] = stroke
+            isRewriting = true
+            canvasView.drawing = PKDrawing(strokes: strokes)
+            isRewriting = false
+            previousStrokeCount = canvasView.drawing.strokes.count
+            save(canvasView.drawing)
         }
     }
 }

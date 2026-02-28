@@ -16,26 +16,28 @@ struct Bookmark: Identifiable, Codable {
     let bibleId:          String
     let bookId:           String
     let chapterId:        String
-    let chapterReference: String   // e.g. "Genesis 1 v3-5" — for display in the list
+    let chapterReference: String   // e.g. "Genesis 1: 3-5" — for display in the list
     var verseId:          String   // verse number, or "" for a chapter-level bookmark
     var verseIdEnd:       String   // end of range (e.g. "5" for v3-5), or "" for single verse
     var verseText:        String   // the verse text (or combined text for range), or "" for chapter
     var colorHex:         String   // e.g. "FF5733" — the ribbon color the user chose
     var emoji:            String   // e.g. "⭐" — the emoji the user chose
+    var groupId:          String?  // nil = ungrouped; set to a BookmarkGroup.id when assigned
     let createdAt:        Date
 
-    // Custom init so callers can omit verseId/verseIdEnd/verseText (defaults to "")
+    // Custom init so callers can omit verseId/verseIdEnd/verseText/groupId (all default to "" or nil)
     init(
-        id:               String = UUID().uuidString,
+        id:               String  = UUID().uuidString,
         bibleId:          String,
         bookId:           String,
         chapterId:        String,
         chapterReference: String,
-        verseId:          String = "",
-        verseIdEnd:       String = "",
-        verseText:        String = "",
+        verseId:          String  = "",
+        verseIdEnd:       String  = "",
+        verseText:        String  = "",
         colorHex:         String,
         emoji:            String,
+        groupId:          String? = nil,
         createdAt:        Date
     ) {
         self.id               = id
@@ -48,6 +50,7 @@ struct Bookmark: Identifiable, Codable {
         self.verseText        = verseText
         self.colorHex         = colorHex
         self.emoji            = emoji
+        self.groupId          = groupId
         self.createdAt        = createdAt
     }
 

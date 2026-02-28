@@ -16,8 +16,9 @@ struct NoteEditorView: View {
     @Environment(\.dismiss) private var dismiss
 
     // Local copy of the note being edited
-    @State private var noteText:    String = ""
+    @State private var noteText:     String = ""
     @State private var noteColorHex: String = UserNote.presetColors[0].hex
+    @State private var isNewNote:    Bool   = false   // true when note was blank on open
     @FocusState private var textFieldFocused: Bool
 
     var body: some View {
@@ -84,9 +85,21 @@ struct NoteEditorView: View {
             if let note = notesVM.editingNote {
                 noteText     = note.text
                 noteColorHex = note.colorHex
+                // Track whether this note was freshly created (no text yet)
+                isNewNote    = note.text.isEmpty
             }
             // Open the keyboard automatically
             textFieldFocused = true
+        }
+        .onDisappear {
+            // If the note was new and the user never typed anything,
+            // remove it so no blank note is left on the page.
+            if isNewNote,
+               noteText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               let note = notesVM.editingNote {
+                notesVM.deleteNote(id: note.id)
+            }
+            notesVM.editingNote = nil
         }
     }
 

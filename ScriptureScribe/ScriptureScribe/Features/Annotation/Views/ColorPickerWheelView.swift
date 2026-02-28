@@ -16,6 +16,7 @@ import SwiftUI
 struct ColorPickerWheelView: View {
 
     @Binding var selectedColor: UIColor
+    var onSave: ((UIColor) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
 
     // Live HSB components
@@ -51,16 +52,28 @@ struct ColorPickerWheelView: View {
                     .padding(.bottom, 18)
 
                 // ── HSB Square ───────────────────────────────────────────
-                HSBSquareView(hue: $hue, saturation: $saturation, brightness: $brightness)
+                HSBSquareViewFull(hue: $hue, saturation: $saturation, brightness: $brightness)
                     .aspectRatio(1, contentMode: .fit)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                     .padding(.horizontal, 20)
 
                 // ── Hue Slider ───────────────────────────────────────────
-                HueSliderView(hue: $hue)
+                HueSliderViewFull(hue: $hue)
                     .frame(height: 30)
                     .padding(.horizontal, 20)
                     .padding(.top, 20)
+
+                // ── Saturation Slider ─────────────────────────────────────
+                SaturationSliderViewFull(hue: $hue, saturation: $saturation, brightness: $brightness)
+                    .frame(height: 30)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 12)
+
+                // ── Brightness Slider ─────────────────────────────────────
+                BrightnessSliderViewFull(hue: $hue, saturation: $saturation, brightness: $brightness)
+                    .frame(height: 30)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 12)
 
                 // ── History ──────────────────────────────────────────────
                 historySection
@@ -108,6 +121,7 @@ struct ColorPickerWheelView: View {
             Button("Done") {
                 selectedColor = currentUIColor
                 saveToHistory(currentUIColor)
+                onSave?(currentUIColor)
                 dismiss()
             }
             .font(.subheadline.weight(.semibold))
@@ -183,7 +197,7 @@ struct ColorPickerWheelView: View {
 // MARK: - HSB Square
 
 /// 2-D color field: saturation on the X axis, brightness on the Y axis.
-private struct HSBSquareView: View {
+private struct HSBSquareViewFull: View {
 
     @Binding var hue:        Double
     @Binding var saturation: Double
@@ -225,10 +239,100 @@ private struct HSBSquareView: View {
     }
 }
 
+// MARK: - Saturation Slider
+
+/// Horizontal bar showing gray → full hue color; drag to set saturation.
+private struct SaturationSliderViewFull: View {
+
+    @Binding var hue:        Double
+    @Binding var saturation: Double
+    @Binding var brightness: Double
+
+    var body: some View {
+        GeometryReader { geo in
+            let handleSize: CGFloat = geo.size.height + 8
+            let trackWidth          = geo.size.width - handleSize
+            let handleOffset        = CGFloat(saturation) * trackWidth
+
+            ZStack(alignment: .leading) {
+                LinearGradient(
+                    colors: [
+                        Color(UIColor(hue: CGFloat(hue), saturation: 0, brightness: CGFloat(brightness), alpha: 1)),
+                        Color(UIColor(hue: CGFloat(hue), saturation: 1, brightness: CGFloat(brightness), alpha: 1))
+                    ],
+                    startPoint: .leading,
+                    endPoint:   .trailing
+                )
+                .clipShape(Capsule())
+                .frame(height: geo.size.height)
+
+                Circle()
+                    .fill(Color(UIColor(hue: CGFloat(hue), saturation: CGFloat(saturation), brightness: CGFloat(brightness), alpha: 1)))
+                    .overlay(Circle().stroke(Color.white, lineWidth: 2.5))
+                    .shadow(color: .black.opacity(0.35), radius: 3)
+                    .frame(width: handleSize, height: handleSize)
+                    .offset(x: handleOffset)
+            }
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        saturation = min(max(Double(value.location.x / geo.size.width), 0), 1)
+                    }
+            )
+        }
+    }
+}
+
+// MARK: - Brightness Slider
+
+/// Horizontal bar showing black → full-brightness hue; drag to set brightness.
+private struct BrightnessSliderViewFull: View {
+
+    @Binding var hue:        Double
+    @Binding var saturation: Double
+    @Binding var brightness: Double
+
+    var body: some View {
+        GeometryReader { geo in
+            let handleSize: CGFloat = geo.size.height + 8
+            let trackWidth          = geo.size.width - handleSize
+            let handleOffset        = CGFloat(brightness) * trackWidth
+
+            ZStack(alignment: .leading) {
+                LinearGradient(
+                    colors: [
+                        .black,
+                        Color(UIColor(hue: CGFloat(hue), saturation: CGFloat(saturation), brightness: 1, alpha: 1))
+                    ],
+                    startPoint: .leading,
+                    endPoint:   .trailing
+                )
+                .clipShape(Capsule())
+                .frame(height: geo.size.height)
+
+                Circle()
+                    .fill(Color(UIColor(hue: CGFloat(hue), saturation: CGFloat(saturation), brightness: CGFloat(brightness), alpha: 1)))
+                    .overlay(Circle().stroke(Color.white, lineWidth: 2.5))
+                    .shadow(color: .black.opacity(0.35), radius: 3)
+                    .frame(width: handleSize, height: handleSize)
+                    .offset(x: handleOffset)
+            }
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        brightness = min(max(Double(value.location.x / geo.size.width), 0), 1)
+                    }
+            )
+        }
+    }
+}
+
 // MARK: - Hue Slider
 
 /// Horizontal rainbow bar — drag to set the hue.
-private struct HueSliderView: View {
+private struct HueSliderViewFull: View {
 
     @Binding var hue: Double
 

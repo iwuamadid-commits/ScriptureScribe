@@ -38,4 +38,16 @@ enum AppConfig {
     }()
 
     static let bibleAPIBaseURL = "https://rest.api.bible/v1"
+
+    /// Anthropic (Claude) API key — optional. Returns nil if not configured.
+    /// The app falls back to local JSON devotionals gracefully; it does NOT crash.
+    static var anthropicAPIKey: String? {
+        guard let key = Bundle.main.object(forInfoDictionaryKey: "ANTHROPIC_API_KEY") as? String,
+              !key.isEmpty,
+              key != "your_claude_api_key_here"
+        else { return nil }
+        return key
+    }
+
+    static let anthropicBaseURL = "https://api.anthropic.com/v1/messages"
 }

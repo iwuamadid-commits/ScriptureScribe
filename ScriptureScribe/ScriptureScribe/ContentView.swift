@@ -2,88 +2,81 @@
 //  ContentView.swift
 //  ScriptureScribe
 //
-//  Root tab bar. Each tab will be replaced with its real view as phases complete:
-//    Phase 1 → ReaderView
-//    Phase 4 → SearchView
-//    Phase 5 → DailyView
-//    Phase 6 → CommunityView, ProfileView
+//  Root tab bar. selectedTab is driven by AppNavigation so that other views
+//  can programmatically switch tabs (e.g. Reader tab when tapping a verse).
 //
 
 import SwiftUI
 
 struct ContentView: View {
+
+    @EnvironmentObject var appNav:              AppNavigation
+    @EnvironmentObject var themeManager:        ThemeManager
+    @EnvironmentObject var authVM:              AuthViewModel
+    @EnvironmentObject var bookmarksVM:         BookmarksViewModel
+    @EnvironmentObject var notesVM:             NotesViewModel
+    @EnvironmentObject var savedDevotionalsVM:  SavedDevotionalsViewModel
+    @EnvironmentObject var habitsVM:            HabitsViewModel
+
+    /// Tells iOS whether to render system chrome (status bar, titles) in light or dark mode.
+    private var preferredColorScheme: ColorScheme {
+        ["Midnight", "Forest", "Royal"].contains(themeManager.currentTheme.name) ? .dark : .light
+    }
+
     var body: some View {
-        TabView {
+        TabView(selection: $appNav.selectedTab) {
+
             ReaderView()
-                .tabItem {
-                    Label("Reader", systemImage: "book.fill")
-                }
+                .tabItem { Label("Reader", systemImage: "book.fill") }
+                .tag(0)
 
-            DailyPlaceholderView()
-                .tabItem {
-                    Label("Daily", systemImage: "sun.max.fill")
-                }
+            DailyView()
+                .tabItem { Label("Daily", systemImage: "sun.max.fill") }
+                .tag(1)
 
-            SearchPlaceholderView()
-                .tabItem {
-                    Label("Search", systemImage: "magnifyingglass")
-                }
+            HabitsView()
+                .tabItem { Label("Habits", systemImage: "checkmark.circle.fill") }
+                .tag(2)
 
-            CommunityPlaceholderView()
-                .tabItem {
-                    Label("Community", systemImage: "person.2.fill")
-                }
+            FeedView()
+                .tabItem { Label("Community", systemImage: "person.2.fill") }
+                .tag(3)
 
-            ProfilePlaceholderView()
-                .tabItem {
-                    Label("Profile", systemImage: "person.circle.fill")
-                }
+            SavedView()
+                .tabItem { Label("Library", systemImage: "bookmark.fill") }
+                .tag(4)
+
+            ProfileView()
+                .tabItem { Label("Profile", systemImage: "person.circle.fill") }
+                .tag(5)
         }
-    }
-}
-
-// MARK: - Placeholder Views (each replaced in its respective phase)
-
-private struct DailyPlaceholderView: View {
-    var body: some View {
-        NavigationStack {
-            Text("Daily Verse — Phase 5")
-                .foregroundStyle(.secondary)
-                .navigationTitle("Daily")
-        }
-    }
-}
-
-private struct SearchPlaceholderView: View {
-    var body: some View {
-        NavigationStack {
-            Text("Search — Phase 4")
-                .foregroundStyle(.secondary)
-                .navigationTitle("Search")
-        }
-    }
-}
-
-private struct CommunityPlaceholderView: View {
-    var body: some View {
-        NavigationStack {
-            Text("Community — Phase 6")
-                .foregroundStyle(.secondary)
-                .navigationTitle("Community")
-        }
-    }
-}
-
-private struct ProfilePlaceholderView: View {
-    var body: some View {
-        NavigationStack {
-            Text("Profile — Phase 6")
-                .foregroundStyle(.secondary)
-                .navigationTitle("Profile")
+        // Selected tab icon uses the theme's primary colour
+        .tint(themeManager.currentTheme.primary)
+        // Tab bar background matches the theme's surface colour
+        .toolbarBackground(themeManager.currentTheme.surface, for: .tabBar)
+        .toolbarBackground(.visible, for: .tabBar)
+        // Drives status bar, title, and system icon rendering across all child views
+        .preferredColorScheme(preferredColorScheme)
+        // When the user signs in, sync local data to Firestore
+        .onChange(of: authVM.isSignedIn) { _, signedIn in
+            guard signedIn, let userId = authVM.currentUserID else { return }
+            Task {
+                await bookmarksVM.syncOnSignIn(userId: userId)
+                await notesVM.syncOnSignIn(userId: userId)
+                await savedDevotionalsVM.load(userId: userId)
+                await habitsVM.syncOnSignIn(userId: userId)
+            }
         }
     }
 }
 
 #Preview {
     ContentView()
+        .environmentObject(AppNavigation())
+        .environmentObject(ThemeManager())
+        .environmentObject(AuthViewModel())
+        .environmentObject(BookmarksViewModel())
+        .environmentObject(NotesViewModel())
+        .environmentObject(SavedDevotionalsViewModel())
+        .environmentObject(HabitsViewModel())
 }

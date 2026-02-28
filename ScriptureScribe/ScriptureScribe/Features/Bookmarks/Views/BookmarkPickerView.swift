@@ -2,181 +2,301 @@
 //  BookmarkPickerView.swift
 //  ScriptureScribe
 //
-//  Sheet for bookmarking a chapter. The user picks a ribbon color (preset swatches
-//  or a custom color wheel) and an emoji label, then saves or removes the bookmark.
+//  Instagram/TikTok-style "Save to Collection" bottom sheet.
+//
+//  • Shows a verse preview thumbnail at the top.
+//  • Lists all existing groups with a "+" to instantly save into that group.
+//  • "New collection" link opens CreateGroupSheet.
+//  • "Save without a collection" saves the bookmark ungrouped.
+//  • After saving, a checkmark replaces "+" for ~1 second, then the sheet dismisses.
+//
+//  BookmarksViewModel is read via @EnvironmentObject — so the group list
+//  stays live even after the user creates a new collection from inside this sheet.
 //
 
 import SwiftUI
 
 struct BookmarkPickerView: View {
 
-    let chapterReference:    String
+    // Verse info passed in from ReaderView
+    let chapterReference: String
+    let verseText:        String
     let isAlreadyBookmarked: Bool
-    let onSave:   (String, String) -> Void
+
+    // Callbacks
+    let onSave:   (String, String, String?) -> Void  // (colorHex, emoji, groupId?)
     let onRemove: () -> Void
 
+    @EnvironmentObject var bookmarksVM:    BookmarksViewModel
+    @EnvironmentObject var subscriptionVM: SubscriptionViewModel
     @Environment(\.dismiss) private var dismiss
 
-    @State private var selectedColorHex: String  = Bookmark.presetColors[0].hex
-    @State private var selectedEmoji:    String  = Bookmark.presetEmojis[0]
-    @State private var customUIColor:    UIColor = UIColor(red: 0.96, green: 0.79, blue: 0.26, alpha: 1)
-    @State private var useCustomColor   = false
-    @State private var showCustomPicker = false
+    @State private var savedGroupId:    String? = nil  // which group just got the checkmark
+    @State private var savedUngrouped               = false
+    @State private var showCreateGroup              = false
+    @State private var showImageComposer            = false
+    @State private var showPaywall                  = false
 
-    private var activeColorHex: String {
-        useCustomColor ? customUIColor.hexString : selectedColorHex
+    private var atCollectionLimit: Bool {
+        !subscriptionVM.isPremium && bookmarksVM.groups.count >= PremiumLimits.maxFreeCollections
     }
+
+    private var verseShareText: String {
+        var parts: [String] = [chapterReference]
+        if !verseText.isEmpty { parts.append("\"\(verseText)\"") }
+        parts.append("Shared from Scripture Scribe")
+        let encodedRef = chapterReference.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? chapterReference
+        parts.append("scripturescribe://verse/\(encodedRef)")
+        return parts.joined(separator: "\n\n")
+    }
+
+    // MARK: - Body
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 24) {
+            VStack(spacing: 0) {
 
-                    // Chapter name
-                    Text(chapterReference)
-                        .font(.title3.bold())
-                        .padding(.top, 8)
+                // Drag handle
+                Capsule()
+                    .fill(Color(.systemGray4))
+                    .frame(width: 36, height: 5)
+                    .padding(.top, 10)
+                    .padding(.bottom, 14)
 
-                    // — Emoji row (shown first so colors are lower) —
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Emoji Label")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 20)
+                // ── Verse preview ──────────────────────────────────────────
+                versePreview
+                    .padding(.horizontal, 16)
 
-                        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 5), spacing: 12) {
-                            ForEach(Bookmark.presetEmojis, id: \.self) { emoji in
-                                emojiButton(emoji)
+                Divider()
+                    .padding(.vertical, 14)
+
+                // ── Collections header ─────────────────────────────────────
+                HStack {
+                    Text("Collections")
+                        .font(.headline)
+                    Spacer()
+                    Button {
+                        if atCollectionLimit {
+                            showPaywall = true
+                        } else {
+                            showCreateGroup = true
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text("New collection")
+                            if atCollectionLimit {
+                                Image(systemName: "lock.fill")
+                                    .font(.caption2)
                             }
                         }
-                        .padding(.horizontal, 20)
                     }
+                    .font(.subheadline)
+                    .foregroundStyle(.blue)
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 10)
 
-                    // — Ribbon Color —
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Ribbon Color")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 20)
+                // ── Group list ─────────────────────────────────────────────
+                if bookmarksVM.groups.isEmpty {
+                    emptyCollectionsHint
+                } else {
+                    groupList
+                }
 
-                        // Preset color swatches
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 12) {
-                                ForEach(Bookmark.presetColors, id: \.hex) { option in
-                                    colorSwatch(name: option.name, hex: option.hex)
-                                }
+                Divider()
+                    .padding(.vertical, 10)
 
-                                // Custom color button
-                                Button {
-                                    showCustomPicker = true
-                                } label: {
-                                    ZStack {
-                                        Circle()
-                                            .fill(
-                                                AngularGradient(
-                                                    colors: [.red,.orange,.yellow,.green,.blue,.purple,.red],
-                                                    center: .center
-                                                )
-                                            )
-                                            .frame(width: 40, height: 40)
-                                        if useCustomColor {
-                                            Circle()
-                                                .stroke(.white, lineWidth: 3)
-                                                .frame(width: 40, height: 40)
-                                        }
-                                    }
-                                }
-                                .accessibilityLabel("Custom color")
-                            }
-                            .padding(.horizontal, 20)
-                        }
-                    }
-
-                    // — Live Preview —
+                // ── Footer actions ─────────────────────────────────────────
+                VStack(spacing: 8) {
+                    // Share buttons side by side
                     HStack(spacing: 12) {
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(Color(hex: activeColorHex))
-                            .frame(width: 8, height: 52)
-                        VStack(alignment: .leading) {
-                            Text(selectedEmoji + "  " + chapterReference)
-                                .font(.headline)
-                            Text("Bookmark preview")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                        ShareLink(item: verseShareText) {
+                            Label("Share Verse", systemImage: "square.and.arrow.up")
+                                .font(.subheadline)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
+                                .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 10))
                         }
-                        Spacer()
-                    }
-                    .padding()
-                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 12))
-                    .padding(.horizontal, 20)
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.blue)
 
-                    // — Action Buttons —
+                        Button { showImageComposer = true } label: {
+                            Label("Share as Image", systemImage: "photo")
+                                .font(.subheadline)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
+                                .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 10))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.blue)
+                    }
+                    .padding(.horizontal, 16)
+
                     if isAlreadyBookmarked {
-                        Button(role: .destructive) { onRemove(); dismiss() } label: {
+                        Button(role: .destructive) {
+                            onRemove()
+                            dismiss()
+                        } label: {
                             Label("Remove Bookmark", systemImage: "bookmark.slash")
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.bordered)
-                        .padding(.horizontal, 20)
+                        .padding(.horizontal, 16)
                     } else {
-                        Button { onSave(activeColorHex, selectedEmoji); dismiss() } label: {
-                            Label("Save Bookmark", systemImage: "bookmark.fill")
-                                .frame(maxWidth: .infinity)
+                        // Save without a collection
+                        Button {
+                            saveUngrouped()
+                        } label: {
+                            if savedUngrouped {
+                                Label("Saved!", systemImage: "checkmark")
+                                    .frame(maxWidth: .infinity)
+                            } else {
+                                Text("Save without a collection")
+                                    .frame(maxWidth: .infinity)
+                            }
                         }
-                        .buttonStyle(.borderedProminent)
-                        .padding(.horizontal, 20)
+                        .buttonStyle(.borderless)
+                        .font(.subheadline)
+                        .foregroundStyle(savedUngrouped ? .green : .secondary)
+                        .padding(.horizontal, 16)
                     }
                 }
-                .padding(.bottom, 20)
+                .padding(.bottom, 24)
             }
-            .navigationTitle(isAlreadyBookmarked ? "Edit Bookmark" : "Add Bookmark")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Cancel") { dismiss() }
+        }
+        .presentationDetents([.fraction(0.65), .large])
+        .presentationDragIndicator(.hidden) // we draw our own handle
+        .sheet(isPresented: $showCreateGroup) {
+            CreateGroupSheet(bookmarksVM: bookmarksVM)
+        }
+        .sheet(isPresented: $showPaywall) {
+            PaywallView()
+        }
+        .fullScreenCover(isPresented: $showImageComposer) {
+            VerseImageComposerView(
+                verseText:      verseText,
+                verseReference: chapterReference
+            )
+        }
+    }
+
+    // MARK: - Verse Preview
+
+    private var versePreview: some View {
+        HStack(spacing: 12) {
+            // Colored stripe — uses first group color or a default gold
+            let stripeColor = bookmarksVM.groups.first.map { Color(hex: $0.colorHex) }
+                              ?? Color(hex: "F5C842")
+            RoundedRectangle(cornerRadius: 4)
+                .fill(stripeColor)
+                .frame(width: 5, height: 52)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(chapterReference)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                if !verseText.isEmpty {
+                    Text(verseText)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
                 }
             }
-            .sheet(isPresented: $showCustomPicker) {
-                ColorPickerWheelView(selectedColor: $customUIColor)
-                    .presentationDetents([.large])
-                    .onDisappear { useCustomColor = true }
+            Spacer()
+        }
+        .padding(12)
+        .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    // MARK: - Group List
+
+    private var groupList: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 0) {
+                ForEach(bookmarksVM.groups.sorted { $0.createdAt < $1.createdAt }) { group in
+                    groupRow(group)
+                    Divider().padding(.leading, 72)
+                }
             }
         }
-        .presentationDetents([.large])
+        .frame(maxHeight: 400)
     }
 
-    // MARK: - Sub-Views
+    private func groupRow(_ group: BookmarkGroup) -> some View {
+        let isSaved = savedGroupId == group.id
+        return HStack(spacing: 14) {
 
-    private func colorSwatch(name: String, hex: String) -> some View {
-        let isSelected = !useCustomColor && selectedColorHex == hex
-        return Button {
-            selectedColorHex = hex
-            useCustomColor   = false
-        } label: {
-            Circle()
-                .fill(Color(hex: hex))
-                .frame(width: 40, height: 40)
-                .overlay(Circle().stroke(.white, lineWidth: isSelected ? 3 : 0).padding(3))
-                .shadow(color: .black.opacity(0.15), radius: 3, y: 1)
+            // Thumbnail square (like Instagram's collection cover)
+            ZStack {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color(hex: group.colorHex).opacity(0.18))
+                    .frame(width: 52, height: 52)
+                Text(group.emoji)
+                    .font(.title2)
+            }
+
+            // Name + "Private" label
+            VStack(alignment: .leading, spacing: 2) {
+                Text(group.name)
+                    .font(.subheadline.weight(.medium))
+                Text("Private")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            // "+" / checkmark button
+            Button {
+                saveToGroup(group)
+            } label: {
+                ZStack {
+                    Circle()
+                        .strokeBorder(isSaved ? Color.green : Color(.systemGray3), lineWidth: 1.5)
+                        .frame(width: 32, height: 32)
+                    Image(systemName: isSaved ? "checkmark" : "plus")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(isSaved ? .green : .primary)
+                }
+            }
+            .disabled(isSaved)
         }
-        .accessibilityLabel(name)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
+        .onTapGesture { saveToGroup(group) }
     }
 
-    private func emojiButton(_ emoji: String) -> some View {
-        let isSelected = selectedEmoji == emoji
-        return Button { selectedEmoji = emoji } label: {
-            Text(emoji)
-                .font(.title2)
-                .frame(width: 52, height: 52)
-                .background(
-                    isSelected ? Color(hex: activeColorHex).opacity(0.25) : Color(.systemGray6),
-                    in: RoundedRectangle(cornerRadius: 10)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .stroke(isSelected ? Color(hex: activeColorHex) : Color.clear, lineWidth: 2)
-                )
+    // MARK: - Empty Hint
+
+    private var emptyCollectionsHint: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "folder.badge.plus")
+                .font(.system(size: 36))
+                .foregroundStyle(.secondary)
+            Text("No collections yet")
+                .font(.subheadline.weight(.medium))
+            Text("Tap \"New collection\" to create one.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
-        .accessibilityLabel(emoji)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 30)
+    }
+
+    // MARK: - Save Actions
+
+    private func saveToGroup(_ group: BookmarkGroup) {
+        guard savedGroupId == nil && !savedUngrouped else { return }
+        onSave(group.colorHex, group.emoji, group.id)
+        withAnimation(.spring(response: 0.2)) { savedGroupId = group.id }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { dismiss() }
+    }
+
+    private func saveUngrouped() {
+        guard savedGroupId == nil && !savedUngrouped else { return }
+        onSave("F5C842", "🔖", nil)
+        withAnimation(.spring(response: 0.2)) { savedUngrouped = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { dismiss() }
     }
 }

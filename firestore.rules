@@ -1,0 +1,64 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── User data ──────────────────────────────────────────────────────────
+    // Each signed-in user can read and write ONLY their own documents.
+    // {document=**} is a recursive wildcard that covers ALL subcollections:
+    //   bookmarks, notes, savedItems, likedAnswerIds, and anything added later.
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    match /users/{userId}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // ── Daily content cache ────────────────────────────────────────────────
+    // Any signed-in user can read and write daily entries.
+    // (The first user each day caches the AI-generated entry for everyone else.)
+    match /dailyContent/{date} {
+      allow read, write: if request.auth != null;
+    }
+
+    // ── Community: Scripture posts ─────────────────────────────────────────
+    match /posts/{postId} {
+      allow read, write: if request.auth != null;
+      match /{subcollection}/{docId} {
+        allow read, write: if request.auth != null;
+      }
+    }
+
+    // ── Community: Gratitude posts ─────────────────────────────────────────
+    match /gratitudePosts/{postId} {
+      allow read, write: if request.auth != null;
+      match /{subcollection}/{docId} {
+        allow read, write: if request.auth != null;
+      }
+    }
+
+    // ── Community: Prayer requests ─────────────────────────────────────────
+    match /prayerRequests/{requestId} {
+      allow read, write: if request.auth != null;
+      match /{subcollection}/{docId} {
+        allow read, write: if request.auth != null;
+      }
+    }
+
+    // ── Community: Daily question answers ─────────────────────────────────
+    match /dailyAnswers/{answerId} {
+      allow read, write: if request.auth != null;
+      match /{subcollection}/{docId} {
+        allow read, write: if request.auth != null;
+      }
+    }
+
+    // ── Collection group: answerLikes ──────────────────────────────────────
+    // The app uses a collection-group query to find all answers a user has
+    // liked across every dailyAnswers document. This rule enables that query.
+    match /{path=**}/answerLikes/{likeId} {
+      allow read, write: if request.auth != null;
+    }
+
+  }
+}

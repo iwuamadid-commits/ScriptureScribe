@@ -43,10 +43,11 @@ struct NotebookView: View {
 
                 // Drawing canvas — use actual view dimensions instead of UIScreen.main
                 AnnotationCanvasView(
-                    vm:             vm,
-                    chapterId:      notebookChapterId,
-                    contentHeight:  geo.size.height,
-                    containerWidth: geo.size.width
+                    vm:               vm,
+                    chapterId:        notebookChapterId,
+                    chapterReference: chapterId,   // used as label in OCR index
+                    contentHeight:    geo.size.height,
+                    containerWidth:   geo.size.width
                 )
                 .allowsHitTesting(true)
             }

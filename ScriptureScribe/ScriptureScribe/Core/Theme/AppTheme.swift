@@ -60,7 +60,7 @@ struct MidnightTheme: AppTheme {
 struct SereneTheme: AppTheme {
     let name = "Serene"
     let background    = Color(hex: "#F5F0FF") // soft lavender
-    let surface       = Color(hex: "#FFFFFF")
+    let surface       = Color(hex: "#FAF7FF") // light purple (lighter than background)
     let primary       = Color(hex: "#8B7EC8")
     let accent        = Color(hex: "#7B6DB8")
     let text          = Color(hex: "#2D2540")
@@ -80,20 +80,20 @@ struct ForestTheme: AppTheme {
 }
 
 struct SunriseTheme: AppTheme {
-    let name = "Sunrise"
-    let background    = Color(hex: "#FFF8F0")
-    let surface       = Color(hex: "#FFFFFF")
-    let primary       = Color(hex: "#E87040") // warm orange
-    let accent        = Color(hex: "#F08850")
-    let text          = Color(hex: "#2A1A10")
-    let textSecondary = Color(hex: "#9A6A50")
-    let border        = Color(hex: "#F0D8C8")
+    let name = "Blossom"
+    let background    = Color(hex: "#FFF0F5") // soft blush pink
+    let surface       = Color(hex: "#FFF7FA")
+    let primary       = Color(hex: "#D65A8B") // rose pink
+    let accent        = Color(hex: "#E8709A")
+    let text          = Color(hex: "#2A1020")
+    let textSecondary = Color(hex: "#9A6078")
+    let border        = Color(hex: "#F0D0DD")
 }
 
 struct SlateTheme: AppTheme {
     let name = "Slate"
     let background    = Color(hex: "#F0F4F8")
-    let surface       = Color(hex: "#FFFFFF")
+    let surface       = Color(hex: "#F5F8FC") // light blue (lighter than background)
     let primary       = Color(hex: "#5B7FA6") // cool grey-blue
     let accent        = Color(hex: "#4A6E95")
     let text          = Color(hex: "#1A2A3A")
@@ -110,6 +110,25 @@ struct RoyalTheme: AppTheme {
     let text          = Color(hex: "#F0E8E0")
     let textSecondary = Color(hex: "#C0A090")
     let border        = Color(hex: "#3A1A28")
+}
+
+// MARK: - AppTheme Extension
+
+extension AppTheme {
+    /// A high-contrast colour for search keyword highlights.
+    /// Warm orange on light themes; bright amber-gold on dark themes.
+    var searchHighlight: Color {
+        let darkThemes = ["Midnight", "Forest", "Royal"]
+        return darkThemes.contains(name)
+            ? Color(red: 1.0,  green: 0.82, blue: 0.25)   // bright gold — pops on dark bg
+            : Color(red: 0.85, green: 0.38, blue: 0.02)   // burnt orange — pops on light bg
+    }
+
+    /// Classic deep crimson used for Words of Jesus (red letter text).
+    /// Readable on both light and dark themes.
+    var redLetter: Color {
+        Color(red: 0.78, green: 0.08, blue: 0.08)
+    }
 }
 
 // MARK: - ThemeManager

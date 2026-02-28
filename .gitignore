@@ -65,3 +65,5 @@ playground.xcworkspace
 .idea/
 *.swp
 *~
+.claude/
+storage.rules

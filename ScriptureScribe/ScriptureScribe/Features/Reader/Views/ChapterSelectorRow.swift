@@ -4,25 +4,31 @@
 //
 //  Horizontal row of chapter number chips. Chapters that have saved annotations
 //  show a small colored dot indicator below the number.
+//  The selected chapter pill slides smoothly to the new selection.
 //
 
 import SwiftUI
 
 struct ChapterSelectorRow: View {
 
-    @ObservedObject var vm:           ReaderViewModel
-    @ObservedObject var annotationVM: AnnotationViewModel
+    // Passed-in plain values only — no @ObservedObject so that unrelated
+    // state changes (isLoadingContent, annotations loading, etc.) never
+    // interrupt the selection highlight or reset the scroll position.
+    let chapters:             [BibleChapter]
+    let selectedChapterId:    String?
+    let annotatedChapterIds:  Set<String>   // chapters that have a dot indicator
+    let vm:                   ReaderViewModel   // plain ref for tap callbacks
     @EnvironmentObject var themeManager: ThemeManager
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 4) {
-                    ForEach(vm.chapters) { chapter in
+                    ForEach(chapters) { chapter in
                         ChapterChip(
                             chapter:       chapter,
-                            isSelected:    vm.selectedChapter?.id == chapter.id,
-                            hasAnnotation: annotationVM.hasAnnotation(for: chapter.id),
+                            isSelected:    selectedChapterId == chapter.id,
+                            hasAnnotation: annotatedChapterIds.contains(chapter.id),
                             theme:         themeManager.currentTheme
                         )
                         .id(chapter.id)
@@ -35,9 +41,18 @@ struct ChapterSelectorRow: View {
                 .padding(.vertical, 6)
             }
             .background(themeManager.currentTheme.surface)
-            .onChange(of: vm.selectedChapter?.id) { _, newID in
-                if let id = newID {
-                    withAnimation { proxy.scrollTo(id, anchor: .center) }
+            // Scroll the selected chapter into view — on first appearance and on change
+            .onAppear {
+                if let id = selectedChapterId {
+                    DispatchQueue.main.async {
+                        proxy.scrollTo(id, anchor: .center)
+                    }
+                }
+            }
+            .onChange(of: selectedChapterId) { _, newID in
+                guard let id = newID else { return }
+                DispatchQueue.main.async {
+                    proxy.scrollTo(id, anchor: .center)
                 }
             }
         }
@@ -60,13 +75,18 @@ private struct ChapterChip: View {
                 .frame(minWidth: 32)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 6)
-                .background(isSelected ? theme.primary : Color.clear)
                 .foregroundStyle(isSelected ? Color.white : theme.text)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(isSelected ? Color.clear : theme.border, lineWidth: 1)
-                )
+                .background {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(theme.border, lineWidth: 1)
+                            .opacity(isSelected ? 0 : 1)
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(theme.primary)
+                            .opacity(isSelected ? 1 : 0)
+                    }
+                }
+                .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isSelected)
 
             // Annotation dot indicator
             Circle()
