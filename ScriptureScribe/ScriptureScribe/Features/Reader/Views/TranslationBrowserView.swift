@@ -100,6 +100,13 @@ private struct MoreVersionsView: View {
     @State private var selectedLanguage: String? = nil
     @State private var showPaywall       = false
 
+    /// Capitalizes the first letter of a language name so "español" and "Español"
+    /// are treated as the same group across all grouping, filtering, and display.
+    private func langName(_ s: String) -> String {
+        guard let first = s.first else { return s }
+        return first.uppercased() + s.dropFirst()
+    }
+
     var body: some View {
         Group {
             if vm.isLoadingTranslations {
@@ -162,7 +169,7 @@ private struct MoreVersionsView: View {
                         }
                         // All other languages, plain grouped headers — native name as section title
                         let others  = filteredList.filter { !$0.isEnglish }
-                        let grouped = Dictionary(grouping: others) { $0.language.nameLocal }
+                        let grouped = Dictionary(grouping: others) { langName($0.language.nameLocal) }
                         ForEach(grouped.keys.sorted(), id: \.self) { lang in
                             Section(lang) {
                                 ForEach(grouped[lang] ?? []) { t in translationRow(t) }
@@ -170,7 +177,7 @@ private struct MoreVersionsView: View {
                         }
                     } else {
                         // Language filter active — header shows selected language as filter
-                        let grouped = Dictionary(grouping: filteredList) { $0.language.nameLocal }
+                        let grouped = Dictionary(grouping: filteredList) { langName($0.language.nameLocal) }
                         ForEach(grouped.keys.sorted(), id: \.self) { lang in
                             Section {
                                 ForEach(grouped[lang] ?? []) { t in translationRow(t) }
@@ -256,7 +263,7 @@ private struct MoreVersionsView: View {
 
         // Language filter (keyed by native language name)
         if let lang = selectedLanguage {
-            list = list.filter { $0.language.nameLocal == lang }
+            list = list.filter { langName($0.language.nameLocal) == lang }
         }
 
         // Deduplicate by abbreviation+language — prefer free versions, then first occurrence.
@@ -271,20 +278,23 @@ private struct MoreVersionsView: View {
             return seen.insert(key).inserted
         }
 
-        // Search filter — match English name, native name, abbreviation, or either language name
+        // Search filter — diacritic-insensitive so "Espanol" matches "Español", etc.
         guard !searchText.isEmpty else { return list }
-        let q = searchText.lowercased()
+        let q = searchText.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        func normalize(_ s: String) -> String {
+            s.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        }
         return list.filter {
-            $0.name.lowercased().contains(q)
-            || $0.abbreviation.lowercased().contains(q)
-            || $0.language.name.lowercased().contains(q)
-            || $0.language.nameLocal.lowercased().contains(q)
-            || $0.nameLocal.lowercased().contains(q)
+            normalize($0.name).contains(q)
+            || normalize($0.abbreviation).contains(q)
+            || normalize($0.language.name).contains(q)
+            || normalize($0.language.nameLocal).contains(q)
+            || normalize($0.nameLocal).contains(q)
         }
     }
 
     private var availableLanguages: [String] {
-        var all = Array(Set(vm.translations.map { $0.language.nameLocal })).sorted()
+        var all = Array(Set(vm.translations.map { langName($0.language.nameLocal) })).sorted()
         // Pin in reverse order so final result is: English, Español, then rest alphabetical
         for pinned in ["Español", "English"] {
             if let idx = all.firstIndex(of: pinned) {

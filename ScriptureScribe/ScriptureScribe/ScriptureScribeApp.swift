@@ -21,6 +21,7 @@ struct ScriptureScribeApp: App {
     @StateObject private var savedDevotionalsVM = SavedDevotionalsViewModel()
     @StateObject private var habitsVM          = HabitsViewModel()
     @StateObject private var subscriptionVM   = SubscriptionViewModel()
+    @StateObject private var streakVM         = StreakViewModel()
 
     init() {
         FirebaseApp.configure()
@@ -81,6 +82,7 @@ struct ScriptureScribeApp: App {
                 .environmentObject(savedDevotionalsVM)
                 .environmentObject(habitsVM)
                 .environmentObject(subscriptionVM)
+                .environmentObject(streakVM)
                 // Required for Google Sign-In: handles the redirect after the user picks their account
                 .onOpenURL { url in
                     // Scripture Scribe deep links: scripturescribe://type/id

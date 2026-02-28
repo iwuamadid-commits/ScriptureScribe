@@ -25,6 +25,10 @@ enum PremiumLimits {
     /// Maximum habits on the free plan.
     static let maxFreeHabits = 3
 
+    /// Maximum saved annotation colors on the free plan.
+    /// Free users can change any of their 3 colors freely — they just can't add a 4th.
+    static let maxFreeSavedColors = 3
+
     /// Bible version IDs available on the free plan (all public domain).
     static let freeBibleIds: Set<String> = [
         "de4e12af7f28f599-02",  // KJV  — King James Version

@@ -13,6 +13,8 @@
 //  All data is saved via @AppStorage (UserDefaults) so it survives app restarts.
 //  Firebase sync will be added in Phase 6.
 //
+//  openedDates tracks which calendar days the user opened the app (last 365 days),
+//  stored as a JSON array of "yyyy-MM-dd" strings. Used by StreakDetailView calendar.
 
 import Combine
 import SwiftUI
@@ -26,6 +28,15 @@ final class StreakViewModel: ObservableObject {
     @AppStorage("streak_currentCount")   private var storedCurrentStreak: Int    = 0
     @AppStorage("streak_longestCount")   private var storedLongestStreak: Int    = 0
     @AppStorage("streak_lastOpenedDate") private var lastOpenedDateString: String = ""
+    @AppStorage("streak_openedDatesJSON") private var openedDatesJSON: String = "[]"
+
+    /// The set of "yyyy-MM-dd" strings for every day the user opened the app (last 365 days).
+    var openedDates: Set<String> {
+        guard let data = openedDatesJSON.data(using: .utf8),
+              let array = try? JSONDecoder().decode([String].self, from: data)
+        else { return [] }
+        return Set(array)
+    }
 
     init() {
         updateStreak()
@@ -77,5 +88,18 @@ final class StreakViewModel: ObservableObject {
 
         // Mark today as visited
         lastOpenedDateString = todayString
+
+        // Record today in openedDates (for StreakDetailView calendar)
+        var dates = openedDates
+        dates.insert(todayString)
+        // Prune to last 365 days to prevent unbounded growth
+        if let cutoff = calendar.date(byAdding: .day, value: -365, to: today) {
+            let cutoffString = formatter.string(from: cutoff)
+            dates = dates.filter { $0 >= cutoffString }
+        }
+        if let data = try? JSONEncoder().encode(Array(dates)),
+           let json = String(data: data, encoding: .utf8) {
+            openedDatesJSON = json
+        }
     }
 }

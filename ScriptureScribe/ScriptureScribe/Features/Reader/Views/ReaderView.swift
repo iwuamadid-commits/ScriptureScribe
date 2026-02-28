@@ -52,7 +52,7 @@ struct ReaderView: View {
 
     @StateObject private var vm           = ReaderViewModel()
     @StateObject private var annotationVM = AnnotationViewModel()
-    @StateObject private var streakVM     = StreakViewModel()
+    @EnvironmentObject var streakVM:       StreakViewModel
     @StateObject private var audioVM      = AudioPlayerViewModel()
 
     @EnvironmentObject var themeManager:   ThemeManager
@@ -240,7 +240,6 @@ struct ReaderView: View {
         }
         .task {
             await vm.loadInitialData()
-            streakVM.updateStreak()
             annotationVM.notesVMRef = notesVM
         }
         // When any tab sends the user here via a chapter/verse link, navigate and
@@ -803,11 +802,6 @@ struct ReaderView: View {
             }
         }
 
-        // Left: streak badge (separate item so it is never clipped by the translation button)
-        ToolbarItem(placement: .topBarLeading) {
-            StreakBadgeView(streak: streakVM.currentStreak)
-        }
-
         // Right: audio button + more menu
         ToolbarItemGroup(placement: .topBarTrailing) {
 
@@ -954,6 +948,7 @@ struct ReaderView: View {
                     Image(systemName: "ellipsis.circle")
                         .foregroundStyle(themeManager.currentTheme.primary)
                 }
+
             }
         }
 

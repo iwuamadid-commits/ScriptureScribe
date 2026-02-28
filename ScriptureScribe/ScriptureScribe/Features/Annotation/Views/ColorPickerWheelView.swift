@@ -118,6 +118,7 @@ struct ColorPickerWheelView: View {
             .overlay(RoundedRectangle(cornerRadius: 8)
                 .stroke(Color.white.opacity(0.25), lineWidth: 1))
 
+            // "Done" saves to toolbar + selects + closes
             Button("Done") {
                 selectedColor = currentUIColor
                 saveToHistory(currentUIColor)

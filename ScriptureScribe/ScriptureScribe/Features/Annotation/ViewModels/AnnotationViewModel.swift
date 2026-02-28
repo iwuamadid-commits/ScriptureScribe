@@ -205,6 +205,10 @@ final class AnnotationViewModel: ObservableObject {
     // Saved favorite colors (max 8)
     @Published var savedColors: [SavedColor] = []
 
+    // Index of the saved-color swatch that opened the picker (nil = add new)
+    // Stored on the ViewModel so closures always read the live value.
+    var pendingEditColorIndex: Int? = nil
+
     // Favorite stroke sizes per tool (5 slots; nil = empty)
     @Published var penFavoriteSizes:         [Double?] = Array(repeating: nil, count: 5)
     @Published var highlighterFavoriteSizes: [Double?] = Array(repeating: nil, count: 5)
@@ -535,6 +539,41 @@ final class AnnotationViewModel: ObservableObject {
     func removeSavedColor(at index: Int) {
         guard index < savedColors.count else { return }
         savedColors.remove(at: index)
+        UserDefaults.standard.set(
+            savedColors.map { $0.stringValue },
+            forKey: savedColorsKey
+        )
+    }
+
+    /// Replace the saved color at the given index with a new color, keeping it selected.
+    func replaceColor(at index: Int, with color: UIColor) {
+        guard index < savedColors.count else { return }
+        savedColors[index] = SavedColor(color: color)
+        selectedColor = color
+        UserDefaults.standard.set(
+            savedColors.map { $0.stringValue },
+            forKey: savedColorsKey
+        )
+    }
+
+    /// Called when the user confirms a color in the picker.
+    /// Replaces the pending swatch in-place if one is tracked, otherwise adds as new.
+    func saveColorFromPicker(_ color: UIColor) {
+        if let idx = pendingEditColorIndex {
+            replaceColor(at: idx, with: color)
+        } else {
+            addSavedColor(color)
+        }
+        pendingEditColorIndex = nil
+    }
+
+    /// Reorder a saved color by moving it from one index to another.
+    func moveColor(from source: Int, to destination: Int) {
+        guard source != destination,
+              source < savedColors.count,
+              destination < savedColors.count else { return }
+        let color = savedColors.remove(at: source)
+        savedColors.insert(color, at: destination)
         UserDefaults.standard.set(
             savedColors.map { $0.stringValue },
             forKey: savedColorsKey
