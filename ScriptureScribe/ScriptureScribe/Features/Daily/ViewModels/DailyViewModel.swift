@@ -61,7 +61,7 @@ final class DailyViewModel: ObservableObject {
         let isFuture   = date > Date()
 
         if isFuture {
-            errorMessage = "No devotional yet — check back on that day."
+            errorMessage = "No devotional yet. Check back on that day."
             return
         }
 

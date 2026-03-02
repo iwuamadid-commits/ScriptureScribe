@@ -65,7 +65,6 @@ struct HabitsView: View {
                     .padding(.bottom, 8)
                 }
                 .background(themeManager.currentTheme.surface)
-                .padding(.top, 8)
 
                 // Category filter + habit limit indicator
                 HStack {
@@ -324,7 +323,7 @@ struct HabitsView: View {
                     Button {
                         habitsVM.logCompletion(habitId: habit.id, userId: authVM.currentUserID)
                     } label: {
-                        Image(systemName: "circle")
+                        Image(systemName: "plus.circle")
                             .font(.title2)
                             .foregroundStyle(color)
                     }

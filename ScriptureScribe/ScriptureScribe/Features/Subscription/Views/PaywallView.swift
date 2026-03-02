@@ -86,7 +86,7 @@ struct PaywallView: View {
                     )
                 )
 
-            Text("Go Premium")
+            Text("Upgrade to Pro")
                 .font(.title.weight(.bold))
                 .foregroundStyle(themeManager.currentTheme.text)
 
@@ -102,7 +102,7 @@ struct PaywallView: View {
 
     private var featureList: some View {
         VStack(alignment: .leading, spacing: 12) {
-            featureRow("All 8 highlight colors",          icon: "paintpalette.fill")
+            featureRow("Unlimited saved colors",           icon: "paintpalette.fill")
             featureRow("Unlimited bookmark collections",  icon: "folder.fill")
             featureRow("All Bible translations",          icon: "book.fill")
             featureRow("Save daily devotions & prayers",  icon: "heart.fill")

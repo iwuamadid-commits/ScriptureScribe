@@ -28,9 +28,9 @@ struct DailyAnswerCardView: View {
         if answer.text.count > limit {
             let trimmed = String(answer.text.prefix(limit))
             let preview = trimmed.lastIndex(of: " ").map { String(trimmed[..<$0]) } ?? trimmed
-            return "\(preview)...\n\n— \(answer.displayName) on Scripture Scribe\n\nRead more in Scripture Scribe:\n\(link)"
+            return "\(preview)...\n\nShared by \(answer.displayName) on Scripture Scribe\n\nRead more in Scripture Scribe:\n\(link)"
         }
-        return "\(answer.text)\n\n— \(answer.displayName) on Scripture Scribe\n\n\(link)"
+        return "\(answer.text)\n\nShared by \(answer.displayName) on Scripture Scribe\n\n\(link)"
     }
 
     var body: some View {

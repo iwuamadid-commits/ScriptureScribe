@@ -108,6 +108,12 @@ struct ZoomScrollView<Content: View>: UIViewRepresentable {
         context.coordinator.container  = container
         context.coordinator.scrollView = scrollView
 
+        // iOS 16+: keep the hosting controller's preferred size in sync with SwiftUI layout
+        // automatically so the scroll view's contentSize is always correct.
+        if #available(iOS 16.0, *) {
+            hosting.sizingOptions = [.intrinsicContentSize]
+        }
+
         // ── Double-tap to reset zoom ─────────────────────────────────────
         let doubleTap = UITapGestureRecognizer(
             target: context.coordinator,
@@ -167,10 +173,15 @@ struct ZoomScrollView<Content: View>: UIViewRepresentable {
         // at the very top — gives it breathing room and makes the highlight visible.
         if let binding = scrollToOffset, let targetY = binding.wrappedValue {
             let safeY = max(0, targetY - 120)
+            // Clamp to the maximum valid contentOffset so UIView.animate never lands
+            // in the empty space beyond the content (UIKit does not auto-clamp during
+            // animation blocks, unlike setContentOffset:animated:).
+            let maxY     = max(0, scrollView.contentSize.height - scrollView.bounds.height)
+            let clampedY = min(safeY, maxY)
             // Use a longer, custom animation instead of the system's fast default
             // so the scroll glides smoothly to the target verse (about 1 second).
             UIView.animate(withDuration: 1.0, delay: 0, options: [.curveEaseInOut]) {
-                scrollView.contentOffset = CGPoint(x: 0, y: safeY)
+                scrollView.contentOffset = CGPoint(x: 0, y: clampedY)
             }
             DispatchQueue.main.async { binding.wrappedValue = nil }
         }
@@ -193,10 +204,15 @@ struct ZoomScrollView<Content: View>: UIViewRepresentable {
             pendingResets.forEach { $0.cancel() }
             pendingResets.removeAll()
             for delay in [0.0, 0.05, 0.1, 0.15, 0.2, 0.3] {
-                let item = DispatchWorkItem { [weak scrollView] in
+                let item = DispatchWorkItem { [weak self, weak scrollView] in
                     guard let sv = scrollView else { return }
                     sv.setZoomScale(1.0, animated: false)
                     sv.setContentOffset(.zero, animated: false)
+                    // Tell Auto Layout that the hosting view's size may have changed so
+                    // it re-queries SwiftUI's preferred height.  Without this, long chapters
+                    // (like 1 Samuel) inherit the cached height from the previous shorter
+                    // chapter and every Text line gets truncated with "...".
+                    self?.hosting?.view.invalidateIntrinsicContentSize()
                 }
                 pendingResets.append(item)
                 DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)

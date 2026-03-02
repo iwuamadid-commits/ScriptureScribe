@@ -22,6 +22,7 @@ struct SearchView: View {
     @StateObject private var vm = SearchViewModel()
     @EnvironmentObject var themeManager: ThemeManager
     @EnvironmentObject var appNav:       AppNavigation
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
@@ -244,30 +245,34 @@ struct SearchView: View {
     }
 
     private var topicResultsHeader: some View {
-        HStack {
-            Button {
-                vm.clearResults()
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "chevron.left")
-                        .font(.subheadline.weight(.medium))
-                    Text("All Topics")
-                        .font(.subheadline)
+        VStack(spacing: 0) {
+            HStack {
+                Button {
+                    vm.clearResults()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "chevron.left")
+                            .font(.callout.weight(.semibold))
+                        Text("All Topics")
+                            .font(.callout.weight(.medium))
+                    }
+                    .foregroundStyle(themeManager.currentTheme.primary)
                 }
-                .foregroundStyle(themeManager.currentTheme.primary)
-            }
 
-            Spacer()
+                Spacer()
 
-            if let topic = vm.selectedTopic {
-                Text(topic.name)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(themeManager.currentTheme.text)
+                if let topic = vm.selectedTopic {
+                    Text(topic.name)
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(themeManager.currentTheme.text)
+                }
             }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 10)
+
+            Divider()
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 12)
-        .padding(.bottom, 8)
     }
 
     // MARK: - Handwriting Tab (GoodNotes-style index search)
@@ -341,7 +346,7 @@ struct SearchView: View {
                                 theme:  themeManager.currentTheme,
                                 onOpen: {
                                     appNav.pendingChapterId = match.chapterId
-                                    appNav.selectedTab      = 0
+                                    dismiss()
                                 }
                             )
                             .padding(.horizontal, 16)
@@ -387,7 +392,7 @@ struct SearchView: View {
                                     appNav.pendingVerseNumber = parts[2]
                                 }
                                 appNav.pendingChapterId = "\(parts[0]).\(parts[1])"
-                                appNav.selectedTab = 0
+                                dismiss()
                             }
                         } label: {
                             SearchResultRow(result: result, theme: themeManager.currentTheme, query: vm.query)

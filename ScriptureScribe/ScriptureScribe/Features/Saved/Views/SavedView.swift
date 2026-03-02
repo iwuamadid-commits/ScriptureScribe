@@ -21,16 +21,18 @@ private enum CollectionDestination: Hashable {
 
 struct SavedView: View {
 
-    @EnvironmentObject var themeManager:  ThemeManager
-    @EnvironmentObject var authVM:        AuthViewModel
-    @EnvironmentObject var bookmarksVM:   BookmarksViewModel
-    @EnvironmentObject var savedVM:       SavedDevotionalsViewModel
-    @EnvironmentObject var appNav:        AppNavigation
+    @EnvironmentObject var themeManager:   ThemeManager
+    @EnvironmentObject var authVM:         AuthViewModel
+    @EnvironmentObject var bookmarksVM:    BookmarksViewModel
+    @EnvironmentObject var savedVM:        SavedDevotionalsViewModel
+    @EnvironmentObject var appNav:         AppNavigation
+    @EnvironmentObject var subscriptionVM: SubscriptionViewModel
 
     @State private var selectedTab: SavedTab = .bookmarks
     @State private var movingBookmark: Bookmark?
     @State private var showManageGroups = false
     @State private var collectionPath: [CollectionDestination] = []
+    @State private var showPaywall = false
 
     enum SavedTab: Int, CaseIterable {
         case bookmarks, prayers, devotionals, affirmations
@@ -87,6 +89,9 @@ struct SavedView: View {
             }
             .sheet(isPresented: $showManageGroups) {
                 ManageGroupsView(bookmarksVM: bookmarksVM)
+            }
+            .sheet(isPresented: $showPaywall) {
+                PaywallView()
             }
             .navigationDestination(for: CollectionDestination.self) { dest in
                 collectionDetail(for: dest)
@@ -352,7 +357,9 @@ struct SavedView: View {
 
     private func devotionalItemList(items: [SavedDevotionalItem], emptyMessage: String) -> some View {
         Group {
-            if items.isEmpty {
+            if !subscriptionVM.isPremium {
+                savedContentPremiumGate
+            } else if items.isEmpty {
                 emptyState(
                     icon: {
                         switch selectedTab {
@@ -387,6 +394,53 @@ struct SavedView: View {
                 .background(themeManager.currentTheme.background)
             }
         }
+    }
+
+    // MARK: - PRO Gate (Prayers / Devotionals / Affirmations)
+
+    private var savedContentPremiumGate: some View {
+        VStack(spacing: 20) {
+            Image(systemName: {
+                switch selectedTab {
+                case .prayers:      return "hands.clap.fill"
+                case .affirmations: return "sparkles"
+                default:            return "book.fill"
+                }
+            }())
+            .font(.system(size: 48))
+            .foregroundStyle(themeManager.currentTheme.primary.opacity(0.45))
+
+            Text("Your saved content is waiting")
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(themeManager.currentTheme.text)
+
+            Text("Upgrade to Pro to revisit all your saved prayers, devotionals, and affirmations.")
+                .font(.subheadline)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(themeManager.currentTheme.textSecondary)
+                .padding(.horizontal, 36)
+
+            Button { showPaywall = true } label: {
+                HStack(spacing: 8) {
+                    ProBadge()
+                    Text("Upgrade to Pro")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                }
+                .padding(.horizontal, 24)
+                .padding(.vertical, 13)
+                .background(
+                    LinearGradient(
+                        colors: [Color(red: 1.0, green: 0.80, blue: 0.22),
+                                 Color(red: 0.97, green: 0.58, blue: 0.10)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    ),
+                    in: RoundedRectangle(cornerRadius: 14)
+                )
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Empty State
@@ -497,4 +551,5 @@ private struct SavedItemRow: View {
         .environmentObject(BookmarksViewModel())
         .environmentObject(SavedDevotionalsViewModel())
         .environmentObject(AppNavigation())
+        .environmentObject(SubscriptionViewModel())
 }

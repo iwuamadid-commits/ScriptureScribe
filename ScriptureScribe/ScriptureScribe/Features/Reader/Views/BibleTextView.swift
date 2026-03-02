@@ -9,6 +9,18 @@
 
 import SwiftUI
 
+// MARK: - Preference key (locates the first selected verse for bubble positioning)
+
+private struct FirstSelectedVerseAnchorKey: PreferenceKey {
+    static var defaultValue: Anchor<CGRect>? = nil
+    /// Keeps whichever anchor was reported first (smallest ForEach index = topmost verse).
+    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
+        value = value ?? nextValue()
+    }
+}
+
+// MARK: - BibleTextView
+
 struct BibleTextView: View {
 
     let content:            BibleChapterContent
@@ -19,13 +31,17 @@ struct BibleTextView: View {
 
     @EnvironmentObject var themeManager: ThemeManager
 
-    @State private var selectedRangeStart: Int?
-    @State private var selectedRangeEnd:   Int?
     /// Animated 0–1 opacity driving the gold flash overlay on the highlighted verses.
     @State private var navFlashOpacity: Double = 0
     /// Verse numbers being flashed — kept set during the fade-out so the overlay
     /// stays on the correct rows while navFlashOpacity animates back to 0.
     @State private var flashVerses: Set<String> = []
+
+    // Non-contiguous selection: each element is the ForEach index of a selected verse.
+    // Using a Set<Int> lets the user pick any combination of verses (e.g. v1 + v5).
+    @State private var selectedIndices: Set<Int> = []
+
+    private var isInSelectionMode: Bool { !selectedIndices.isEmpty }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -38,7 +54,7 @@ struct BibleTextView: View {
                 .padding(.top, 20)
                 .padding(.bottom, 16)
 
-            // Verse rows — long-press and drag to select a range
+            // Verse rows — long-press for context menu, tap in selection mode to toggle
             let verses = Self.parseVerses(from: content.textContent)
             // Build a lookup from verse number → segments for red-letter rendering.
             // uniquingKeysWith: keeps the first occurrence if duplicate verse numbers appear.
@@ -46,22 +62,36 @@ struct BibleTextView: View {
                 content.parsedVerses.map { ($0.number, $0.segments) },
                 uniquingKeysWith: { first, _ in first }
             )
+            let firstSelectedIndex = selectedIndices.min()
             ForEach(Array(verses.enumerated()), id: \.offset) { index, verse in
                 VerseRow(
-                    number:                     verse.number,
-                    text:                       verse.text,
-                    segments:                   segsByNumber[verse.number],
-                    showRedLetters:             vm.showRedLetters,
-                    font:                       bodyFont,
-                    spacing:                    vm.lineSpacing,
-                    alignment:                  swiftUIAlignment,
-                    theme:                      themeManager.currentTheme,
-                    isInSelectedRange:          isVerseInRange(index),
-                    navFlashOpacity:            flashVerses.contains(verse.number) ? navFlashOpacity : 0.0,
-                    onStartRangeSelection:      { startRangeSelection(at: index) },
-                    onUpdateRangeSelection:     { dragHeight in updateRangeSelection(from: index, dragHeight: dragHeight, totalVerses: verses.count) },
-                    onCompleteRangeSelection:   { completeRangeSelection(verses: verses) }
+                    number:            verse.number,
+                    text:              verse.text,
+                    segments:          segsByNumber[verse.number],
+                    showRedLetters:    vm.showRedLetters,
+                    font:              bodyFont,
+                    spacing:           vm.lineSpacing,
+                    alignment:         swiftUIAlignment,
+                    theme:             themeManager.currentTheme,
+                    navFlashOpacity:   flashVerses.contains(verse.number) ? navFlashOpacity : 0.0,
+                    onBookmarkVerse:   { onLongPressVerse(verse.number, nil, verse.text) },
+                    isInSelectionMode: isInSelectionMode,
+                    isSelected:        selectedIndices.contains(index),
+                    onToggleSelection: {
+                        withAnimation(.spring(duration: 0.25)) {
+                            if selectedIndices.contains(index) {
+                                selectedIndices.remove(index)
+                            } else {
+                                selectedIndices.insert(index)
+                            }
+                        }
+                    }
                 )
+                // Report this row's bounds if it's the topmost selected verse.
+                // overlayPreferenceValue uses this to anchor the bubble popup.
+                .anchorPreference(key: FirstSelectedVerseAnchorKey.self, value: .bounds) {
+                    firstSelectedIndex == index ? $0 : nil
+                }
             }
 
             Divider()
@@ -80,6 +110,20 @@ struct BibleTextView: View {
 
             // Previous / Next chapter navigation
             ChapterNavigationFooter(vm: vm)
+        }
+        // Float a compact action bubble just below the first selected verse.
+        // GeometryReader is always present so the bubble can animate in/out via transition.
+        .overlayPreferenceValue(FirstSelectedVerseAnchorKey.self) { anchor in
+            GeometryReader { proxy in
+                if let anchor, isInSelectionMode {
+                    let rect    = proxy[anchor]
+                    // Clamp x so the bubble never clips the horizontal edges.
+                    let bubbleX = max(110, min(rect.midX, proxy.size.width - 110))
+                    selectionBubble
+                        .fixedSize()
+                        .position(x: bubbleX, y: rect.maxY + 28)
+                }
+            }
         }
         // task(id:) fires on BOTH view appear and value change, unlike onChange which
         // only fires on changes to existing views. This is needed because the parent's
@@ -100,6 +144,89 @@ struct BibleTextView: View {
         // the canvas and notes all scale together with the text.
     }
 
+    // MARK: - Selection Bubble
+
+    /// Compact pill that appears below the first selected verse.
+    /// Contains: ✕ dismiss  |  label  |  Bookmark action
+    private var selectionBubble: some View {
+        HStack(spacing: 0) {
+            // Dismiss / cancel selection
+            Button {
+                withAnimation(.spring(duration: 0.25)) { selectedIndices = [] }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.footnote.weight(.bold))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+            }
+
+            Divider().frame(height: 18)
+
+            // How many verses are selected
+            Text(selectionLabel)
+                .font(.footnote.weight(.semibold))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+
+            Divider().frame(height: 18)
+
+            // Commit bookmark
+            Button {
+                commitSelection()
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "bookmark.fill")
+                    Text("Bookmark")
+                }
+                .font(.footnote.weight(.semibold))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+            }
+        }
+        .foregroundStyle(themeManager.currentTheme.primary)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(.thinMaterial)
+                .shadow(color: .black.opacity(0.18), radius: 12, y: 4)
+        )
+        .transition(.scale(scale: 0.85, anchor: .top).combined(with: .opacity))
+    }
+
+    // MARK: - Selection Logic
+
+    private var selectionLabel: String {
+        let verses = Self.parseVerses(from: content.textContent)
+        let validCount = selectedIndices.filter { $0 < verses.count && verses[$0].number != "§" }.count
+        if validCount == 0 { return "" }
+        if validCount == 1,
+           let idx = selectedIndices.first(where: { $0 < verses.count && verses[$0].number != "§" }) {
+            return "Verse \(verses[idx].number)"
+        }
+        return "\(validCount) verses"
+    }
+
+    private func commitSelection() {
+        guard !selectedIndices.isEmpty else { return }
+        let verses  = Self.parseVerses(from: content.textContent)
+        let sorted  = selectedIndices.sorted()
+        guard
+            let firstIdx = sorted.first(where: { $0 < verses.count && verses[$0].number != "§" }),
+            let lastIdx  = sorted.last( where: { $0 < verses.count && verses[$0].number != "§" })
+        else {
+            withAnimation(.spring(duration: 0.25)) { selectedIndices = [] }
+            return
+        }
+        let startVerse   = verses[firstIdx].number
+        let endVerse     = verses[lastIdx].number
+        let combinedText = sorted
+            .filter { $0 < verses.count && verses[$0].number != "§" }
+            .map    { verses[$0].text }
+            .joined(separator: " ")
+        let endVerseOrNil = (startVerse == endVerse) ? nil : endVerse
+        onLongPressVerse(startVerse, endVerseOrNil, combinedText)
+        withAnimation(.spring(duration: 0.25)) { selectedIndices = [] }
+    }
+
     // MARK: - Font
 
     private var bodyFont: Font {
@@ -118,57 +245,6 @@ struct BibleTextView: View {
         case "trailing": return .trailing
         default:         return .leading
         }
-    }
-
-    // MARK: - Range Selection
-
-    private func isVerseInRange(_ index: Int) -> Bool {
-        guard let start = selectedRangeStart, let end = selectedRangeEnd else {
-            return false
-        }
-        let minIndex = min(start, end)
-        let maxIndex = max(start, end)
-        return index >= minIndex && index <= maxIndex
-    }
-
-    private func startRangeSelection(at index: Int) {
-        selectedRangeStart = index
-        selectedRangeEnd   = index
-    }
-
-    private func updateRangeSelection(from startIndex: Int, dragHeight: CGFloat, totalVerses: Int) {
-        // Estimate verse height (roughly 40-50pt depending on font size and line spacing)
-        let estimatedVerseHeight: CGFloat = 45
-        let draggedVerses = Int(round(dragHeight / estimatedVerseHeight))
-
-        let endIndex = startIndex + draggedVerses
-        selectedRangeEnd = max(0, min(totalVerses - 1, endIndex))
-    }
-
-    private func completeRangeSelection(verses: [(number: String, text: String)]) {
-        guard let start = selectedRangeStart, let end = selectedRangeEnd else {
-            return
-        }
-
-        let minIndex = min(start, end)
-        let maxIndex = max(start, end)
-
-        let startVerse = verses[minIndex].number
-        let endVerse   = verses[maxIndex].number
-
-        // Combine text from all verses in range
-        let combinedText = verses[minIndex...maxIndex]
-            .map { $0.text }
-            .joined(separator: " ")
-
-        // If it's a single verse, pass nil for endVerse
-        let endVerseOrNil = (startVerse == endVerse) ? nil : endVerse
-
-        onLongPressVerse(startVerse, endVerseOrNil, combinedText)
-
-        // Clear selection
-        selectedRangeStart = nil
-        selectedRangeEnd   = nil
     }
 
     // MARK: - Verse Parser
@@ -217,21 +293,26 @@ struct BibleTextView: View {
 
 private struct VerseRow: View {
 
-    let number:                    String
-    let text:                      String
-    let segments:                  [VerseSegment]?   // nil when translation has no markup
-    let showRedLetters:            Bool
-    let font:                      Font
-    let spacing:                   Double
-    let alignment:                 TextAlignment
-    let theme:                     any AppTheme
-    let isInSelectedRange:         Bool
-    /// 0–1 opacity for the gold flash overlay. Computed and animated by BibleTextView;
-    /// VerseRow just applies it so it never needs @State or onChange itself.
-    let navFlashOpacity:           Double
-    let onStartRangeSelection:     () -> Void
-    let onUpdateRangeSelection:    (CGFloat) -> Void
-    let onCompleteRangeSelection:  () -> Void
+    let number:            String
+    let text:              String
+    let segments:          [VerseSegment]?   // nil when translation has no markup
+    let showRedLetters:    Bool
+    let font:              Font
+    let spacing:           Double
+    let alignment:         TextAlignment
+    let theme:             any AppTheme
+    /// 0–1 opacity for the gold flash overlay driven by BibleTextView.
+    let navFlashOpacity:   Double
+    /// Spring-animated scale for the peek effect. Driven by onChange(of: navFlashOpacity).
+    @State private var peekScale: CGFloat = 1.0
+    let onBookmarkVerse:   () -> Void
+    /// True when any verse is selected (drives dimming of non-selected rows).
+    let isInSelectionMode: Bool
+    /// True when this row is currently in the selection set.
+    let isSelected:        Bool
+    /// Toggles this verse in/out of the selection. Called on tap (in selection mode) or
+    /// when the user picks "Select Verse" from the context menu (to start a selection).
+    let onToggleSelection: () -> Void
 
     var body: some View {
         if number == "§" {
@@ -256,13 +337,51 @@ private struct VerseRow: View {
                 // Verse text — use AttributedString for red letters when available
                 verseContent
             }
-            .padding(.horizontal, 20)
+            .padding(.leading, isSelected ? 28 : 20)
+            .padding(.trailing, 20)
             .padding(.vertical, 4)
-            .background(backgroundHighlight)
+            .fontWeight(isSelected ? .semibold : .regular)
+            // Dim non-selected verses; lift selected ones with scale + shadow.
+            .opacity(isInSelectionMode && !isSelected ? 0.35 : 1.0)
+            .scaleEffect(isSelected ? 1.02 : 1.0, anchor: .leading)
+            // Spring peek: verse pops out when flash fires then settles back smoothly.
+            .scaleEffect(peekScale, anchor: .leading)
+            .shadow(color: isSelected ? .black.opacity(0.10) : .clear, radius: 6, y: 3)
+            .zIndex(isSelected ? 1 : 0)
+            .animation(.easeInOut(duration: 0.2), value: isInSelectionMode)
+            .animation(.spring(duration: 0.3, bounce: 0.2), value: isSelected)
+            .onChange(of: navFlashOpacity) { _, newVal in
+                if newVal > 0 {
+                    // Flash started — pop out with a bouncy spring, hold 2 s, then settle.
+                    // The color flash clears 1 s after the pop returns, so the gold lingers
+                    // as a quieter glow after the verse has already settled back.
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.38)) { peekScale = 1.09 }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                        withAnimation(.spring(response: 0.55, dampingFraction: 0.72)) { peekScale = 1.0 }
+                    }
+                } else {
+                    // Safety net: if flash is cancelled early, snap peek back too.
+                    withAnimation(.spring(response: 0.55, dampingFraction: 0.72)) { peekScale = 1.0 }
+                }
+            }
             .contentShape(Rectangle())
-            // simultaneousGesture lets UIScrollView scroll while the long-press
-            // is pending. Quick swipes scroll; 0.5 s hold triggers bookmark.
-            .simultaneousGesture(rangeSelectionGesture)
+            // Tap toggles this verse in/out of the selection set.
+            .onTapGesture {
+                if isInSelectionMode { onToggleSelection() }
+            }
+            // Context menu coordinates natively with UIScrollView — iOS yields to
+            // scrolling if the user pans before the menu fires, so there is no gesture conflict.
+            // Suppressed in selection mode so taps freely toggle verses.
+            .contextMenu {
+                if !isInSelectionMode {
+                    Button { onBookmarkVerse() } label: {
+                        Label("Bookmark Verse", systemImage: "bookmark")
+                    }
+                    Button { onToggleSelection() } label: {
+                        Label("Select Verse", systemImage: "checkmark.circle")
+                    }
+                }
+            }
         }
     }
 
@@ -319,37 +438,6 @@ private struct VerseRow: View {
             result += part
         }
         return result
-    }
-
-    private var backgroundHighlight: some View {
-        Group {
-            if isInSelectedRange {
-                theme.primary.opacity(0.20)
-            } else {
-                Color.clear
-            }
-        }
-    }
-
-    private var rangeSelectionGesture: some Gesture {
-        LongPressGesture(minimumDuration: 0.5)
-            .onEnded { _ in
-                onStartRangeSelection()
-            }
-            .sequenced(before: DragGesture(minimumDistance: 0))
-            .onChanged { value in
-                switch value {
-                case .second(true, let drag):
-                    if let dragValue = drag {
-                        onUpdateRangeSelection(dragValue.translation.height)
-                    }
-                default:
-                    break
-                }
-            }
-            .onEnded { _ in
-                onCompleteRangeSelection()
-            }
     }
 
     private func frameAlignment(for ta: TextAlignment) -> Alignment {

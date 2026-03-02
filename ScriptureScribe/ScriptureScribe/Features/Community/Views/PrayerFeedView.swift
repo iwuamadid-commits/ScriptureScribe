@@ -73,12 +73,13 @@ struct PrayerFeedView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            } else {
+            } else if isPremium {
+                // ── Premium: full scrollable feed ────────────────────────
                 ScrollView {
                     sectionHeader
 
                     LazyVStack(spacing: 12) {
-                        ForEach(Array(vm.requests.enumerated()), id: \.element.id) { index, request in
+                        ForEach(vm.requests) { request in
                             PrayerCardView(
                                 request:     request,
                                 currentUser: authVM.currentUser,
@@ -92,17 +93,11 @@ struct PrayerFeedView: View {
                                 onComment: { selectedRequest = request },
                                 onDelete:  { Task { await vm.deleteRequest(request) } }
                             )
-                            .blur(radius: (!isPremium && index > 0) ? 6 : 0)
-                            .allowsHitTesting(isPremium || index == 0)
                             .transition(.opacity)
                         }
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
-
-                    if !isPremium {
-                        premiumUpgradeBanner
-                    }
                 }
                 .sheet(item: $selectedRequest) { req in
                     PrayerCommentsView(request: req, currentUser: authVM.currentUser)
@@ -112,6 +107,32 @@ struct PrayerFeedView: View {
                         Task { await vm.editRequest(req, newText: newText) }
                     }
                 }
+
+            } else {
+                // ── Free: one preview post (no interaction) + upgrade banner pinned at bottom ──
+                VStack(spacing: 0) {
+                    sectionHeader
+
+                    if let firstRequest = vm.requests.first {
+                        PrayerCardView(
+                            request:     firstRequest,
+                            currentUser: authVM.currentUser,
+                            isPraying:   false,
+                            onPray:      { },
+                            onEdit:      { },
+                            onComment:   { },
+                            onDelete:    { }
+                        )
+                        .allowsHitTesting(false)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 12)
+                    }
+
+                    Spacer()
+
+                    premiumUpgradeBanner
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .onAppear    { vm.startListening(userId: authVM.currentUserID) }
@@ -122,23 +143,31 @@ struct PrayerFeedView: View {
 
     private var premiumUpgradeBanner: some View {
         VStack(spacing: 12) {
-            Image(systemName: "lock.fill")
-                .font(.title2)
-                .foregroundStyle(themeManager.currentTheme.primary)
             Text("Unlock Full Community")
                 .font(.headline)
                 .foregroundStyle(themeManager.currentTheme.text)
-            Text("Upgrade to Premium to see all posts, comment, like, and share your own.")
+            Text("See all posts, comment, like, and share your own.")
                 .font(.subheadline)
                 .foregroundStyle(themeManager.currentTheme.textSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
             Button { onUpgrade?() } label: {
-                Text("Go Premium")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .frame(minWidth: 160, minHeight: 44)
-                    .background(Capsule().fill(themeManager.currentTheme.primary))
+                HStack(spacing: 8) {
+                    ProBadge()
+                    Text("Upgrade to Pro")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.white)
+                }
+                .padding(.horizontal, 24)
+                .padding(.vertical, 13)
+                .background(
+                    LinearGradient(
+                        colors: [Color(red: 1.0, green: 0.80, blue: 0.22),
+                                 Color(red: 0.97, green: 0.58, blue: 0.10)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    ),
+                    in: RoundedRectangle(cornerRadius: 14)
+                )
             }
             .buttonStyle(.plain)
         }

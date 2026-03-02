@@ -16,7 +16,15 @@ import SwiftUI
 struct ColorPickerWheelView: View {
 
     @Binding var selectedColor: UIColor
-    var onSave: ((UIColor) -> Void)? = nil
+    /// Called when "+" is tapped — saves the color without closing the picker.
+    var onAdd:  ((UIColor) -> Void)? = nil
+    /// Called when "Done" is tapped — applies the color and closes. Does NOT save to toolbar.
+    var onDone: ((UIColor) -> Void)? = nil
+    /// ViewModel reference used for the Favorites navigation link.
+    var vm: AnnotationViewModel? = nil
+    /// When true, the Save Color button shows a PRO badge (free user at limit).
+    var isAtLimit: Bool = false
+
     @Environment(\.dismiss) private var dismiss
 
     // Live HSB components
@@ -26,6 +34,13 @@ struct ColorPickerWheelView: View {
 
     // The color as it was when the sheet opened (left swatch)
     @State private var originalColor: UIColor = .white
+
+    // Brief "Saved!" confirmation after tapping "+"
+    @State private var showSavedConfirmation = false
+
+    // Hex input field
+    @State private var hexInput: String = ""
+    @State private var hexInputInvalid = false
 
     // Recent-color history (stored as hex strings)
     @State private var history: [String] = []
@@ -75,10 +90,22 @@ struct ColorPickerWheelView: View {
                     .padding(.horizontal, 20)
                     .padding(.top, 12)
 
+                // ── Hex Input ────────────────────────────────────────────
+                hexInputRow
+                    .padding(.horizontal, 20)
+                    .padding(.top, 16)
+
                 // ── History ──────────────────────────────────────────────
                 historySection
                     .padding(.horizontal, 20)
-                    .padding(.top, 20)
+                    .padding(.top, 16)
+
+                // ── Save Color Button ─────────────────────────────────────
+                if onAdd != nil {
+                    saveColorButton
+                        .padding(.horizontal, 20)
+                        .padding(.top, 16)
+                }
 
                 Spacer()
             }
@@ -87,11 +114,12 @@ struct ColorPickerWheelView: View {
             originalColor = selectedColor
             initHSB(from: selectedColor)
             loadHistory()
+            hexInput = selectedColor.hexString
         }
         // Keep selectedColor in sync while the user drags
-        .onChange(of: hue)        { _, _ in selectedColor = currentUIColor }
-        .onChange(of: saturation) { _, _ in selectedColor = currentUIColor }
-        .onChange(of: brightness) { _, _ in selectedColor = currentUIColor }
+        .onChange(of: hue)        { _, _ in selectedColor = currentUIColor; hexInput = currentUIColor.hexString }
+        .onChange(of: saturation) { _, _ in selectedColor = currentUIColor; hexInput = currentUIColor.hexString }
+        .onChange(of: brightness) { _, _ in selectedColor = currentUIColor; hexInput = currentUIColor.hexString }
     }
 
     // MARK: - Header
@@ -99,13 +127,20 @@ struct ColorPickerWheelView: View {
     private var headerRow: some View {
         HStack(alignment: .center, spacing: 12) {
 
-            Text("Colors")
-                .font(.title2.weight(.bold))
-                .foregroundStyle(.white)
+            // ── Favorites nav button (top-left) ──────────────────────────
+            if let vm {
+                NavigationLink {
+                    SavedColorsManagerView(vm: vm)
+                } label: {
+                    Label("Saved", systemImage: "star.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color(white: 0.75))
+                }
+            }
 
             Spacer()
 
-            // Original color (left) | New color (right) — like Procreate's two swatches
+            // Original color (left) | New color (right)
             HStack(spacing: 0) {
                 Rectangle()
                     .fill(Color(originalColor))
@@ -118,15 +153,50 @@ struct ColorPickerWheelView: View {
             .overlay(RoundedRectangle(cornerRadius: 8)
                 .stroke(Color.white.opacity(0.25), lineWidth: 1))
 
-            // "Done" saves to toolbar + selects + closes
+            // "Done" — applies the current color and closes. Does NOT save to toolbar.
             Button("Done") {
                 selectedColor = currentUIColor
                 saveToHistory(currentUIColor)
-                onSave?(currentUIColor)
+                onDone?(currentUIColor)
                 dismiss()
             }
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(.white)
+        }
+    }
+
+    // MARK: - Save Color Button
+
+    private var saveColorButton: some View {
+        Button {
+            onAdd?(currentUIColor)
+            saveToHistory(currentUIColor)
+            withAnimation(.easeInOut(duration: 0.2)) { showSavedConfirmation = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                withAnimation(.easeInOut(duration: 0.3)) { showSavedConfirmation = false }
+            }
+        } label: {
+            ZStack {
+                HStack(spacing: 8) {
+                    Image(systemName: showSavedConfirmation ? "checkmark" : "plus")
+                        .font(.subheadline.weight(.semibold))
+                    Text(showSavedConfirmation ? "Saved!" : "Save Color")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .foregroundStyle(showSavedConfirmation ? Color.green : .white)
+
+                // PRO badge — top-right when at free limit
+                if isAtLimit && !showSavedConfirmation {
+                    HStack {
+                        Spacer()
+                        ProBadge()
+                            .padding(.trailing, 14)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 44)
+            .background(Color(white: 0.22), in: RoundedRectangle(cornerRadius: 10))
         }
     }
 
@@ -160,15 +230,65 @@ struct ColorPickerWheelView: View {
                                 Circle()
                                     .fill(Color(color))
                                     .frame(width: 38, height: 38)
-                                    .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 1))
+                                    .overlay(Circle().strokeBorder(Color.white.opacity(0.2), lineWidth: 1))
                                     .onTapGesture { initHSB(from: color) }
                             }
                         }
                     }
                 }
+                .padding(.vertical, 3)   // prevent top/bottom clipping
+                .padding(.horizontal, 2) // prevent leading/trailing stroke clipping
             }
-            .frame(height: 42)
+            .frame(height: 46)
         }
+    }
+
+    // MARK: - Hex Input
+
+    private var hexInputRow: some View {
+        HStack(spacing: 10) {
+            // "#" prefix label
+            Text("#")
+                .font(.system(.callout, design: .monospaced).weight(.semibold))
+                .foregroundStyle(Color(white: 0.55))
+
+            // Editable hex field
+            TextField("RRGGBB", text: $hexInput)
+                .font(.system(.callout, design: .monospaced).weight(.semibold))
+                .foregroundStyle(hexInputInvalid ? Color(red: 1, green: 0.35, blue: 0.35) : Color(white: 0.95))
+                .textInputAutocapitalization(.characters)
+                .autocorrectionDisabled()
+                .keyboardType(.asciiCapable)
+                .submitLabel(.done)
+                .onChange(of: hexInput) { _, newVal in
+                    // Strip leading "#" if pasted
+                    let cleaned = newVal.hasPrefix("#") ? String(newVal.dropFirst()) : newVal
+                    if cleaned != hexInput { hexInput = cleaned }
+                    hexInputInvalid = false
+                }
+                .onSubmit { applyHex() }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color(white: 0.20), in: RoundedRectangle(cornerRadius: 8))
+
+            // Apply button
+            Button(action: applyHex) {
+                Image(systemName: "arrow.right.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(Color(white: 0.65))
+            }
+        }
+    }
+
+    private func applyHex() {
+        let raw = hexInput.trimmingCharacters(in: .whitespaces)
+                          .replacingOccurrences(of: "#", with: "")
+        guard raw.count == 6, let color = UIColor(hexString: raw) else {
+            withAnimation(.easeInOut(duration: 0.15)) { hexInputInvalid = true }
+            return
+        }
+        hexInputInvalid = false
+        initHSB(from: color)
     }
 
     // MARK: - Helpers
@@ -368,5 +488,27 @@ private struct HueSliderViewFull: View {
                     }
             )
         }
+    }
+}
+
+// MARK: - ProBadge
+
+/// Gold gradient "PRO" capsule shown when a free user is at their saved-color limit.
+struct ProBadge: View {
+    var body: some View {
+        Text("PRO")
+            .font(.system(size: 7, weight: .black, design: .rounded))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2.5)
+            .background(
+                LinearGradient(
+                    colors: [Color(red: 1.0, green: 0.80, blue: 0.22),
+                             Color(red: 0.97, green: 0.58, blue: 0.10)],
+                    startPoint: .topLeading,
+                    endPoint:   .bottomTrailing
+                ),
+                in: Capsule()
+            )
     }
 }

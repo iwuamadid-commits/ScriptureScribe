@@ -377,7 +377,7 @@ enum APIError: LocalizedError {
         case .invalidResponse:     return "Received an unexpected response from the server."
         case .unauthorized:        return "API key rejected. Check Secrets.xcconfig."
         case .notFound:            return "That content wasn't found."
-        case .rateLimited:         return "Too many requests — please wait a moment before continuing."
+        case .rateLimited:         return "Too many requests. Please wait a moment before continuing."
         case .serverError(let c):  return "Server error (\(c)). Please try again."
         case .decodingFailed:      return "The server sent data in an unexpected format."
         }

@@ -38,7 +38,7 @@ struct PostCardView: View {
         } else {
             parts.append(post.text)
         }
-        parts.append("— \(post.displayName) on Scripture Scribe")
+        parts.append("Shared by \(post.displayName) on Scripture Scribe")
         if post.text.count > limit {
             parts.append("Read more in Scripture Scribe:\n\(link)")
         } else {

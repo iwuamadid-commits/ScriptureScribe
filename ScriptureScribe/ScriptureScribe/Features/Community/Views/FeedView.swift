@@ -288,7 +288,8 @@ struct FeedView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            } else {
+            } else if subscriptionVM.isPremium {
+                // ── Premium: full scrollable feed ────────────────────────
                 ScrollView {
                     sectionHeader(
                         icon:        "quote.bubble.fill",
@@ -315,7 +316,7 @@ struct FeedView: View {
                     }
 
                     LazyVStack(spacing: 12) {
-                        ForEach(Array(communityVM.posts.enumerated()), id: \.element.id) { index, post in
+                        ForEach(communityVM.posts) { post in
                             PostCardView(
                                 post:          post,
                                 currentUserId: authVM.currentUserID,
@@ -326,24 +327,46 @@ struct FeedView: View {
                                     }
                                 },
                                 onEdit:   { editingPost = post },
-                                onDelete: {
-                                    Task { await communityVM.deletePost(post) }
-                                },
-                                onTap: { selectedPost = post }
+                                onDelete: { Task { await communityVM.deletePost(post) } },
+                                onTap:    { selectedPost = post }
                             )
-                            .blur(radius: (!subscriptionVM.isPremium && index > 0) ? 6 : 0)
-                            .allowsHitTesting(subscriptionVM.isPremium || index == 0)
                             .transition(.opacity)
                         }
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
-
-                    if !subscriptionVM.isPremium {
-                        premiumUpgradeBanner
-                    }
                 }
                 .refreshable { }
+
+            } else {
+                // ── Free: one preview post (no interaction) + upgrade banner pinned at bottom ──
+                VStack(spacing: 0) {
+                    sectionHeader(
+                        icon:        "quote.bubble.fill",
+                        title:       "Insights",
+                        description: "Share what God is teaching you through Scripture."
+                    )
+
+                    if let firstPost = communityVM.posts.first {
+                        PostCardView(
+                            post:          firstPost,
+                            currentUserId: authVM.currentUserID,
+                            isLiked:       false,
+                            onLike:        { },
+                            onEdit:        { },
+                            onDelete:      { },
+                            onTap:         { }
+                        )
+                        .allowsHitTesting(false)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 12)
+                    }
+
+                    Spacer()
+
+                    premiumUpgradeBanner
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .onAppear    { communityVM.startListening(userId: authVM.currentUserID) }
@@ -372,19 +395,15 @@ struct FeedView: View {
         }
     }
 
-    // MARK: - Premium Upgrade Banner (shown below blurred posts)
+    // MARK: - Premium Upgrade Banner
 
     private var premiumUpgradeBanner: some View {
         VStack(spacing: 12) {
-            Image(systemName: "lock.fill")
-                .font(.title2)
-                .foregroundStyle(themeManager.currentTheme.primary)
-
             Text("Unlock Full Community")
                 .font(.headline)
                 .foregroundStyle(themeManager.currentTheme.text)
 
-            Text("Upgrade to Premium to see all posts, comment, like, and share your own.")
+            Text("See all posts, comment, like, and share your own.")
                 .font(.subheadline)
                 .foregroundStyle(themeManager.currentTheme.textSecondary)
                 .multilineTextAlignment(.center)
@@ -393,11 +412,22 @@ struct FeedView: View {
             Button {
                 showPaywall = true
             } label: {
-                Text("Go Premium")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .frame(minWidth: 160, minHeight: 44)
-                    .background(Capsule().fill(themeManager.currentTheme.primary))
+                HStack(spacing: 8) {
+                    ProBadge()
+                    Text("Upgrade to Pro")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.white)
+                }
+                .padding(.horizontal, 24)
+                .padding(.vertical, 13)
+                .background(
+                    LinearGradient(
+                        colors: [Color(red: 1.0, green: 0.80, blue: 0.22),
+                                 Color(red: 0.97, green: 0.58, blue: 0.10)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    ),
+                    in: RoundedRectangle(cornerRadius: 14)
+                )
             }
             .buttonStyle(.plain)
         }

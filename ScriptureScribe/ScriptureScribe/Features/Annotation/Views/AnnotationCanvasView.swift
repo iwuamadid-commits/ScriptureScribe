@@ -129,8 +129,10 @@ struct AnnotationCanvasView: UIViewRepresentable {
         vm.currentChapterId = chapterId
 
         if let saved = vm.loadDrawing(for: chapterId) {
-            context.coordinator.previousStrokeCount = saved.strokes.count
+            context.coordinator.isRewriting = true
             canvas.drawing = saved
+            context.coordinator.isRewriting = false
+            context.coordinator.previousStrokeCount = saved.strokes.count
         }
 
         let coordinator = context.coordinator
@@ -174,8 +176,10 @@ struct AnnotationCanvasView: UIViewRepresentable {
             vm.currentChapterId = chapterId
 
             let newDrawing = vm.loadDrawing(for: chapterId) ?? PKDrawing()
-            context.coordinator.previousStrokeCount = newDrawing.strokes.count
+            context.coordinator.isRewriting = true
             canvas.drawing = newDrawing
+            context.coordinator.isRewriting = false
+            context.coordinator.previousStrokeCount = newDrawing.strokes.count
 
             context.coordinator.lastContainerWidth = containerWidth
         }

@@ -34,7 +34,7 @@ struct GratitudeFeedView: View {
                     .font(.title3.weight(.bold))
                     .foregroundStyle(themeManager.currentTheme.primary)
             }
-            Text("Celebrate God's goodness. Share what you're grateful for today — big or small — and encourage others along the way.")
+            Text("Celebrate God's goodness. Share what you're grateful for today, big or small, and encourage others along the way.")
                 .font(.subheadline)
                 .foregroundStyle(themeManager.currentTheme.textSecondary)
                 .multilineTextAlignment(.center)
@@ -76,7 +76,8 @@ struct GratitudeFeedView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            } else {
+            } else if isPremium {
+                // ── Premium: full scrollable feed ────────────────────────
                 ScrollView {
                     sectionHeader
 
@@ -92,7 +93,7 @@ struct GratitudeFeedView: View {
                     }
 
                     LazyVStack(spacing: 12) {
-                        ForEach(Array(vm.posts.enumerated()), id: \.element.id) { index, post in
+                        ForEach(vm.posts) { post in
                             GratitudeCardView(
                                 post:          post,
                                 currentUserId: authVM.currentUserID,
@@ -106,17 +107,11 @@ struct GratitudeFeedView: View {
                                 onComment: { selectedPost = post },
                                 onDelete:  { Task { await vm.deletePost(post) } }
                             )
-                            .blur(radius: (!isPremium && index > 0) ? 6 : 0)
-                            .allowsHitTesting(isPremium || index == 0)
                             .transition(.opacity)
                         }
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
-
-                    if !isPremium {
-                        premiumUpgradeBanner
-                    }
                 }
                 .sheet(item: $selectedPost) { post in
                     GratitudeCommentsView(post: post, currentUser: authVM.currentUser)
@@ -126,6 +121,32 @@ struct GratitudeFeedView: View {
                         Task { await vm.editPost(post, newText: newText) }
                     }
                 }
+
+            } else {
+                // ── Free: one preview post (no interaction) + upgrade banner pinned at bottom ──
+                VStack(spacing: 0) {
+                    sectionHeader
+
+                    if let firstPost = vm.posts.first {
+                        GratitudeCardView(
+                            post:          firstPost,
+                            currentUserId: authVM.currentUserID,
+                            isLiked:       false,
+                            onLike:        { },
+                            onEdit:        { },
+                            onComment:     { },
+                            onDelete:      { }
+                        )
+                        .allowsHitTesting(false)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 12)
+                    }
+
+                    Spacer()
+
+                    premiumUpgradeBanner
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .onAppear    { vm.startListening(userId: authVM.currentUserID) }
@@ -136,23 +157,31 @@ struct GratitudeFeedView: View {
 
     private var premiumUpgradeBanner: some View {
         VStack(spacing: 12) {
-            Image(systemName: "lock.fill")
-                .font(.title2)
-                .foregroundStyle(themeManager.currentTheme.primary)
             Text("Unlock Full Community")
                 .font(.headline)
                 .foregroundStyle(themeManager.currentTheme.text)
-            Text("Upgrade to Premium to see all posts, comment, like, and share your own.")
+            Text("See all posts, comment, like, and share your own.")
                 .font(.subheadline)
                 .foregroundStyle(themeManager.currentTheme.textSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
             Button { onUpgrade?() } label: {
-                Text("Go Premium")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .frame(minWidth: 160, minHeight: 44)
-                    .background(Capsule().fill(themeManager.currentTheme.primary))
+                HStack(spacing: 8) {
+                    ProBadge()
+                    Text("Upgrade to Pro")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.white)
+                }
+                .padding(.horizontal, 24)
+                .padding(.vertical, 13)
+                .background(
+                    LinearGradient(
+                        colors: [Color(red: 1.0, green: 0.80, blue: 0.22),
+                                 Color(red: 0.97, green: 0.58, blue: 0.10)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    ),
+                    in: RoundedRectangle(cornerRadius: 14)
+                )
             }
             .buttonStyle(.plain)
         }

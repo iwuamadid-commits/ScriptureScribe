@@ -116,7 +116,7 @@ struct VerseImageComposerView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "crown.fill")
                             .font(.caption2)
-                        Text("Remove watermark — Go Premium")
+                        Text("Remove Watermark (Upgrade to Pro)")
                             .font(.caption)
                     }
                     .foregroundStyle(.yellow.opacity(0.9))

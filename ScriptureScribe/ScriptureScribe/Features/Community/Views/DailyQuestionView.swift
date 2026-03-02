@@ -151,7 +151,7 @@ struct DailyQuestionView: View {
                             // ── Answers ───────────────────────────────────
                             if vm.answers.isEmpty {
                                 Text(vm.isToday
-                                     ? "No answers yet — be the first!"
+                                     ? "No answers yet. Be the first!"
                                      : "No answers were shared for this day.")
                                     .font(.subheadline)
                                     .foregroundStyle(themeManager.currentTheme.textSecondary)
@@ -243,23 +243,31 @@ struct DailyQuestionView: View {
 
     private var premiumUpgradeBanner: some View {
         VStack(spacing: 12) {
-            Image(systemName: "lock.fill")
-                .font(.title2)
-                .foregroundStyle(themeManager.currentTheme.primary)
             Text("Unlock Full Community")
                 .font(.headline)
                 .foregroundStyle(themeManager.currentTheme.text)
-            Text("Upgrade to Premium to see all posts, comment, like, and share your own.")
+            Text("See all posts, comment, like, and share your own.")
                 .font(.subheadline)
                 .foregroundStyle(themeManager.currentTheme.textSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
             Button { onUpgrade?() } label: {
-                Text("Go Premium")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .frame(minWidth: 160, minHeight: 44)
-                    .background(Capsule().fill(themeManager.currentTheme.primary))
+                HStack(spacing: 8) {
+                    ProBadge()
+                    Text("Upgrade to Pro")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.white)
+                }
+                .padding(.horizontal, 24)
+                .padding(.vertical, 13)
+                .background(
+                    LinearGradient(
+                        colors: [Color(red: 1.0, green: 0.80, blue: 0.22),
+                                 Color(red: 0.97, green: 0.58, blue: 0.10)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    ),
+                    in: RoundedRectangle(cornerRadius: 14)
+                )
             }
             .buttonStyle(.plain)
         }

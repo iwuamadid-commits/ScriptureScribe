@@ -7,10 +7,11 @@
 //  as a sheet when tapping the active tool again.
 //
 //  Color circle behavior:
-//    • Single tap  → select that color
-//    • Double tap  → select that color AND open the full color picker
-//    • Long press  → delete from saved list
-//  "+" button → opens the full color picker to pick and save a new color.
+//    • Single tap on unselected  → select that color
+//    • Single tap on selected    → open color picker (explore/modify)
+//    • Long press (0.4 s)        → arm drag-to-reorder
+//  "+" button → opens color picker (add new color via "+" inside picker).
+//  Hidden colors are excluded from the toolbar but managed in Favorites.
 //
 
 import SwiftUI
@@ -29,10 +30,10 @@ struct AnnotationToolbarView: View {
     @State private var showPaywall           = false
     @State private var imagePickerSource     = UIImagePickerController.SourceType.photoLibrary
 
-    // Drag-to-reorder state
-    @State private var draggedColorIndex: Int?   = nil
-    @State private var dragOffset:        CGFloat = 0
-    @State private var dragSourceIndex:   Int     = 0
+    // Drag-to-reorder state (indices into visibleColors, not savedColors)
+    @State private var draggedVisibleIndex:   Int?   = nil
+    @State private var dragOffset:            CGFloat = 0
+    @State private var dragSourceVisibleIndex: Int    = 0
 
     var body: some View {
         HStack(spacing: 8) {
@@ -62,94 +63,28 @@ struct AnnotationToolbarView: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
-                    ForEach(Array(vm.savedColors.enumerated()), id: \.element.stringValue) { index, savedColor in
-                        let isSelected = savedColor.colorHex == vm.selectedColor.hexString
-                        let isDragged  = draggedColorIndex == index
-
-                        ZStack {
-                            Circle().fill(Color(savedColor.uiColor))
-                            Circle().strokeBorder(
-                                isSelected
-                                    ? themeManager.currentTheme.primary
-                                    : Color.white.opacity(0.3),
-                                lineWidth: isSelected ? 2.5 : 1.5
-                            )
-                        }
-                        .frame(width: 28, height: 28)
-                        .scaleEffect(isDragged ? 1.2 : (isSelected ? 1.25 : 1.0))
-                        .shadow(color: .black.opacity(isDragged ? 0.25 : 0.15),
-                                radius: isDragged ? 6 : 2,
-                                y:      isDragged ? 2 : 0)
-                        .offset(x: isDragged ? dragOffset : colorDisplacement(for: index))
-                        .zIndex(isDragged ? 1 : 0)
-                        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: draggedColorIndex)
-                        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: colorDisplacement(for: index))
-                        .animation(.easeInOut(duration: 0.15), value: isSelected)
-                            // Double-tap: select AND open color picker to replace this swatch
-                            .onTapGesture(count: 2) {
-                                vm.selectedColor = savedColor.uiColor
-                                vm.saveCurrentToolSettings()
-                                vm.pendingEditColorIndex = index
-                                showColorPicker = true
-                            }
-                            // Single-tap: select, or open picker to replace if already selected
-                            .onTapGesture(count: 1) {
-                                if isSelected {
-                                    vm.pendingEditColorIndex = index
-                                    showColorPicker = true
-                                } else {
-                                    vm.selectedColor = savedColor.uiColor
-                                    vm.saveCurrentToolSettings()
-                                }
-                            }
-                            // Long press (0.4 s) → arm drag; pressing callback resets if finger
-                            // lifts without any drag movement (lets context menu appear instead)
-                            .onLongPressGesture(minimumDuration: 0.4, pressing: { pressing in
-                                if !pressing, draggedColorIndex == index, dragOffset == 0 {
-                                    withAnimation { draggedColorIndex = nil }
-                                }
-                            }) {
-                                dragSourceIndex = index
-                                withAnimation { draggedColorIndex = index }
-                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                            }
-                            // Horizontal drag — reorder only
-                            // minimumDistance: 10_000 when not armed so normal taps are unaffected
-                            .simultaneousGesture(
-                                DragGesture(minimumDistance: isDragged ? 0 : 10_000)
-                                    .onChanged { drag in
-                                        guard draggedColorIndex == index else { return }
-                                        dragOffset = drag.translation.width
-                                    }
-                                    .onEnded { _ in
-                                        guard draggedColorIndex == index else { return }
-                                        let proposed = proposedColorIndex()
-                                        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
-                                            if proposed != dragSourceIndex {
-                                                vm.moveColor(from: dragSourceIndex, to: proposed)
-                                            }
-                                            dragOffset        = 0
-                                            draggedColorIndex = nil
-                                        }
-                                    }
-                            )
+                    ForEach(Array(visibleColors.enumerated()), id: \.element.color.stringValue) { visibleIdx, item in
+                        colorSwatch(visibleIdx: visibleIdx, item: item)
                     }
 
-                    // "+" button → add new color, or paywall if free user is at limit
+                    // "+" button → paywall if at free limit, otherwise open picker
                     Button {
-                        let atLimit = !subscriptionVM.isPremium &&
-                            vm.savedColors.count >= PremiumLimits.maxFreeSavedColors
-                        if atLimit {
+                        if isAtFreeLimit {
                             showPaywall = true
                         } else {
                             vm.pendingEditColorIndex = nil
                             showColorPicker = true
                         }
                     } label: {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.body)
-                            .foregroundStyle(themeManager.currentTheme.primary)
-                            .frame(width: 28, height: 28)
+                        HStack(spacing: 3) {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.body)
+                                .foregroundStyle(themeManager.currentTheme.primary)
+                            if isAtFreeLimit {
+                                ProBadge()
+                            }
+                        }
+                        .frame(height: 28)
                     }
                     .accessibilityLabel("Add new color")
                 }
@@ -157,7 +92,7 @@ struct AnnotationToolbarView: View {
                 .padding(.vertical, 6)
             }
             .frame(maxWidth: .infinity)
-            .scrollDisabled(draggedColorIndex != nil)
+            .scrollDisabled(draggedVisibleIndex != nil)
 
             // ── Right: Undo / Redo / Settings ───────────────────────────
             HStack(spacing: 8) {
@@ -192,23 +127,32 @@ struct AnnotationToolbarView: View {
                 }
             )
         }
-        // Full Procreate-style color picker
+        // Full color picker — wrapped in NavigationStack so the Favorites nav link works
         .sheet(isPresented: $showColorPicker) {
-            ColorPickerWheelView(
-                selectedColor: $vm.selectedColor,
-                onSave: { color in
-                    // If this is an "add new" operation, enforce the free-tier limit
-                    let isAdding = vm.pendingEditColorIndex == nil
-                    let atLimit  = !subscriptionVM.isPremium &&
-                        vm.savedColors.count >= PremiumLimits.maxFreeSavedColors
-                    if isAdding && atLimit {
-                        showPaywall = true
-                        return
-                    }
-                    vm.saveColorFromPicker(color)
-                    vm.saveCurrentToolSettings()
-                }
-            )
+            NavigationStack {
+                ColorPickerWheelView(
+                    selectedColor: $vm.selectedColor,
+                    onAdd: { color in
+                        // Enforce free-tier limit when adding a new swatch.
+                        // Dismiss picker first so we don't stack two sheets.
+                        if isAtFreeLimit {
+                            showColorPicker = false
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+                                showPaywall = true
+                            }
+                            return
+                        }
+                        vm.addSavedColor(color)
+                        vm.saveCurrentToolSettings()
+                    },
+                    onDone: { color in
+                        vm.selectedColor = color
+                        vm.saveCurrentToolSettings()
+                    },
+                    vm: vm,
+                    isAtLimit: isAtFreeLimit
+                )
+            }
         }
         // Photo source: take photo or choose from library
         .confirmationDialog("Add Photo", isPresented: $showPhotoSourcePicker) {
@@ -290,49 +234,42 @@ struct AnnotationToolbarView: View {
         .accessibilityLabel(tool.label)
     }
 
-    // MARK: - Custom Highlighter Icon (Noteful-style chisel marker)
+    // MARK: - Custom Highlighter Icon (Stabilo-style wide marker)
+    // Drawn vertically then rotated 45° — simple coordinates, clean result.
+    // Cap (rounded dome) ends up at upper-right; chisel tip at lower-left.
 
     private var highlighterMarkerIcon: some View {
         ZStack {
-            // Cap / top band
-            Path { p in
-                p.move(to: CGPoint(x: 8, y: 0))
-                p.addLine(to: CGPoint(x: 14, y: 0))
-                p.addLine(to: CGPoint(x: 14, y: 3))
-                p.addLine(to: CGPoint(x: 8, y: 3))
-                p.closeSubpath()
-            }
-            .fill()
-            .opacity(0.55)
+            // ── Rotated marker body ─────────────────────────────────────────
+            ZStack {
+                // Cap + barrel: rounded dome on top, flat on bottom
+                Path { p in
+                    p.move(to: CGPoint(x: 7, y: 5))
+                    p.addArc(center: CGPoint(x: 11, y: 5),
+                             radius: 4,
+                             startAngle: .degrees(180),
+                             endAngle:   .degrees(0),
+                             clockwise: false)         // dome faces outward
+                    p.addLine(to: CGPoint(x: 15, y: 16))
+                    p.addLine(to: CGPoint(x: 7,  y: 16))
+                    p.closeSubpath()
+                }
+                .fill()
 
-            // Marker barrel (wide rectangular body)
-            Path { p in
-                p.move(to: CGPoint(x: 7, y: 3))
-                p.addLine(to: CGPoint(x: 15, y: 3))
-                p.addLine(to: CGPoint(x: 15, y: 15))
-                p.addLine(to: CGPoint(x: 7, y: 15))
-                p.closeSubpath()
-            }
-            .fill()
+                // Chisel tip (trapezoid — narrows toward the nib end)
+                Path { p in
+                    p.move(to: CGPoint(x: 7,  y: 16))
+                    p.addLine(to: CGPoint(x: 15, y: 16))
+                    p.addLine(to: CGPoint(x: 13, y: 21))
+                    p.addLine(to: CGPoint(x: 9,  y: 21))
+                    p.closeSubpath()
+                }
+                .fill()
+                .opacity(0.6)
 
-            // Chisel tip (angled flat nib)
-            Path { p in
-                p.move(to: CGPoint(x: 7, y: 15))
-                p.addLine(to: CGPoint(x: 15, y: 15))
-                p.addLine(to: CGPoint(x: 13, y: 20))
-                p.addLine(to: CGPoint(x: 9, y: 20))
-                p.closeSubpath()
             }
-            .fill()
-            .opacity(0.65)
-
-            // Highlight stroke mark under the tip
-            Path { p in
-                p.move(to: CGPoint(x: 5, y: 21.5))
-                p.addLine(to: CGPoint(x: 17, y: 21.5))
-            }
-            .stroke(style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-            .opacity(0.3)
+            .frame(width: 22, height: 22)
+            .rotationEffect(.degrees(45))      // cap → upper-right, tip → lower-left
         }
         .frame(width: 22, height: 22)
     }
@@ -388,26 +325,111 @@ struct AnnotationToolbarView: View {
         .accessibilityLabel("Settings")
     }
 
+    // MARK: - Color Swatch
+
+    /// Renders a single color swatch with tap, long-press, and drag gestures.
+    /// Extracted into its own builder to prevent body type-check timeout.
+    @ViewBuilder
+    private func colorSwatch(visibleIdx: Int, item: (realIndex: Int, color: SavedColor)) -> some View {
+        let isSelected:   Bool    = item.color.colorHex == vm.selectedColor.hexString
+        let isDragged:    Bool    = draggedVisibleIndex == visibleIdx
+        let displacement: CGFloat = isDragged ? dragOffset : colorDisplacement(for: visibleIdx)
+
+        ZStack {
+            Circle().fill(Color(item.color.uiColor))
+            Circle().strokeBorder(
+                isSelected ? themeManager.currentTheme.primary : Color.white.opacity(0.3),
+                lineWidth: isSelected ? 2.5 : 1.5
+            )
+        }
+        .frame(width: 28, height: 28)
+        .scaleEffect(isDragged ? 1.2 : (isSelected ? 1.25 : 1.0))
+        .shadow(color: .black.opacity(isDragged ? 0.25 : 0.15),
+                radius: isDragged ? 6 : 2,
+                y:      isDragged ? 2 : 0)
+        .offset(x: displacement)
+        .zIndex(isDragged ? 1 : 0)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: draggedVisibleIndex)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: displacement)
+        .animation(.easeInOut(duration: 0.15), value: isSelected)
+        // Single-tap: select, or open picker if already selected
+        .onTapGesture {
+            if isSelected {
+                vm.pendingEditColorIndex = nil
+                showColorPicker = true
+            } else {
+                vm.selectedColor = item.color.uiColor
+                vm.saveCurrentToolSettings()
+            }
+        }
+        // Long press (0.4 s) → arm drag
+        .onLongPressGesture(minimumDuration: 0.4, pressing: { pressing in
+            if !pressing, draggedVisibleIndex == visibleIdx, dragOffset == 0 {
+                withAnimation { draggedVisibleIndex = nil }
+            }
+        }) {
+            dragSourceVisibleIndex = visibleIdx
+            withAnimation { draggedVisibleIndex = visibleIdx }
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        }
+        // Horizontal drag — reorder only
+        .simultaneousGesture(
+            DragGesture(minimumDistance: isDragged ? 0 : 10_000)
+                .onChanged { drag in
+                    guard draggedVisibleIndex == visibleIdx else { return }
+                    dragOffset = drag.translation.width
+                }
+                .onEnded { _ in
+                    guard draggedVisibleIndex == visibleIdx else { return }
+                    let proposedVisible = proposedVisibleIndex()
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                        if proposedVisible != dragSourceVisibleIndex {
+                            let fromReal = visibleColors[dragSourceVisibleIndex].realIndex
+                            let toReal   = visibleColors[proposedVisible].realIndex
+                            vm.moveColor(from: fromReal, to: toReal)
+                        }
+                        dragOffset          = 0
+                        draggedVisibleIndex = nil
+                    }
+                }
+        )
+    }
+
+    // MARK: - Helpers
+
+    /// True when a free user has reached the saved-color cap.
+    private var isAtFreeLimit: Bool {
+        !subscriptionVM.isPremium && vm.savedColors.count >= PremiumLimits.maxFreeSavedColors
+    }
+
     // MARK: - Color Drag Helpers
+
+    /// Non-hidden colors paired with their real index in vm.savedColors.
+    private var visibleColors: [(realIndex: Int, color: SavedColor)] {
+        vm.savedColors.enumerated().compactMap { offset, element in
+            element.isHidden ? nil : (realIndex: offset, color: element)
+        }
+    }
 
     /// Width of one color slot: 28pt swatch + 6pt gap
     private let colorSlotWidth: CGFloat = 34
 
-    /// Target index if the user releases the drag now.
-    private func proposedColorIndex() -> Int {
+    /// Proposed visible index if the user releases the drag now.
+    private func proposedVisibleIndex() -> Int {
         let move = Int(round(dragOffset / colorSlotWidth))
-        return min(max(dragSourceIndex + move, 0), vm.savedColors.count - 1)
+        return min(max(dragSourceVisibleIndex + move, 0), visibleColors.count - 1)
     }
 
     /// Horizontal displacement to apply to a non-dragged swatch so it slides
     /// out of the way to show where the dragged swatch will land.
+    /// `index` is the visible index (position within visibleColors).
     private func colorDisplacement(for index: Int) -> CGFloat {
-        guard draggedColorIndex != nil else { return 0 }
-        let proposed = proposedColorIndex()
-        if dragSourceIndex < proposed, index > dragSourceIndex, index <= proposed {
+        guard draggedVisibleIndex != nil else { return 0 }
+        let proposed = proposedVisibleIndex()
+        if dragSourceVisibleIndex < proposed, index > dragSourceVisibleIndex, index <= proposed {
             return -colorSlotWidth   // shift left
         }
-        if dragSourceIndex > proposed, index >= proposed, index < dragSourceIndex {
+        if dragSourceVisibleIndex > proposed, index >= proposed, index < dragSourceVisibleIndex {
             return colorSlotWidth    // shift right
         }
         return 0

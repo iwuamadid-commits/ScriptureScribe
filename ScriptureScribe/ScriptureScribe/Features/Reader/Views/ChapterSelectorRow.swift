@@ -25,15 +25,23 @@ struct ChapterSelectorRow: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 4) {
                     ForEach(chapters) { chapter in
+                        let isSelected = selectedChapterId == chapter.id
                         ChapterChip(
                             chapter:       chapter,
-                            isSelected:    selectedChapterId == chapter.id,
+                            isSelected:    isSelected,
                             hasAnnotation: annotatedChapterIds.contains(chapter.id),
                             theme:         themeManager.currentTheme
                         )
+                        // Extra horizontal layout space lets the scaled chip expand
+                        // without bleeding into its neighbors.
+                        .padding(.horizontal, isSelected ? 3 : 0)
+                        .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isSelected)
                         .id(chapter.id)
                         .onTapGesture {
-                            Task { await vm.selectChapter(chapter) }
+                            Task {
+                                await vm.loadInitialData()
+                                await vm.selectChapter(chapter)
+                            }
                         }
                     }
                 }
@@ -86,7 +94,6 @@ private struct ChapterChip: View {
                             .opacity(isSelected ? 1 : 0)
                     }
                 }
-                .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isSelected)
 
             // Annotation dot indicator
             Circle()
@@ -94,5 +101,7 @@ private struct ChapterChip: View {
                 .frame(width: 5, height: 5)
                 .opacity(hasAnnotation ? 1 : 0)
         }
+        .scaleEffect(isSelected ? 1.12 : 1.0)
+        .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isSelected)
     }
 }

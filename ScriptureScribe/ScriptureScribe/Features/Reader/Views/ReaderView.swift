@@ -77,8 +77,12 @@ struct ReaderView: View {
     @State private var pendingTargetVerseEnd:  String? = nil
     /// Y offset (in scroll-content coordinates) to jump to; cleared by ZoomScrollView.
     @State private var verseScrollOffset:      CGFloat? = nil
-    /// Verse numbers currently being flashed with a highlight (cleared after ~2 s).
+    /// Verse numbers currently being flashed with a highlight (cleared after ~3 s).
     @State private var highlightedVerses:      Set<String> = []
+    /// Y position (scroll-content coordinates) of the gold accent bar; nil when hidden.
+    @State private var navIndicatorY:          CGFloat?    = nil
+    /// 0–1 opacity of the gold accent bar that renders above the annotation canvas.
+    @State private var navIndicatorOpacity:    Double      = 0
 
     // ── Chapter transition ────────────────────────────────────────────────────
     /// Fades the content area out when a chapter switch starts and back in when
@@ -251,19 +255,40 @@ struct ReaderView: View {
             appNav.pendingVerseNumber    = nil
             appNav.pendingVerseEndNumber = nil
             appNav.pendingChapterId      = nil
-            Task { await vm.navigateTo(chapterId: id) }
+            Task {
+                // Guarantee translations + books are ready before navigating.
+                // Handles cold-start: user taps a Search/Daily result before
+                // the Reader tab has ever appeared and triggered its own .task load.
+                await vm.loadInitialData()
+                await vm.navigateTo(chapterId: id)
+            }
         }
         // Once a chapter finishes loading: fade content back in, reset scroll,
         // and (if coming from a deep link) scroll to + flash the target verse(s).
-        .onChange(of: vm.chapterContent?.id) { _, _ in
+        // We watch contentLoadCounter (not chapterContent?.id) so the animation
+        // also fires when the user navigates to a verse in the *already-open* chapter.
+        .onChange(of: vm.contentLoadCounter) { _, _ in
+            // Always hide content immediately so the staggered scroll-to-top resets
+            // (which fire synchronously below) happen while the screen is blank.
+            // For normal chapter changes, contentOpacity is already 0 (set by the
+            // selectedChapter observer) so this is a no-op.  For same-chapter
+            // navigation (e.g. topic search result in the chapter you're reading),
+            // selectedChapter never changed — this guarantees it goes hidden before
+            // ZoomScrollView jumps to the top.
+            contentOpacity = 0
+
             if let target = pendingTargetVerse, let content = vm.chapterContent {
                 let endVerse = pendingTargetVerseEnd
-                // Verse navigation — fade in, then scroll to the verse.
                 pendingTargetVerse    = nil
                 pendingTargetVerseEnd = nil
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                    withAnimation(.easeIn(duration: 0.25)) { contentOpacity = 1 }
-                }
+
+                // Step 1 — trigger the same staggered scroll-to-top resets used by
+                // normal chapter navigation.  This gives UIHostingController time to
+                // finish laying out the full content (critical for very long chapters
+                // like Psalm 119 or Numbers 7) so contentSize is correct before the
+                // verse scroll fires.  Content is still invisible (opacity = 0).
+                scrollViewReset += 1
+
                 let verses = BibleTextView.parseVerses(from: content.textContent)
                 if let idx = verses.firstIndex(where: { $0.number == target }) {
                     // Build the set of verse numbers to highlight (single or range)
@@ -275,7 +300,7 @@ struct ReaderView: View {
                     }
                     // Calculate the verse's Y position using NSString.boundingRect
                     // for pixel-accurate text layout (real character widths + word wrap).
-                    let screenW   = UIScreen.main.bounds.width
+                    let screenW    = UIScreen.main.bounds.width
                     let effectiveW = annotationVM.layoutMode == .splitView
                         ? floor(screenW * 0.60) : screenW
                     // 20 leading pad + 22 verse# minWidth + 6 HStack gap + 20 trailing pad
@@ -313,16 +338,35 @@ struct ReaderView: View {
                             estimatedY += verseH
                         }
                     }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                        verseScrollOffset = estimatedY
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                            highlightedVerses = versesToHighlight
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    // Step 2 — wait for staggered resets to finish (≤0.3 s), then
+                    // fade content in at the top and immediately start the verse scroll.
+                    // The user sees the chapter appear and glide down to the target verse.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        withAnimation(.easeIn(duration: 0.25)) { contentOpacity = 1 }
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                        verseScrollOffset = estimatedY          // 1.0 s UIView.animate scroll
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.05) {
+                            // Flash + accent bar fire together as scroll lands.
+                            highlightedVerses  = versesToHighlight
+                            navIndicatorY      = estimatedY
+                            withAnimation(.easeIn(duration: 0.35)) { navIndicatorOpacity = 1.0 }
+                            // Pop holds 2 s, then gold + bar fade out 1 s after pop settles.
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
                                 withAnimation(.easeOut(duration: 0.8)) {
-                                    highlightedVerses = []
+                                    highlightedVerses   = []
+                                    navIndicatorOpacity = 0.0
+                                }
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+                                    navIndicatorY = nil
                                 }
                             }
                         }
+                    }
+                } else {
+                    // Target verse not found in parsed content — just fade in at top.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        withAnimation(.easeIn(duration: 0.3)) { contentOpacity = 1 }
                     }
                 }
             } else {
@@ -353,6 +397,14 @@ struct ReaderView: View {
                 contentHeight = 100
                 withAnimation(.easeOut(duration: 0.2)) { contentOpacity = 0 }
             }
+        }
+        // Save annotations the moment the book or chapter changes — before updateUIView
+        // runs the chapter-change block — so no strokes can leak to the wrong page.
+        .onChange(of: vm.selectedBook) { _, _ in
+            annotationVM.saveCurrentAnnotation()
+        }
+        .onChange(of: vm.selectedChapter) { _, _ in
+            annotationVM.saveCurrentAnnotation()
         }
         // Load photo annotations whenever the chapter changes.
         .onChange(of: vm.selectedChapter?.id) { _, newId in
@@ -526,6 +578,18 @@ struct ReaderView: View {
                         // so finger long-press for bookmarks still reaches BibleTextView.
                         .allowsHitTesting(annotationVM.isDrawingTool || annotationVM.isLassoActive)
 
+                        // ── Gold verse accent bar (above annotation canvas) ─
+                        // Renders above PencilKit strokes so it's visible even on
+                        // heavily annotated pages. Fades in/out with the gold flash.
+                        if let iy = navIndicatorY {
+                            Capsule()
+                                .fill(Color(red: 0.85, green: 0.60, blue: 0.10))
+                                .frame(width: 4, height: 36)
+                                .position(x: bibleOffset + 6, y: iy + 18)
+                                .opacity(navIndicatorOpacity)
+                                .allowsHitTesting(false)
+                        }
+
                         // ── Photo annotations (above canvas so taps reach them) ──
                         let splitPhotoId = vm.selectedChapter?.id ?? ""
                         GeometryReader { _ in
@@ -625,7 +689,7 @@ struct ReaderView: View {
                 minScale:            0.5,
                 maxScale:            4.0,
                 isScrollingDisabled:  (annotationVM.isDrawingTool && annotationVM.allowFingerDrawing) || annotationVM.isLassoActive,
-                isContentInteractive: true,
+                isContentInteractive: annotationVM.selectedTool != .hand,
                 scrollToOffset:      $verseScrollOffset,
                 resetTrigger:        scrollViewReset,
                 onDoubleTap: {
@@ -672,6 +736,18 @@ struct ReaderView: View {
                     // PassThroughPKCanvasView.hitTest handles finger vs pencil,
                     // so finger long-press for bookmarks still reaches BibleTextView.
                     .allowsHitTesting(annotationVM.isDrawingTool || annotationVM.isLassoActive)
+
+                    // Layer 2.5 — Gold verse accent bar (above annotation canvas)
+                    // Renders above PencilKit strokes so it's visible even on
+                    // heavily annotated pages. Fades in/out with the gold flash.
+                    if let iy = navIndicatorY {
+                        Capsule()
+                            .fill(Color(red: 0.85, green: 0.60, blue: 0.10))
+                            .frame(width: 4, height: 36)
+                            .position(x: 6, y: iy + 18)
+                            .opacity(navIndicatorOpacity)
+                            .allowsHitTesting(false)
+                    }
 
                     // Layer 3 — Photo annotations (above canvas so taps reach them)
                     let photoChapterId = vm.selectedChapter?.id ?? ""
@@ -758,6 +834,7 @@ struct ReaderView: View {
             .opacity(contentOpacity)
         }
     }
+
 
     // MARK: - Font Size Sheet
 

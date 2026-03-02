@@ -43,6 +43,16 @@ enum DailySection: String, CaseIterable, Codable, Identifiable {
     }
 }
 
+// MARK: - Image Composer Payload
+
+/// Bundles the content to share as an image. Using fullScreenCover(item:) instead of
+/// isPresented + separate state vars ensures the text is always fresh when the composer opens.
+private struct ImageComposerPayload: Identifiable {
+    let id        = UUID()
+    let text:      String
+    let reference: String
+}
+
 // MARK: - DailyView
 
 struct DailyView: View {
@@ -60,9 +70,7 @@ struct DailyView: View {
     @State private var showPrayerHeartAnim      = false
     @State private var showDevotionHeartAnim    = false
     @State private var showAffirmationHeartAnim = false
-    @State private var showVerseImageComposer            = false
-    @State private var imageComposerText:      String   = ""
-    @State private var imageComposerReference: String   = ""
+    @State private var imageComposerPayload: ImageComposerPayload? = nil
     @State private var editableSections: [DailySection] = DailySection.allCases
     @State private var draggedSectionID: String?
     @State private var sectionDragOffset: CGFloat = 0
@@ -113,28 +121,26 @@ struct DailyView: View {
                         isPremium: subscriptionVM.isPremium
                     )
 
-                    // "View Calendar" link — right-aligned below the week strip (premium only)
-                    if subscriptionVM.isPremium {
-                        HStack {
-                            Spacer()
-                            Button {
-                                showCalendar = true
-                            } label: {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "calendar")
-                                        .font(.caption)
-                                    Text("View Calendar")
-                                        .font(.caption.weight(.medium))
-                                    Image(systemName: "chevron.right")
-                                        .font(.caption2)
-                                }
-                                .foregroundStyle(themeManager.currentTheme.primary)
+                    // "View Calendar" link — right-aligned below the week strip
+                    HStack {
+                        Spacer()
+                        Button {
+                            showCalendar = true
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "calendar")
+                                    .font(.caption)
+                                Text("View Calendar")
+                                    .font(.caption.weight(.medium))
+                                Image(systemName: "chevron.right")
+                                    .font(.caption2)
                             }
-                            .buttonStyle(.plain)
+                            .foregroundStyle(themeManager.currentTheme.primary)
                         }
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 8)
+                        .buttonStyle(.plain)
                     }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 8)
 
                     Divider()
                 }
@@ -274,20 +280,28 @@ struct DailyView: View {
             .toolbarBackground(.visible, for: .navigationBar)
             .sheet(isPresented: $showCalendar) {
                 CalendarSheetView(selectedDate: vm.selectedDate) { date in
+                    // Free users can only view today — show paywall for any other date
+                    if !subscriptionVM.isPremium && !Calendar.current.isDateInToday(date) {
+                        showCalendar = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                            showPaywall = true
+                        }
+                        return
+                    }
                     vm.selectedDate = date
                     Task { await vm.loadContent(for: date) }
                 }
             }
-            .sheet(isPresented: $showAuth) {
-                AuthView()
-            }
             .sheet(isPresented: $showPaywall) {
                 PaywallView()
             }
-            .fullScreenCover(isPresented: $showVerseImageComposer) {
+            .sheet(isPresented: $showAuth) {
+                AuthView()
+            }
+            .fullScreenCover(item: $imageComposerPayload) { payload in
                 VerseImageComposerView(
-                    verseText:      imageComposerText,
-                    verseReference: imageComposerReference
+                    verseText:      payload.text,
+                    verseReference: payload.reference
                 )
             }
         }
@@ -380,10 +394,6 @@ struct DailyView: View {
         )
         .contentShape(Rectangle())
         .onTapGesture(count: 2) {
-            guard subscriptionVM.isPremium else {
-                showPaywall = true
-                return
-            }
             guard let uid = authVM.currentUserID else {
                 showAuth = true
                 return
@@ -430,10 +440,6 @@ struct DailyView: View {
         )
         .contentShape(Rectangle())
         .onTapGesture(count: 2) {
-            guard subscriptionVM.isPremium else {
-                showPaywall = true
-                return
-            }
             guard let uid = authVM.currentUserID else {
                 showAuth = true
                 return
@@ -480,10 +486,6 @@ struct DailyView: View {
         )
         .contentShape(Rectangle())
         .onTapGesture(count: 2) {
-            guard subscriptionVM.isPremium else {
-                showPaywall = true
-                return
-            }
             guard let uid = authVM.currentUserID else {
                 showAuth = true
                 return
@@ -578,11 +580,6 @@ struct DailyView: View {
     private func heartButton(type: String, entry: DailyEntry) -> some View {
         let isSaved = savedVM.isSaved(type: type, entryDate: entry.date)
         Button {
-            // Premium gate: free users can view but not save
-            guard subscriptionVM.isPremium else {
-                showPaywall = true
-                return
-            }
             guard let uid = authVM.currentUserID else {
                 showAuth = true
                 return
@@ -608,16 +605,10 @@ struct DailyView: View {
                 }
             }
         } label: {
-            if !subscriptionVM.isPremium && !isSaved {
-                Image(systemName: "lock.fill")
-                    .foregroundStyle(themeManager.currentTheme.textSecondary.opacity(0.5))
-                    .font(.body)
-            } else {
-                Image(systemName: isSaved ? "heart.fill" : "heart")
-                    .foregroundStyle(isSaved ? .red : themeManager.currentTheme.textSecondary)
-                    .font(.body)
-                    .animation(.spring(response: 0.2, dampingFraction: 0.7), value: isSaved)
-            }
+            Image(systemName: isSaved ? "heart.fill" : "heart")
+                .foregroundStyle(isSaved ? .red : themeManager.currentTheme.textSecondary)
+                .font(.body)
+                .animation(.spring(response: 0.2, dampingFraction: 0.7), value: isSaved)
         }
         .frame(minWidth: 44, minHeight: 44)
         .contentShape(Rectangle())
@@ -645,9 +636,10 @@ struct DailyView: View {
                 Spacer()
                 if let text = vm.verseText, !text.isEmpty {
                     Button {
-                        imageComposerText      = text
-                        imageComposerReference = entry.verseReference
-                        showVerseImageComposer = true
+                        imageComposerPayload = ImageComposerPayload(
+                            text:      text,
+                            reference: entry.verseReference
+                        )
                     } label: {
                         Image(systemName: "photo")
                             .font(.body)
@@ -726,6 +718,19 @@ struct DailyView: View {
                     .foregroundStyle(themeManager.currentTheme.text)
                 Spacer()
                 heartButton(type: saveType, entry: entry)
+                Button {
+                    imageComposerPayload = ImageComposerPayload(
+                        text:      body,
+                        reference: "\(title) · \(entry.verseReference)"
+                    )
+                } label: {
+                    Image(systemName: "photo")
+                        .font(.body)
+                        .foregroundStyle(themeManager.currentTheme.textSecondary)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
                 ShareLink(item: sectionShareText) {
                     Image(systemName: "square.and.arrow.up")
                         .font(.body)

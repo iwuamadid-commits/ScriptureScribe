@@ -7,6 +7,44 @@ import Combine
 import SwiftUI
 import PencilKit
 
+// MARK: - SavedColor
+
+/// A color swatch saved to the annotation toolbar.
+/// Defined at file scope so it can be referenced from Views without the AnnotationViewModel prefix.
+struct SavedColor: Codable, Equatable {
+    let colorHex: String
+    let alpha: CGFloat
+    var isHidden: Bool = false
+
+    var uiColor: UIColor {
+        guard let base = UIColor(hexString: colorHex) else { return .black }
+        return base.withAlphaComponent(alpha)
+    }
+
+    init(color: UIColor) {
+        self.colorHex = color.hexString
+        var a: CGFloat = 0
+        color.getRed(nil, green: nil, blue: nil, alpha: &a)
+        self.alpha = a
+    }
+
+    // Stable ForEach ID — does NOT include isHidden so hide/show doesn't scramble animations
+    var stringValue: String {
+        "\(colorHex):\(alpha)"
+    }
+
+    // Legacy string init for migrating old UserDefaults format
+    init?(stringValue: String) {
+        let parts = stringValue.split(separator: ":")
+        guard parts.count >= 2,
+              let alpha = Double(parts[1])
+        else { return nil }
+        self.colorHex = String(parts[0])
+        self.alpha = alpha
+        self.isHidden = false
+    }
+}
+
 @MainActor
 final class AnnotationViewModel: ObservableObject {
 
@@ -150,37 +188,6 @@ final class AnnotationViewModel: ObservableObject {
         }
     }
 
-    struct SavedColor: Codable, Equatable {
-        let colorHex: String
-        let alpha: CGFloat
-
-        var uiColor: UIColor {
-            guard let base = UIColor(hexString: colorHex) else { return .black }
-            return base.withAlphaComponent(alpha)
-        }
-
-        init(color: UIColor) {
-            self.colorHex = color.hexString
-            var a: CGFloat = 0
-            color.getRed(nil, green: nil, blue: nil, alpha: &a)
-            self.alpha = a
-        }
-
-        // String format: "RRGGBB:A.AA"
-        var stringValue: String {
-            "\(colorHex):\(alpha)"
-        }
-
-        init?(stringValue: String) {
-            let parts = stringValue.split(separator: ":")
-            guard parts.count == 2,
-                  let alpha = Double(parts[1])
-            else { return nil }
-            self.colorHex = String(parts[0])
-            self.alpha = alpha
-        }
-    }
-
     // MARK: - Published State
 
     @Published var selectedTool:     DrawingTool  = .hand
@@ -222,7 +229,8 @@ final class AnnotationViewModel: ObservableObject {
 
     // MARK: - Persistence Keys
 
-    private let savedColorsKey    = "ss_savedAnnotationColors"
+    private let savedColorsKey    = "ss_savedAnnotationColors"      // legacy (migration only)
+    private let savedColorsKeyV2  = "ss_savedAnnotationColors_v2"   // JSON format
     private let toolSettingsKey   = "ss_toolSettings"
     private let penFavSizesKey    = "ss_penFavSizes"
     private let hlFavSizesKey     = "ss_hlFavSizes"
@@ -360,6 +368,17 @@ final class AnnotationViewModel: ObservableObject {
     var isLassoActive: Bool { selectedTool == .lasso }
 
     // MARK: - Actions
+
+    /// Explicitly saves the current page's drawing to disk.
+    /// Call this before any book/chapter switch to ensure strokes are not lost
+    /// in the timing window between selectedBook changing and selectedChapter changing.
+    func saveCurrentAnnotation() {
+        guard !currentChapterId.isEmpty,
+              let drawing = getDrawingAction?(),
+              !drawing.strokes.isEmpty
+        else { return }
+        saveDrawing(drawing, for: currentChapterId)
+    }
 
     func undo() {
         if let snapshot = lassoUndoStack.popLast() {
@@ -506,65 +525,70 @@ final class AnnotationViewModel: ObservableObject {
 
     // MARK: - Saved Colors Management
 
-    /// Load saved colors from UserDefaults
-    func loadSavedColors() {
-        if let data = UserDefaults.standard.stringArray(forKey: savedColorsKey) {
-            savedColors = data.compactMap { SavedColor(stringValue: $0) }
+    /// Persist current savedColors to UserDefaults using JSON (v2 format).
+    private func persistColors() {
+        if let data = try? JSONEncoder().encode(savedColors) {
+            UserDefaults.standard.set(data, forKey: savedColorsKeyV2)
         }
     }
 
-    /// Add a color to saved favorites
+    /// Load saved colors — tries v2 JSON first, migrates from legacy string-array if needed.
+    func loadSavedColors() {
+        if let data = UserDefaults.standard.data(forKey: savedColorsKeyV2),
+           let colors = try? JSONDecoder().decode([SavedColor].self, from: data) {
+            savedColors = colors
+            return
+        }
+        // Migrate from legacy format
+        if let strings = UserDefaults.standard.stringArray(forKey: savedColorsKey) {
+            savedColors = strings.compactMap { SavedColor(stringValue: $0) }
+            persistColors()
+        }
+    }
+
+    /// Add a color to saved favorites (limit enforced at call site).
     func addSavedColor(_ color: UIColor) {
         let newColor = SavedColor(color: color)
-
-        // Avoid duplicates
-        savedColors.removeAll { $0 == newColor }
-
-        // Add to front
+        savedColors.removeAll { $0.colorHex == newColor.colorHex && $0.alpha == newColor.alpha }
         savedColors.insert(newColor, at: 0)
-
-        // Limit to maxSavedColors
         if savedColors.count > maxSavedColors {
             savedColors = Array(savedColors.prefix(maxSavedColors))
         }
-
-        // Persist
-        UserDefaults.standard.set(
-            savedColors.map { $0.stringValue },
-            forKey: savedColorsKey
-        )
+        persistColors()
     }
 
-    /// Remove a saved color at the given index
-    func removeSavedColor(at index: Int) {
-        guard index < savedColors.count else { return }
-        savedColors.remove(at: index)
-        UserDefaults.standard.set(
-            savedColors.map { $0.stringValue },
-            forKey: savedColorsKey
-        )
-    }
-
-    /// Replace the saved color at the given index with a new color, keeping it selected.
+    /// Replace the saved color at the given index with a new color.
     func replaceColor(at index: Int, with color: UIColor) {
         guard index < savedColors.count else { return }
         savedColors[index] = SavedColor(color: color)
         selectedColor = color
-        UserDefaults.standard.set(
-            savedColors.map { $0.stringValue },
-            forKey: savedColorsKey
-        )
+        persistColors()
     }
 
-    /// Called when the user confirms a color in the picker.
-    /// Replaces the pending swatch in-place if one is tracked, otherwise adds as new.
-    func saveColorFromPicker(_ color: UIColor) {
-        if let idx = pendingEditColorIndex {
-            replaceColor(at: idx, with: color)
-        } else {
-            addSavedColor(color)
+    /// Delete the saved color at the given index.
+    func deleteColor(at index: Int) {
+        guard index < savedColors.count else { return }
+        savedColors.remove(at: index)
+        persistColors()
+    }
+
+    /// Duplicate the saved color at the given index, inserting the copy right after it.
+    func duplicateColor(at index: Int) {
+        guard index < savedColors.count else { return }
+        var copy = savedColors[index]
+        copy.isHidden = false
+        savedColors.insert(copy, at: index + 1)
+        if savedColors.count > maxSavedColors {
+            savedColors = Array(savedColors.prefix(maxSavedColors))
         }
-        pendingEditColorIndex = nil
+        persistColors()
+    }
+
+    /// Toggle the hidden state of the saved color at the given index.
+    func toggleHideColor(at index: Int) {
+        guard index < savedColors.count else { return }
+        savedColors[index].isHidden.toggle()
+        persistColors()
     }
 
     /// Reorder a saved color by moving it from one index to another.
@@ -574,10 +598,13 @@ final class AnnotationViewModel: ObservableObject {
               destination < savedColors.count else { return }
         let color = savedColors.remove(at: source)
         savedColors.insert(color, at: destination)
-        UserDefaults.standard.set(
-            savedColors.map { $0.stringValue },
-            forKey: savedColorsKey
-        )
+        persistColors()
+    }
+
+    /// Reorder using SwiftUI List's onMove IndexSet/destination — used by SavedColorsManagerView.
+    func moveColors(fromOffsets: IndexSet, toOffset: Int) {
+        savedColors.move(fromOffsets: fromOffsets, toOffset: toOffset)
+        persistColors()
     }
 
     // MARK: - Favorite Sizes Management

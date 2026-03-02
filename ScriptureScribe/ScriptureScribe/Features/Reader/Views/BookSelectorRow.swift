@@ -42,14 +42,22 @@ struct BookSelectorRow: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 4) {
                         ForEach(sortedBooks) { book in
+                            let isSelected = selectedBookId == book.id
                             BookChip(
                                 book:       book,
-                                isSelected: selectedBookId == book.id,
+                                isSelected: isSelected,
                                 theme:      themeManager.currentTheme
                             )
+                            // Extra horizontal layout space lets the scaled chip expand
+                            // without bleeding into its neighbors.
+                            .padding(.horizontal, isSelected ? 4 : 0)
+                            .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isSelected)
                             .id(book.id)
                             .onTapGesture {
-                                Task { await vm.selectBook(book) }
+                                Task {
+                                    await vm.loadInitialData()
+                                    await vm.selectBook(book)
+                                }
                             }
                         }
                     }
@@ -105,6 +113,7 @@ private struct BookChip: View {
                         .opacity(isSelected ? 1 : 0)
                 }
             }
+            .scaleEffect(isSelected ? 1.12 : 1.0)
             .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isSelected)
     }
 }

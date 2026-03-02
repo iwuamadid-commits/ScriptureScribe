@@ -205,7 +205,7 @@ struct CreateGroupSheet: View {
                             )
                             .padding(.horizontal, 20)
 
-                        Text("Tap the box above — your emoji keyboard will open automatically")
+                        Text("Tap the box above to open your emoji keyboard")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
@@ -219,7 +219,7 @@ struct CreateGroupSheet: View {
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 20)
 
-                        TextField("e.g. Prayer Verses, Favourites…", text: $groupName)
+                        TextField("e.g. Prayer Verses, Favorites…", text: $groupName)
                             .padding(12)
                             .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 12))
                             .padding(.horizontal, 20)
@@ -236,15 +236,7 @@ struct CreateGroupSheet: View {
                             HStack(spacing: 12) {
                                 ForEach(Bookmark.presetColors, id: \.hex) { option in
                                     let isSelected = groupColorHex == option.hex
-                                    let isLocked = !subscriptionVM.isPremium
-                                        && !PremiumLimits.freeBookmarkColors.contains(option.hex)
-                                    Button {
-                                        if isLocked {
-                                            showPaywall = true
-                                        } else {
-                                            groupColorHex = option.hex
-                                        }
-                                    } label: {
+                                    Button { groupColorHex = option.hex } label: {
                                         Circle()
                                             .fill(Color(hex: option.hex))
                                             .frame(width: 44, height: 44)
@@ -253,14 +245,6 @@ struct CreateGroupSheet: View {
                                                     .stroke(.white, lineWidth: isSelected ? 3 : 0)
                                                     .padding(3)
                                             )
-                                            .overlay {
-                                                if isLocked {
-                                                    Image(systemName: "lock.fill")
-                                                        .font(.caption2)
-                                                        .foregroundStyle(.white)
-                                                        .shadow(radius: 2)
-                                                }
-                                            }
                                             .shadow(color: .black.opacity(0.15), radius: 3, y: 1)
                                     }
                                     .accessibilityLabel(option.name)
@@ -366,7 +350,7 @@ struct EditGroupSheet: View {
                             )
                             .padding(.horizontal, 20)
 
-                        Text("Tap the box above — your emoji keyboard will open automatically")
+                        Text("Tap the box above to open your emoji keyboard")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
@@ -380,7 +364,7 @@ struct EditGroupSheet: View {
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 20)
 
-                        TextField("e.g. Prayer Verses, Favourites…", text: $groupName)
+                        TextField("e.g. Prayer Verses, Favorites…", text: $groupName)
                             .padding(12)
                             .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 12))
                             .padding(.horizontal, 20)
@@ -397,15 +381,7 @@ struct EditGroupSheet: View {
                             HStack(spacing: 12) {
                                 ForEach(Bookmark.presetColors, id: \.hex) { option in
                                     let isSelected = groupColorHex == option.hex
-                                    let isLocked = !subscriptionVM.isPremium
-                                        && !PremiumLimits.freeBookmarkColors.contains(option.hex)
-                                    Button {
-                                        if isLocked {
-                                            showPaywall = true
-                                        } else {
-                                            groupColorHex = option.hex
-                                        }
-                                    } label: {
+                                    Button { groupColorHex = option.hex } label: {
                                         Circle()
                                             .fill(Color(hex: option.hex))
                                             .frame(width: 44, height: 44)
@@ -414,14 +390,6 @@ struct EditGroupSheet: View {
                                                     .stroke(.white, lineWidth: isSelected ? 3 : 0)
                                                     .padding(3)
                                             )
-                                            .overlay {
-                                                if isLocked {
-                                                    Image(systemName: "lock.fill")
-                                                        .font(.caption2)
-                                                        .foregroundStyle(.white)
-                                                        .shadow(radius: 2)
-                                                }
-                                            }
                                             .shadow(color: .black.opacity(0.15), radius: 3, y: 1)
                                     }
                                     .accessibilityLabel(option.name)

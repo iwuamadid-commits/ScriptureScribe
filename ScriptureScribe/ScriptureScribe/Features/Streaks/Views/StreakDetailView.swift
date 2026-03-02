@@ -39,7 +39,7 @@ struct StreakDetailView: View {
     private var motivationalSubtitle: String {
         switch streak {
         case 1:        return "Every great streak starts with Day 1."
-        case 2...6:    return "You're building momentum — keep going!"
+        case 2...6:    return "You're building momentum. Keep going!"
         case 7...13:   return "One week strong. You're on fire!"
         case 14...29:  return "Two weeks in. Your habit is forming."
         case 30...59:  return "A full month! You're truly committed."

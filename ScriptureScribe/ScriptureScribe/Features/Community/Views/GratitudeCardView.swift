@@ -29,9 +29,9 @@ struct GratitudeCardView: View {
         if post.text.count > limit {
             let trimmed = String(post.text.prefix(limit))
             let preview = trimmed.lastIndex(of: " ").map { String(trimmed[..<$0]) } ?? trimmed
-            return "\(preview)...\n\n— \(post.displayName) on Scripture Scribe\n\nRead more in Scripture Scribe:\n\(link)"
+            return "\(preview)...\n\nShared by \(post.displayName) on Scripture Scribe\n\nRead more in Scripture Scribe:\n\(link)"
         }
-        return "\(post.text)\n\n— \(post.displayName) on Scripture Scribe\n\n\(link)"
+        return "\(post.text)\n\nShared by \(post.displayName) on Scripture Scribe\n\n\(link)"
     }
 
     /// Decodes the inline base64 image (if present).

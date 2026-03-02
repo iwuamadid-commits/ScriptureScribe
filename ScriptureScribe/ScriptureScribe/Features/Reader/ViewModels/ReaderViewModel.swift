@@ -34,6 +34,10 @@ final class ReaderViewModel: ObservableObject {
     @Published var isLoadingBooks        = false
     @Published var isLoadingContent      = false
     @Published var errorMessage:         String?
+    /// Incremented every time chapter content finishes loading, even when the chapter ID
+    /// hasn't changed (e.g. navigating to a verse in the already-open chapter).
+    /// ReaderView watches this instead of chapterContent?.id so the animation always fires.
+    @Published var contentLoadCounter:   Int = 0
     @Published var showTranslationBrowser = false
     @Published var bookSortOrder:        SortOrder = .canonical
 
@@ -92,9 +96,22 @@ final class ReaderViewModel: ObservableObject {
 
     // MARK: - Public Actions
 
-    /// Call this once when the Reader tab first appears.
+    /// Ensures translations + books are loaded before the caller proceeds.
+    /// Safe to call from multiple concurrent tasks:
+    ///   • If already fully loaded  → returns immediately (no-op).
+    ///   • If currently loading     → waits for the in-progress fetch to finish.
+    ///   • If not yet started       → kicks off the load and awaits it.
+    /// This prevents the cold-start race where Search/Daily navigation arrives
+    /// before the Reader tab has ever appeared and called this via .task.
     func loadInitialData() async {
-        guard translations.isEmpty else { return } // already loaded
+        if isLoadingTranslations {
+            // Another caller already started — wait for it instead of double-fetching.
+            while isLoadingTranslations {
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+            return
+        }
+        guard translations.isEmpty else { return }
         await loadTranslations()
     }
 
@@ -128,13 +145,56 @@ final class ReaderViewModel: ObservableObject {
     }
 
     func selectBook(_ book: BibleBook) async {
-        selectedBook    = book
-        selectedChapter = nil
-        // Keep chapterContent as-is while the new chapter loads so the screen
-        // never goes blank — the old text fades out when new content arrives.
-        chapters        = []
-        lastBookId      = book.id
-        await loadChapters(for: book)
+        guard let translation = selectedTranslation else { return }
+        lastBookId   = book.id
+        selectedBook = book     // update book selector highlight immediately
+
+        // ── Phase 1: silently fetch chapters ─────────────────────────────────
+        let newChapters: [BibleChapter]
+        do {
+            newChapters = try await api.fetchChapters(bibleId: translation.id, bookId: book.id)
+        } catch {
+            errorMessage = "Couldn't load chapters for \(book.name)."
+            return
+        }
+        guard !newChapters.isEmpty else { return }
+
+        // ── Phase 2: determine target chapter (restore last visited, or first) ─
+        let targetChapter = newChapters.first(where: { $0.id == lastChapterId }) ?? newChapters[0]
+        lastChapterId = targetChapter.id
+
+        // ── Phase 3: silently fetch content ───────────────────────────────────
+        // isLoadingContent is NOT set — old content stays fully visible while
+        // loading. The user sees no spinners or backend activity.
+        let newContent: BibleChapterContent?
+        do {
+            newContent = try await api.fetchChapterContent(
+                bibleId:   translation.id,
+                chapterId: targetChapter.id
+            )
+        } catch {
+            newContent = nil
+            errorMessage = "Couldn't load \(targetChapter.reference). Try again."
+        }
+
+        // ── Phase 4a: spring-transition chapter chips into place ──────────────
+        // selectedChapter still holds the old book's chapter ID, so none of the
+        // new chips match — they all appear unselected. No blank/empty state.
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+            chapters = newChapters
+        }
+
+        // ── Phase 4b: one frame later — spring-select the target chip ─────────
+        // The new chips now exist in the view hierarchy, so SwiftUI can animate
+        // isSelected false → true on the matching chip with a proper spring.
+        try? await Task.sleep(for: .milliseconds(50))
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+            selectedChapter = targetChapter
+            if let content = newContent {
+                chapterContent   = content
+                contentLoadCounter += 1
+            }
+        }
     }
 
     func selectChapter(_ chapter: BibleChapter) async {
@@ -170,10 +230,13 @@ final class ReaderViewModel: ObservableObject {
             await loadBooks(for: translation)
         }
         guard let book = books.first(where: { $0.id == bookId }) else { return }
-        // Only reload book+chapters if we're switching to a different book.
-        if selectedBook?.id != bookId { await selectBook(book) }
-        // After selectBook, chapters is populated; select the target.
-        if let chapter = chapters.first(where: { $0.id == chapterId }) {
+        if selectedBook?.id != bookId {
+            // Switching books: pre-set lastChapterId so selectBook's prefetch loads
+            // the exact target chapter rather than the previously viewed chapter.
+            lastChapterId = chapterId
+            await selectBook(book)
+        } else if let chapter = chapters.first(where: { $0.id == chapterId }) {
+            // Same book: just switch to the target chapter.
             await selectChapter(chapter)
         }
     }
@@ -193,18 +256,6 @@ final class ReaderViewModel: ObservableObject {
         }
     }
 
-    private func loadChapters(for book: BibleBook) async {
-        guard let translation = selectedTranslation else { return }
-        errorMessage = nil
-
-        do {
-            chapters = try await api.fetchChapters(bibleId: translation.id, bookId: book.id)
-            await restoreOrDefaultChapter()
-        } catch {
-            errorMessage = "Couldn't load chapters for \(book.name)."
-        }
-    }
-
     private func loadChapterContent(_ chapter: BibleChapter) async {
         guard let translation = selectedTranslation else { return }
         isLoadingContent = true
@@ -216,6 +267,7 @@ final class ReaderViewModel: ObservableObject {
                 bibleId:   translation.id,
                 chapterId: chapter.id
             )
+            contentLoadCounter += 1
         } catch {
             errorMessage = "Couldn't load \(chapter.reference). Try again."
         }
@@ -244,11 +296,4 @@ final class ReaderViewModel: ObservableObject {
         }
     }
 
-    private func restoreOrDefaultChapter() async {
-        if let last = chapters.first(where: { $0.id == lastChapterId }) {
-            await selectChapter(last)
-        } else if let first = chapters.first {
-            await selectChapter(first)
-        }
-    }
 }

@@ -96,12 +96,8 @@ struct BookmarkPickerView: View {
                 .padding(.horizontal, 16)
                 .padding(.bottom, 10)
 
-                // ── Group list ─────────────────────────────────────────────
-                if bookmarksVM.groups.isEmpty {
-                    emptyCollectionsHint
-                } else {
-                    groupList
-                }
+                // ── Collection options (ungrouped row always first) ────────
+                collectionList
 
                 Divider()
                     .padding(.vertical, 10)
@@ -141,23 +137,6 @@ struct BookmarkPickerView: View {
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.bordered)
-                        .padding(.horizontal, 16)
-                    } else {
-                        // Save without a collection
-                        Button {
-                            saveUngrouped()
-                        } label: {
-                            if savedUngrouped {
-                                Label("Saved!", systemImage: "checkmark")
-                                    .frame(maxWidth: .infinity)
-                            } else {
-                                Text("Save without a collection")
-                                    .frame(maxWidth: .infinity)
-                            }
-                        }
-                        .buttonStyle(.borderless)
-                        .font(.subheadline)
-                        .foregroundStyle(savedUngrouped ? .green : .secondary)
                         .padding(.horizontal, 16)
                     }
                 }
@@ -208,18 +187,74 @@ struct BookmarkPickerView: View {
         .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 12))
     }
 
-    // MARK: - Group List
+    // MARK: - Collection List
 
-    private var groupList: some View {
+    /// Unified list: "No Collection" row always first, then user groups.
+    private var collectionList: some View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 0) {
-                ForEach(bookmarksVM.groups.sorted { $0.createdAt < $1.createdAt }) { group in
-                    groupRow(group)
+                // "No Collection" — first-class option matching the group row style
+                if !isAlreadyBookmarked {
+                    ungroupedRow
                     Divider().padding(.leading, 72)
+                }
+
+                if bookmarksVM.groups.isEmpty {
+                    Text("Tap \"New collection\" above to organize your bookmarks.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 20)
+                } else {
+                    ForEach(bookmarksVM.groups.sorted { $0.createdAt < $1.createdAt }) { group in
+                        groupRow(group)
+                        Divider().padding(.leading, 72)
+                    }
                 }
             }
         }
         .frame(maxHeight: 400)
+    }
+
+    private var ungroupedRow: some View {
+        let isSaved = savedUngrouped
+        return HStack(spacing: 14) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color(hex: "F5C842").opacity(0.18))
+                    .frame(width: 52, height: 52)
+                Image(systemName: "bookmark.fill")
+                    .font(.title2)
+                    .foregroundStyle(Color(hex: "F5C842"))
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("No Collection")
+                    .font(.subheadline.weight(.medium))
+                Text("Save without grouping")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Button { saveUngrouped() } label: {
+                ZStack {
+                    Circle()
+                        .strokeBorder(isSaved ? Color.green : Color(.systemGray3), lineWidth: 1.5)
+                        .frame(width: 32, height: 32)
+                    Image(systemName: isSaved ? "checkmark" : "plus")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(isSaved ? .green : .primary)
+                }
+            }
+            .disabled(isSaved)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
+        .onTapGesture { saveUngrouped() }
     }
 
     private func groupRow(_ group: BookmarkGroup) -> some View {
@@ -265,23 +300,6 @@ struct BookmarkPickerView: View {
         .padding(.vertical, 10)
         .contentShape(Rectangle())
         .onTapGesture { saveToGroup(group) }
-    }
-
-    // MARK: - Empty Hint
-
-    private var emptyCollectionsHint: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "folder.badge.plus")
-                .font(.system(size: 36))
-                .foregroundStyle(.secondary)
-            Text("No collections yet")
-                .font(.subheadline.weight(.medium))
-            Text("Tap \"New collection\" to create one.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 30)
     }
 
     // MARK: - Save Actions

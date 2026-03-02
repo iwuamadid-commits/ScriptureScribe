@@ -53,7 +53,7 @@ struct DailyAnswerCommentsView: View {
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 40)
                             } else if comments.isEmpty {
-                                Text("No replies yet — be the first!")
+                                Text("No replies yet. Be the first!")
                                     .font(.subheadline)
                                     .foregroundStyle(themeManager.currentTheme.textSecondary)
                                     .frame(maxWidth: .infinity)
