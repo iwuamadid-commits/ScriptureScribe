@@ -60,12 +60,14 @@ struct BookmarkListView: View {
             .sheet(isPresented: $showManageGroups) {
                 ManageGroupsView(bookmarksVM: bookmarksVM)
             }
-            .sheet(item: $selectedBookmark) { bookmark in
-                BookmarkDetailView(
-                    bookmark: bookmark,
-                    onNavigateToReader: { dismiss() }
-                )
-            }
+        }
+        // Kept at NavigationStack level (not chained on the VStack) so it
+        // doesn't conflict with the showManageGroups sheet above.
+        .sheet(item: $selectedBookmark) { bookmark in
+            BookmarkDetailView(
+                bookmark: bookmark,
+                onNavigateToReader: { dismiss() }
+            )
         }
     }
 
@@ -136,11 +138,12 @@ struct BookmarkListView: View {
     private var bookmarkList: some View {
         List {
             ForEach(filteredBookmarks) { bookmark in
-                BookmarkRow(bookmark: bookmark, group: group(for: bookmark))
-                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                    .contentShape(Rectangle())
-                    .onTapGesture { selectedBookmark = bookmark }
-                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                Button { selectedBookmark = bookmark } label: {
+                    BookmarkRow(bookmark: bookmark, group: group(for: bookmark))
+                }
+                .buttonStyle(.plain)
+                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                         Button(role: .destructive) {
                             bookmarksVM.removeBookmark(id: bookmark.id)
                         } label: {
