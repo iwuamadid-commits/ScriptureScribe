@@ -27,7 +27,7 @@ struct ContentView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .bottomTrailing) {
+        ZStack {
             TabView(selection: $appNav.selectedTab) {
 
                 ReaderView()
@@ -74,28 +74,34 @@ struct ContentView: View {
             // Guard against edge case where app returns from background on a new calendar day
             .onAppear { streakVM.updateStreak() }
 
-            // Standalone floating streak pill — always visible, above the tab bar
-            Button { showStreakDetail = true } label: {
-                HStack(spacing: 4) {
-                    Text("🔥").font(.subheadline)
-                    Text("\(max(streakVM.currentStreak, 1))")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.orange)
+            // Floating streak pill — top-left corner, just below the status bar on every page.
+            // GeometryReader (full-screen, ignoring safe areas) gives us the exact status bar
+            // height so the pill lands in the correct spot on all device sizes.
+            // 🔥 has genuine biblical meaning: Pentecost (Acts 2), Jeremiah 23:29, Exodus 3.
+            GeometryReader { geo in
+                Button { showStreakDetail = true } label: {
+                    HStack(spacing: 4) {
+                        Text("🔥").font(.subheadline)
+                        Text("\(max(streakVM.currentStreak, 1))")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.orange)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .overlay(Capsule().stroke(Color.orange.opacity(0.35), lineWidth: 1))
+                    .shadow(color: .black.opacity(0.08), radius: 4, y: 2)
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
-                .background(.ultraThinMaterial, in: Capsule())
-                .overlay(Capsule().stroke(Color.orange.opacity(0.35), lineWidth: 1))
+                .buttonStyle(.plain)
+                // Position just below the status bar (safe area top) with a small buffer.
+                .padding(.top, geo.safeAreaInsets.top + 8)
+                .padding(.leading, 16)
+                .accessibilityLabel("\(max(streakVM.currentStreak, 1)) day streak. Tap for details.")
             }
-            .buttonStyle(.plain)
-            .padding(.trailing, 16)
-            .padding(.bottom)       // system safe area (home indicator)
-            .padding(.bottom, 56)  // tab bar height + buffer
-            .shadow(color: .black.opacity(0.08), radius: 4, y: 2)
-            .sheet(isPresented: $showStreakDetail) {
-                StreakDetailView().environmentObject(streakVM)
-            }
-            .accessibilityLabel("\(max(streakVM.currentStreak, 1)) day streak. Tap for details.")
+            .ignoresSafeArea()  // extend to full screen so geo.safeAreaInsets.top is accurate
+        }
+        .sheet(isPresented: $showStreakDetail) {
+            StreakDetailView().environmentObject(streakVM)
         }
     }
 }
