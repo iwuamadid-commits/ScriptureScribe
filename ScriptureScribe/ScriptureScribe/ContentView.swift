@@ -19,90 +19,57 @@ struct ContentView: View {
     @EnvironmentObject var habitsVM:            HabitsViewModel
     @EnvironmentObject var streakVM:            StreakViewModel
 
-    @State private var showStreakDetail = false
-
     /// Tells iOS whether to render system chrome (status bar, titles) in light or dark mode.
     private var preferredColorScheme: ColorScheme {
         ["Midnight", "Forest", "Royal"].contains(themeManager.currentTheme.name) ? .dark : .light
     }
 
     var body: some View {
-        ZStack {
-            TabView(selection: $appNav.selectedTab) {
+        TabView(selection: $appNav.selectedTab) {
 
-                ReaderView()
-                    .tabItem { Label("Reader", systemImage: "book.fill") }
-                    .tag(0)
+            ReaderView()
+                .tabItem { Label("Reader", systemImage: "book.fill") }
+                .tag(0)
 
-                DailyView()
-                    .tabItem { Label("Daily", systemImage: "sun.max.fill") }
-                    .tag(1)
+            DailyView()
+                .tabItem { Label("Daily", systemImage: "sun.max.fill") }
+                .tag(1)
 
-                HabitsView()
-                    .tabItem { Label("Habits", systemImage: "checkmark.circle.fill") }
-                    .tag(2)
+            HabitsView()
+                .tabItem { Label("Habits", systemImage: "checkmark.circle.fill") }
+                .tag(2)
 
-                FeedView()
-                    .tabItem { Label("Community", systemImage: "person.2.fill") }
-                    .tag(3)
+            FeedView()
+                .tabItem { Label("Community", systemImage: "person.2.fill") }
+                .tag(3)
 
-                SavedView()
-                    .tabItem { Label("Library", systemImage: "bookmark.fill") }
-                    .tag(4)
+            SavedView()
+                .tabItem { Label("Library", systemImage: "bookmark.fill") }
+                .tag(4)
 
-                ProfileView()
-                    .tabItem { Label("Profile", systemImage: "person.circle.fill") }
-                    .tag(5)
-            }
-            // Selected tab icon uses the theme's primary colour
-            .tint(themeManager.currentTheme.primary)
-            // Tab bar background matches the theme's surface colour
-            .toolbarBackground(themeManager.currentTheme.surface, for: .tabBar)
-            .toolbarBackground(.visible, for: .tabBar)
-            // Drives status bar, title, and system icon rendering across all child views
-            .preferredColorScheme(preferredColorScheme)
-            // When the user signs in, sync local data to Firestore
-            .onChange(of: authVM.isSignedIn) { _, signedIn in
-                guard signedIn, let userId = authVM.currentUserID else { return }
-                Task {
-                    await bookmarksVM.syncOnSignIn(userId: userId)
-                    await notesVM.syncOnSignIn(userId: userId)
-                    await savedDevotionalsVM.load(userId: userId)
-                    await habitsVM.syncOnSignIn(userId: userId)
-                }
-            }
-            // Guard against edge case where app returns from background on a new calendar day
-            .onAppear { streakVM.updateStreak() }
-
-            // Floating streak pill — top-left corner, just below the status bar on every page.
-            // GeometryReader (full-screen, ignoring safe areas) gives us the exact status bar
-            // height so the pill lands in the correct spot on all device sizes.
-            // 🔥 has genuine biblical meaning: Pentecost (Acts 2), Jeremiah 23:29, Exodus 3.
-            GeometryReader { geo in
-                Button { showStreakDetail = true } label: {
-                    HStack(spacing: 4) {
-                        Text("🔥").font(.subheadline)
-                        Text("\(max(streakVM.currentStreak, 1))")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.orange)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 7)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .overlay(Capsule().stroke(Color.orange.opacity(0.35), lineWidth: 1))
-                    .shadow(color: .black.opacity(0.08), radius: 4, y: 2)
-                }
-                .buttonStyle(.plain)
-                // Position just below the status bar (safe area top) with a small buffer.
-                .padding(.top, geo.safeAreaInsets.top + 8)
-                .padding(.leading, 16)
-                .accessibilityLabel("\(max(streakVM.currentStreak, 1)) day streak. Tap for details.")
-            }
-            .ignoresSafeArea()  // extend to full screen so geo.safeAreaInsets.top is accurate
+            ProfileView()
+                .tabItem { Label("Profile", systemImage: "person.circle.fill") }
+                .tag(5)
         }
-        .sheet(isPresented: $showStreakDetail) {
-            StreakDetailView().environmentObject(streakVM)
+        // Selected tab icon uses the theme's primary colour
+        .tint(themeManager.currentTheme.primary)
+        // Tab bar background matches the theme's surface colour
+        .toolbarBackground(themeManager.currentTheme.surface, for: .tabBar)
+        .toolbarBackground(.visible, for: .tabBar)
+        // Drives status bar, title, and system icon rendering across all child views
+        .preferredColorScheme(preferredColorScheme)
+        // When the user signs in, sync local data to Firestore
+        .onChange(of: authVM.isSignedIn) { _, signedIn in
+            guard signedIn, let userId = authVM.currentUserID else { return }
+            Task {
+                await bookmarksVM.syncOnSignIn(userId: userId)
+                await notesVM.syncOnSignIn(userId: userId)
+                await savedDevotionalsVM.load(userId: userId)
+                await habitsVM.syncOnSignIn(userId: userId)
+            }
         }
+        // Guard against edge case where app returns from background on a new calendar day
+        .onAppear { streakVM.updateStreak() }
     }
 }
 

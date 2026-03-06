@@ -30,6 +30,7 @@ struct SavedView: View {
 
     @State private var selectedTab: SavedTab = .bookmarks
     @State private var movingBookmark: Bookmark?
+    @State private var detailBookmark: Bookmark?
     @State private var showManageGroups = false
     @State private var collectionPath: [CollectionDestination] = []
     @State private var showPaywall = false
@@ -86,6 +87,12 @@ struct SavedView: View {
             }
             .sheet(item: $movingBookmark) { bookmark in
                 MoveToCollectionSheet(bookmark: bookmark)
+            }
+            .sheet(item: $detailBookmark) { bookmark in
+                BookmarkDetailView(
+                    bookmark: bookmark,
+                    onNavigateToReader: {}
+                )
             }
             .sheet(isPresented: $showManageGroups) {
                 ManageGroupsView(bookmarksVM: bookmarksVM)
@@ -288,7 +295,7 @@ struct SavedView: View {
         List {
             ForEach(bookmarks) { bookmark in
                 Button {
-                    navigateToBookmark(bookmark)
+                    detailBookmark = bookmark
                 } label: {
                     SavedBookmarkRow(bookmark: bookmark)
                 }

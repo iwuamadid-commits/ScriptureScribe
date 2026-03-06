@@ -284,6 +284,9 @@ struct BookmarkDetailView: View {
     @State private var showMoveToCollection = false
     @State private var showImageComposer    = false
     @State private var showDeleteConfirm    = false
+    @State private var showEditBookmark     = false
+    @State private var showEditVerses       = false
+    @State private var detent: PresentationDetent = .large
 
     // MARK: - Body
 
@@ -291,30 +294,94 @@ struct BookmarkDetailView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-
                     verseHeader
 
                     if !currentBookmark.verseText.isEmpty {
                         verseTextBlock
                     }
-
-                    Divider()
-                        .padding(.top, 4)
-
-                    actionList
                 }
                 .padding(20)
             }
             .navigationTitle("Saved Verse")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .topBarLeading) {
                     Button("Done") { dismiss() }
+                        .fontWeight(.semibold)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button {
+                            appNav.pendingChapterId      = currentBookmark.chapterId
+                            appNav.pendingVerseNumber    = currentBookmark.verseId.isEmpty    ? nil : currentBookmark.verseId
+                            appNav.pendingVerseEndNumber = currentBookmark.verseIdEnd.isEmpty ? nil : currentBookmark.verseIdEnd
+                            appNav.selectedTab           = 0
+                            dismiss()
+                            onNavigateToReader()
+                        } label: {
+                            Label("Read", systemImage: "book.fill")
+                        }
+
+                        ShareLink(item: shareText) {
+                            Label("Share", systemImage: "square.and.arrow.up")
+                        }
+
+                        Button {
+                            showImageComposer = true
+                        } label: {
+                            Label("Share as Image", systemImage: "photo")
+                        }
+
+                        Button {
+                            let text = currentBookmark.verseText.isEmpty
+                                ? currentBookmark.chapterReference
+                                : "\(currentBookmark.chapterReference)\n\"\(currentBookmark.verseText)\""
+                            UIPasteboard.general.string = text
+                            dismiss()
+                        } label: {
+                            Label("Copy", systemImage: "doc.on.doc")
+                        }
+
+                        Button {
+                            showEditVerses = true
+                        } label: {
+                            Label("Edit Verses", systemImage: "text.badge.plus")
+                        }
+
+                        Button {
+                            showEditBookmark = true
+                        } label: {
+                            Label("Edit Bookmark", systemImage: "pencil")
+                        }
+
+                        Button {
+                            showMoveToCollection = true
+                        } label: {
+                            Label("Edit Collection", systemImage: "folder")
+                        }
+
+                        Divider()
+
+                        Button(role: .destructive) {
+                            showDeleteConfirm = true
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                            .font(.system(size: 18))
+                    }
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.large, .medium], selection: $detent)
         .presentationDragIndicator(.visible)
+        .sheet(isPresented: $showEditVerses) {
+            EditVerseRangeSheet(bookmark: currentBookmark)
+        }
+        .sheet(isPresented: $showEditBookmark) {
+            EditBookmarkSheet(bookmark: currentBookmark)
+        }
         .sheet(isPresented: $showMoveToCollection) {
             MoveToCollectionSheet(bookmark: currentBookmark)
         }
@@ -406,91 +473,6 @@ struct BookmarkDetailView: View {
             )
     }
 
-    // MARK: - Action List
-
-    private var actionList: some View {
-        VStack(spacing: 0) {
-
-            // Read
-            actionRow(icon: "book.fill", label: "Read", color: themeManager.currentTheme.primary) {
-                appNav.pendingChapterId      = currentBookmark.chapterId
-                appNav.pendingVerseNumber    = currentBookmark.verseId.isEmpty    ? nil : currentBookmark.verseId
-                appNav.pendingVerseEndNumber = currentBookmark.verseIdEnd.isEmpty ? nil : currentBookmark.verseIdEnd
-                appNav.selectedTab           = 0
-                onNavigateToReader()
-            }
-            Divider().padding(.leading, 52)
-
-            // Share
-            ShareLink(item: shareText) {
-                rowContent(icon: "square.and.arrow.up", label: "Share", color: .blue)
-            }
-            .buttonStyle(.plain)
-            Divider().padding(.leading, 52)
-
-            // Share as Image
-            actionRow(icon: "photo", label: "Share as Image", color: .blue) {
-                showImageComposer = true
-            }
-            Divider().padding(.leading, 52)
-
-            // Copy
-            actionRow(icon: "doc.on.doc", label: "Copy", color: .blue) {
-                let text = currentBookmark.verseText.isEmpty
-                    ? currentBookmark.chapterReference
-                    : "\(currentBookmark.chapterReference)\n\"\(currentBookmark.verseText)\""
-                UIPasteboard.general.string = text
-                dismiss()
-            }
-            Divider().padding(.leading, 52)
-
-            // Edit Collection
-            actionRow(icon: "folder", label: "Edit Collection", color: .primary) {
-                showMoveToCollection = true
-            }
-            Divider().padding(.leading, 52)
-
-            // Delete
-            actionRow(icon: "trash", label: "Delete", color: .red) {
-                showDeleteConfirm = true
-            }
-        }
-        .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 14))
-    }
-
-    // MARK: - Row Helpers
-
-    private func actionRow(
-        icon: String,
-        label: String,
-        color: Color,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            rowContent(icon: icon, label: label, color: color)
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func rowContent(icon: String, label: String, color: Color) -> some View {
-        HStack(spacing: 14) {
-            Image(systemName: icon)
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(color)
-                .frame(width: 24)
-            Text(label)
-                .font(.body)
-                .foregroundStyle(color == .primary ? Color.primary : color)
-            Spacer()
-            Image(systemName: "chevron.right")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .contentShape(Rectangle())
-    }
-
     // MARK: - Share Text
 
     private var shareText: String {
@@ -501,5 +483,328 @@ struct BookmarkDetailView: View {
         parts.append("Shared from Scripture Scribe")
         parts.append("scripturescribe://verse/\(currentBookmark.chapterId)")
         return parts.joined(separator: "\n\n")
+    }
+}
+
+// MARK: - Edit Bookmark Sheet
+
+/// Lets the user change a bookmark's emoji and color.
+struct EditBookmarkSheet: View {
+
+    let bookmark: Bookmark
+
+    @EnvironmentObject var bookmarksVM: BookmarksViewModel
+    @EnvironmentObject var authVM:      AuthViewModel
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var selectedColor: String
+    @State private var selectedEmoji: String
+
+    init(bookmark: Bookmark) {
+        self.bookmark     = bookmark
+        _selectedColor    = State(initialValue: bookmark.colorHex)
+        _selectedEmoji    = State(initialValue: bookmark.emoji)
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 24) {
+
+                // Preview
+                HStack(spacing: 12) {
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color(hex: selectedColor))
+                        .frame(width: 6, height: 52)
+                    Text(selectedEmoji)
+                        .font(.title2)
+                    Text(bookmark.chapterReference)
+                        .font(.headline)
+                    Spacer()
+                }
+                .padding(14)
+                .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 12))
+
+                // Color picker
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Color")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 12) {
+                            ForEach(Bookmark.presetColors, id: \.hex) { preset in
+                                let isSelected = selectedColor == preset.hex
+                                Circle()
+                                    .fill(Color(hex: preset.hex))
+                                    .frame(width: 36, height: 36)
+                                    .overlay(
+                                        Circle()
+                                            .stroke(Color.primary.opacity(isSelected ? 0.9 : 0),
+                                                    lineWidth: 2.5)
+                                            .padding(3)
+                                    )
+                                    .overlay(
+                                        Circle()
+                                            .stroke(Color.white, lineWidth: isSelected ? 2 : 0)
+                                            .padding(4)
+                                    )
+                                    .onTapGesture { selectedColor = preset.hex }
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+
+                // Emoji picker
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Emoji")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 5), spacing: 12) {
+                        ForEach(Bookmark.presetEmojis, id: \.self) { emoji in
+                            Text(emoji)
+                                .font(.title2)
+                                .frame(width: 52, height: 52)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .fill(selectedEmoji == emoji
+                                              ? Color(hex: selectedColor).opacity(0.2)
+                                              : Color(.systemGray6))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .stroke(Color(hex: selectedColor),
+                                                lineWidth: selectedEmoji == emoji ? 2 : 0)
+                                )
+                                .onTapGesture { selectedEmoji = emoji }
+                        }
+                    }
+                }
+
+                Spacer()
+            }
+            .padding(20)
+            .navigationTitle("Edit Bookmark")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Save") {
+                        bookmarksVM.updateBookmark(
+                            id:       bookmark.id,
+                            colorHex: selectedColor,
+                            emoji:    selectedEmoji,
+                            userId:   authVM.currentUserID
+                        )
+                        dismiss()
+                    }
+                    .fontWeight(.semibold)
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+}
+
+// MARK: - Edit Verse Range Sheet
+
+/// Lets the user add or remove verses from a bookmark by adjusting the start/end verse range.
+/// Fetches the chapter from the API so the preview shows live verse text.
+struct EditVerseRangeSheet: View {
+
+    let bookmark: Bookmark
+
+    @EnvironmentObject var bookmarksVM: BookmarksViewModel
+    @EnvironmentObject var authVM:      AuthViewModel
+    @EnvironmentObject var themeManager: ThemeManager
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var verses:      [ParsedVerse] = []
+    @State private var chapterName: String = ""
+    @State private var isLoading:   Bool   = true
+    @State private var startNum:    Int    = 1
+    @State private var endNum:      Int    = 1
+
+    private let api = BibleAPIService()
+
+    // Verses with real numbers only (skip "§" section-heading pseudo-verses)
+    private var numberedVerses: [ParsedVerse] {
+        verses.filter { $0.number != "§" }
+    }
+
+    private var maxVerseNum: Int {
+        numberedVerses.compactMap { Int($0.number) }.max() ?? 1
+    }
+
+    private var selectedVerses: [ParsedVerse] {
+        numberedVerses.filter {
+            guard let n = Int($0.number) else { return false }
+            return n >= startNum && n <= endNum
+        }
+    }
+
+    private var previewText: String {
+        selectedVerses.map { v in
+            let text = v.segments.map { $0.text }.joined()
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return "[\(v.number)] \(text)"
+        }.joined(separator: "\n\n")
+    }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if isLoading {
+                    VStack(spacing: 14) {
+                        ProgressView()
+                        Text("Loading chapter…")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    content
+                }
+            }
+            .navigationTitle("Edit Verses")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Save", action: save)
+                        .fontWeight(.semibold)
+                        .disabled(isLoading)
+                }
+            }
+        }
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+        .task { await loadChapter() }
+    }
+
+    private var content: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+
+                // Range steppers
+                VStack(spacing: 0) {
+                    HStack {
+                        Text("From verse")
+                            .font(.body)
+                        Spacer()
+                        Stepper(value: $startNum, in: 1...maxVerseNum) {
+                            Text("\(startNum)")
+                                .font(.body.weight(.semibold))
+                                .frame(minWidth: 24, alignment: .trailing)
+                        }
+                        .onChange(of: startNum) { _, newVal in
+                            if endNum < newVal { endNum = newVal }
+                        }
+                    }
+                    .padding(16)
+
+                    Divider().padding(.leading, 16)
+
+                    HStack {
+                        Text("To verse")
+                            .font(.body)
+                        Spacer()
+                        Stepper(value: $endNum, in: startNum...maxVerseNum) {
+                            Text("\(endNum)")
+                                .font(.body.weight(.semibold))
+                                .frame(minWidth: 24, alignment: .trailing)
+                        }
+                    }
+                    .padding(16)
+                }
+                .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 12))
+
+                // Live preview
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Preview")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+
+                    Text(previewText.isEmpty ? "No verses selected" : previewText)
+                        .font(.body)
+                        .foregroundStyle(
+                            previewText.isEmpty
+                                ? themeManager.currentTheme.textSecondary
+                                : themeManager.currentTheme.text
+                        )
+                        .lineSpacing(5)
+                        .padding(14)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            Color(.systemGray6),
+                            in: RoundedRectangle(cornerRadius: 12)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .strokeBorder(
+                                    Color(hex: bookmark.colorHex).opacity(0.4),
+                                    lineWidth: 1.5
+                                )
+                        )
+                }
+            }
+            .padding(20)
+        }
+    }
+
+    private func loadChapter() async {
+        do {
+            let content = try await api.fetchChapterContent(
+                bibleId:   bookmark.bibleId,
+                chapterId: bookmark.chapterId
+            )
+            verses      = content.parsedVerses
+            chapterName = content.reference
+
+            // Seed steppers from the existing bookmark range
+            let rawStart = Int(bookmark.verseId) ?? 1
+            let rawEnd   = bookmark.verseIdEnd.isEmpty
+                           ? rawStart
+                           : (Int(bookmark.verseIdEnd) ?? rawStart)
+            let cap = numberedVerses.compactMap { Int($0.number) }.max() ?? 1
+            startNum = min(max(rawStart, 1), cap)
+            endNum   = min(max(rawEnd,   startNum), cap)
+        } catch {
+            // Fallback: seed from bookmark data, stepper shows 1 verse
+            startNum = Int(bookmark.verseId) ?? 1
+            endNum   = bookmark.verseIdEnd.isEmpty ? startNum : (Int(bookmark.verseIdEnd) ?? startNum)
+        }
+        isLoading = false
+    }
+
+    private func save() {
+        let startId = "\(startNum)"
+        let endId   = endNum == startNum ? "" : "\(endNum)"
+
+        let text = selectedVerses
+            .map { $0.segments.map { $0.text }.joined() }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let ref: String
+        if endId.isEmpty {
+            ref = "\(chapterName): \(startId)"
+        } else {
+            ref = "\(chapterName): \(startId)-\(endId)"
+        }
+
+        bookmarksVM.updateBookmarkVerses(
+            id:               bookmark.id,
+            verseId:          startId,
+            verseIdEnd:       endId,
+            verseText:        text,
+            chapterReference: ref,
+            userId:           authVM.currentUserID
+        )
+        dismiss()
     }
 }

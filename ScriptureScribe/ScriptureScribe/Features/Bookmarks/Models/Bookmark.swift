@@ -16,7 +16,7 @@ struct Bookmark: Identifiable, Codable {
     let bibleId:          String
     let bookId:           String
     let chapterId:        String
-    let chapterReference: String   // e.g. "Genesis 1: 3-5" — for display in the list
+    var chapterReference: String   // e.g. "Genesis 1: 3-5" — for display in the list
     var verseId:          String   // verse number, or "" for a chapter-level bookmark
     var verseIdEnd:       String   // end of range (e.g. "5" for v3-5), or "" for single verse
     var verseText:        String   // the verse text (or combined text for range), or "" for chapter

@@ -210,6 +210,37 @@ final class BookmarksViewModel: ObservableObject {
         }
     }
 
+    /// Updates the verse range and text of a bookmark.
+    func updateBookmarkVerses(
+        id:               String,
+        verseId:          String,
+        verseIdEnd:       String,
+        verseText:        String,
+        chapterReference: String,
+        userId:           String? = nil
+    ) {
+        guard let index = bookmarks.firstIndex(where: { $0.id == id }) else { return }
+        bookmarks[index].verseId          = verseId
+        bookmarks[index].verseIdEnd       = verseIdEnd
+        bookmarks[index].verseText        = verseText
+        bookmarks[index].chapterReference = chapterReference
+        save()
+        if let userId {
+            Task { try? await firestore.saveBookmark(bookmarks[index], userId: userId) }
+        }
+    }
+
+    /// Updates a bookmark's emoji and color.
+    func updateBookmark(id: String, colorHex: String, emoji: String, userId: String? = nil) {
+        guard let index = bookmarks.firstIndex(where: { $0.id == id }) else { return }
+        bookmarks[index].colorHex = colorHex
+        bookmarks[index].emoji    = emoji
+        save()
+        if let userId {
+            Task { try? await firestore.saveBookmark(bookmarks[index], userId: userId) }
+        }
+    }
+
     /// Moves a bookmark into a group, or removes it from all groups when groupId is nil.
     func assignBookmark(id: String, to groupId: String?, userId: String? = nil) {
         guard let index = bookmarks.firstIndex(where: { $0.id == id }) else { return }
