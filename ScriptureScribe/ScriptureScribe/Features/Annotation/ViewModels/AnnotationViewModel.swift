@@ -474,13 +474,14 @@ final class AnnotationViewModel: ObservableObject {
         }
     }
 
-    /// Load tool settings when switching tools
+    /// Load tool settings when switching tools.
+    /// Color is intentionally NOT restored — it carries over from the previous tool
+    /// so the user's active color stays consistent across pen/highlighter switches.
     func loadToolSettings(for tool: DrawingTool) {
         if tool != .lasso { lassoState.clear() }
         let settings = toolSettings[tool] ?? defaultSettings(for: tool)
-        selectedColor = settings.uiColor
-        strokeWidth   = settings.strokeWidth
-        penStyle      = settings.penStyle
+        strokeWidth              = settings.strokeWidth
+        penStyle                 = settings.penStyle
         highlighterStraightLines = settings.straightLines
     }
 

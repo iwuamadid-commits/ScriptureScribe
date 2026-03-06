@@ -146,7 +146,12 @@ struct AnnotationToolbarView: View {
                         vm.saveCurrentToolSettings()
                     },
                     onDone: { color in
-                        vm.selectedColor = color
+                        if let idx = vm.pendingEditColorIndex {
+                            vm.replaceColor(at: idx, with: color)
+                        } else {
+                            vm.selectedColor = color
+                        }
+                        vm.pendingEditColorIndex = nil
                         vm.saveCurrentToolSettings()
                     },
                     vm: vm,
@@ -355,7 +360,7 @@ struct AnnotationToolbarView: View {
         // Single-tap: select, or open picker if already selected
         .onTapGesture {
             if isSelected {
-                vm.pendingEditColorIndex = nil
+                vm.pendingEditColorIndex = item.realIndex
                 showColorPicker = true
             } else {
                 vm.selectedColor = item.color.uiColor
