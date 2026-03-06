@@ -332,7 +332,7 @@ struct BookmarkDetailView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This will permanently remove "\(currentBookmark.chapterReference)" from your bookmarks.")
+            Text("This will permanently remove \"\(currentBookmark.chapterReference)\" from your bookmarks.")
         }
     }
 
