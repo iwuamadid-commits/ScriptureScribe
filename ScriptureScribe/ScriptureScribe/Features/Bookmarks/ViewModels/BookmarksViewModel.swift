@@ -86,32 +86,31 @@ final class BookmarksViewModel: ObservableObject {
     /// bookmark.  If verseIdEnd is also non-empty, this is a verse range bookmark.
     /// When verseId is empty it is a chapter-level bookmark.
     func addBookmark(
-        bibleId:    String,
-        bookId:     String,
-        chapter:    BibleChapter,
-        verseId:    String  = "",
-        verseIdEnd: String  = "",
-        verseText:  String  = "",
-        colorHex:   String,
-        emoji:      String,
-        groupId:    String? = nil,
-        userId:     String? = nil
+        bibleId:      String,
+        bookId:       String,
+        chapter:      BibleChapter,
+        verseNumbers: [String] = [],
+        verseText:    String   = "",
+        colorHex:     String,
+        emoji:        String,
+        groupId:      String?  = nil,
+        userId:       String?  = nil
     ) {
-        // Build the display reference: "Genesis 1", "Genesis 1: 3", or "Genesis 1: 3-5"
+        // Build the display reference using smart grouping: "Genesis 1: 1-3, 5"
         let ref: String
-        if verseId.isEmpty {
+        if verseNumbers.isEmpty {
             ref = chapter.reference
-        } else if verseIdEnd.isEmpty || verseIdEnd == verseId {
-            ref = "\(chapter.reference): \(verseId)"
         } else {
-            ref = "\(chapter.reference): \(verseId)-\(verseIdEnd)"
+            ref = "\(chapter.reference): \(Bookmark.formatVerseList(verseNumbers))"
         }
 
+        let firstVerse = verseNumbers.first ?? ""
+
         // Deduplicate: don't allow the exact same verse to be bookmarked twice.
-        if verseId.isEmpty {
+        if firstVerse.isEmpty {
             guard !isBookmarked(chapterId: chapter.id) else { return }
         } else {
-            guard !isVerseBookmarked(chapterId: chapter.id, verseId: verseId) else { return }
+            guard !isVerseBookmarked(chapterId: chapter.id, verseId: firstVerse) else { return }
         }
 
         let bookmark = Bookmark(
@@ -119,8 +118,9 @@ final class BookmarksViewModel: ObservableObject {
             bookId:           bookId,
             chapterId:        chapter.id,
             chapterReference: ref,
-            verseId:          verseId,
-            verseIdEnd:       verseIdEnd,
+            verseId:          firstVerse,
+            verseIdEnd:       verseNumbers.last ?? "",
+            verseNumbers:     verseNumbers,
             verseText:        verseText,
             colorHex:         colorHex,
             emoji:            emoji,

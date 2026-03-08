@@ -71,22 +71,22 @@ final class AnnotationViewModel: ObservableObject {
 
     enum PenStyle: String, CaseIterable, Codable {
         case fountain    = "fountain"
-        case pencil      = "pencil"
         case calligraphy = "calligraphy"
+        case crayon      = "crayon"
 
         var inkType: PKInkingTool.InkType {
             switch self {
             case .fountain:    return .pen
-            case .pencil:      return .pencil
-            case .calligraphy: return .fountainPen  // thick/thin based on stroke direction
+            case .calligraphy: return .fountainPen   // thick/thin based on stroke direction
+            case .crayon:      return .crayon         // bold, waxy textured strokes
             }
         }
 
         var label: String {
             switch self {
             case .fountain:    return "Fountain"
-            case .pencil:      return "Pencil"
             case .calligraphy: return "Calligraphy"
+            case .crayon:      return "Crayon"
             }
         }
     }
@@ -947,8 +947,7 @@ final class AnnotationViewModel: ObservableObject {
     var pkTool: PKTool {
         switch selectedTool {
         case .pen:
-            let width = penStyle == .pencil ? strokeWidth * 0.5 : strokeWidth
-            return PKInkingTool(penStyle.inkType, color: selectedColor, width: width)
+            return PKInkingTool(penStyle.inkType, color: selectedColor, width: strokeWidth)
         case .highlighter:
             return PKInkingTool(.marker, color: selectedColor.withAlphaComponent(0.35), width: strokeWidth)
         case .eraser:

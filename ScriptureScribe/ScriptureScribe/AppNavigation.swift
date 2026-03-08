@@ -18,8 +18,9 @@ import Combine
 final class AppNavigation: ObservableObject {
     @Published var selectedTab:        Int     = 0     // 0=Reader 1=Daily 2=Habits 3=Community 4=Saved 5=Profile
     @Published var pendingChapterId:   String? = nil   // Reader jumps to this chapter when set
-    @Published var pendingVerseNumber:    String? = nil   // Reader scrolls to + flashes this verse
-    @Published var pendingVerseEndNumber: String? = nil   // End of verse range (e.g. "5" for v3-5); nil for single verse
+    @Published var pendingVerseNumber:    String?   = nil   // Reader scrolls to + flashes this verse
+    @Published var pendingVerseEndNumber: String?   = nil   // End of verse range (legacy); nil for single verse
+    @Published var pendingVerseNumbers:   [String]? = nil   // Individual verse numbers to highlight (e.g. ["1","3","5"])
     @Published var pendingCommunityTab:   Int?    = nil   // Community sub-tab to open (3 = Daily Question)
     @Published var pendingDailyDate:      String? = nil   // "YYYY-MM-DD" — Daily tab loads this date when set
 }

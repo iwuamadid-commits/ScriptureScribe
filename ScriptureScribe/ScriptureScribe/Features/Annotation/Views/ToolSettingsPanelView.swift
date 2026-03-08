@@ -221,13 +221,13 @@ struct ToolSettingsPanelView: View {
                     lineColor = Color(vm.selectedColor)
                     lineWidth = min(vm.strokeWidth, size.height * 0.65)
                     lineCap   = .round
-                case .pencil:
-                    lineColor = Color(vm.selectedColor).opacity(0.65)
-                    lineWidth = min(vm.strokeWidth * 0.5, size.height * 0.45)
-                    lineCap   = .round
                 case .calligraphy:
                     lineColor = Color(vm.selectedColor)
                     lineWidth = min(vm.strokeWidth, size.height * 0.65)
+                    lineCap   = .round
+                case .crayon:
+                    lineColor = Color(vm.selectedColor).opacity(0.75)
+                    lineWidth = min(vm.strokeWidth * 1.8, size.height - 8)
                     lineCap   = .round
                 }
 
@@ -242,15 +242,14 @@ struct ToolSettingsPanelView: View {
                         control1: CGPoint(x: size.width * 0.3, y: midY - bump * 1.2),
                         control2: CGPoint(x: size.width * 0.7, y: midY + bump * 1.2)
                     )
-                case .pencil:
-                    // Jagged textured zigzag
+                case .crayon:
+                    // Bold zigzag
                     path.move(to: CGPoint(x: 16, y: midY))
-                    path.addLine(to: CGPoint(x: size.width * 0.17, y: midY - bump))
-                    path.addLine(to: CGPoint(x: size.width * 0.32, y: midY + bump))
-                    path.addLine(to: CGPoint(x: size.width * 0.48, y: midY - bump))
-                    path.addLine(to: CGPoint(x: size.width * 0.63, y: midY + bump))
-                    path.addLine(to: CGPoint(x: size.width * 0.78, y: midY - bump))
-                    path.addLine(to: CGPoint(x: size.width - 16,   y: midY))
+                    path.addLine(to: CGPoint(x: size.width * 0.2, y: midY - bump * 0.6))
+                    path.addLine(to: CGPoint(x: size.width * 0.4, y: midY + bump * 0.6))
+                    path.addLine(to: CGPoint(x: size.width * 0.6, y: midY - bump * 0.6))
+                    path.addLine(to: CGPoint(x: size.width * 0.8, y: midY + bump * 0.6))
+                    path.addLine(to: CGPoint(x: size.width - 16,  y: midY))
                 default:
                     // Fountain — smooth zigzag
                     path.move(to: CGPoint(x: 16, y: midY))
@@ -306,26 +305,15 @@ struct ToolSettingsPanelView: View {
                         )
                         ctx.stroke(path, with: .color(Color(white: 0.90)),
                                    style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-                    case .pencil:
-                        // Jagged textured line
-                        path.move(to: CGPoint(x: 4, y: mid + 2))
-                        path.addLine(to: CGPoint(x: size.width * 0.35, y: mid - 2))
-                        path.addLine(to: CGPoint(x: size.width * 0.65, y: mid + 2))
-                        path.addLine(to: CGPoint(x: size.width - 4, y: mid - 1))
-                        ctx.stroke(path, with: .color(Color(white: 0.72)),
-                                   style: StrokeStyle(lineWidth: 1.5, lineCap: .round,
-                                                      lineJoin: .round))
                     case .calligraphy:
                         // Thick-to-thin elegant stroke
                         let thinW: CGFloat = 1.0
                         let thickW: CGFloat = 5.0
-                        // Thick downstroke
                         var p1 = Path()
                         p1.move(to: CGPoint(x: 4, y: mid - 6))
                         p1.addLine(to: CGPoint(x: size.width * 0.45, y: mid + 6))
                         ctx.stroke(p1, with: .color(Color(white: 0.90)),
                                    style: StrokeStyle(lineWidth: thickW, lineCap: .round))
-                        // Thin upstroke
                         var p2 = Path()
                         p2.move(to: CGPoint(x: size.width * 0.45, y: mid + 6))
                         p2.addCurve(
@@ -335,6 +323,15 @@ struct ToolSettingsPanelView: View {
                         )
                         ctx.stroke(p2, with: .color(Color(white: 0.90)),
                                    style: StrokeStyle(lineWidth: thinW, lineCap: .round))
+                    case .crayon:
+                        // Bold waxy stroke
+                        path.move(to: CGPoint(x: 4, y: mid + 2))
+                        path.addLine(to: CGPoint(x: size.width * 0.35, y: mid - 3))
+                        path.addLine(to: CGPoint(x: size.width * 0.65, y: mid + 3))
+                        path.addLine(to: CGPoint(x: size.width - 4, y: mid - 1))
+                        ctx.stroke(path, with: .color(Color(white: 0.80)),
+                                   style: StrokeStyle(lineWidth: 5, lineCap: .round,
+                                                      lineJoin: .round))
                     }
                 }
                 .frame(width: 56, height: 28)

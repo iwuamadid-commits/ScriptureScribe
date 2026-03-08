@@ -25,7 +25,7 @@ struct BibleTextView: View {
 
     let content:            BibleChapterContent
     @ObservedObject var vm: ReaderViewModel
-    let onLongPressVerse:   (String, String?, String) -> Void  // (startVerse, endVerse?, text)
+    let onLongPressVerse:   ([String], String) -> Void  // (verseNumbers, combinedText)
     /// Verse numbers to briefly highlight (e.g. {"3","4","5"}). Empty when no navigation target.
     var highlightedVerses:  Set<String> = []
 
@@ -74,7 +74,7 @@ struct BibleTextView: View {
                     alignment:         swiftUIAlignment,
                     theme:             themeManager.currentTheme,
                     navFlashOpacity:   flashVerses.contains(verse.number) ? navFlashOpacity : 0.0,
-                    onBookmarkVerse:   { onLongPressVerse(verse.number, nil, verse.text) },
+                    onBookmarkVerse:   { onLongPressVerse([verse.number], verse.text) },
                     isInSelectionMode: isInSelectionMode,
                     isSelected:        selectedIndices.contains(index),
                     onToggleSelection: {
@@ -209,21 +209,16 @@ struct BibleTextView: View {
         guard !selectedIndices.isEmpty else { return }
         let verses  = Self.parseVerses(from: content.textContent)
         let sorted  = selectedIndices.sorted()
-        guard
-            let firstIdx = sorted.first(where: { $0 < verses.count && verses[$0].number != "§" }),
-            let lastIdx  = sorted.last( where: { $0 < verses.count && verses[$0].number != "§" })
-        else {
+        let validIndices = sorted.filter { $0 < verses.count && verses[$0].number != "§" }
+        guard !validIndices.isEmpty else {
             withAnimation(.spring(duration: 0.25)) { selectedIndices = [] }
             return
         }
-        let startVerse   = verses[firstIdx].number
-        let endVerse     = verses[lastIdx].number
-        let combinedText = sorted
-            .filter { $0 < verses.count && verses[$0].number != "§" }
+        let verseNumbers = validIndices.map { verses[$0].number }
+        let combinedText = validIndices
             .map    { verses[$0].text }
             .joined(separator: " ")
-        let endVerseOrNil = (startVerse == endVerse) ? nil : endVerse
-        onLongPressVerse(startVerse, endVerseOrNil, combinedText)
+        onLongPressVerse(verseNumbers, combinedText)
         withAnimation(.spring(duration: 0.25)) { selectedIndices = [] }
     }
 

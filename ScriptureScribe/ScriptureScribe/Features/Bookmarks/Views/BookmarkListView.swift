@@ -313,8 +313,10 @@ struct BookmarkDetailView: View {
                     Menu {
                         Button {
                             appNav.pendingChapterId      = currentBookmark.chapterId
-                            appNav.pendingVerseNumber    = currentBookmark.verseId.isEmpty    ? nil : currentBookmark.verseId
-                            appNav.pendingVerseEndNumber = currentBookmark.verseIdEnd.isEmpty ? nil : currentBookmark.verseIdEnd
+                            let nums = currentBookmark.resolvedVerseNumbers
+                            appNav.pendingVerseNumbers   = nums.isEmpty ? nil : nums
+                            appNav.pendingVerseNumber    = nums.first
+                            appNav.pendingVerseEndNumber = nil
                             appNav.selectedTab           = 0
                             dismiss()
                             onNavigateToReader()

@@ -31,18 +31,14 @@ private struct ContentHeightKey: PreferenceKey {
 /// Using .sheet(item:) with this struct guarantees the picker always opens with the
 /// exact verse data that triggered the gesture — no stale-state first-load issue.
 private struct VerseBookmarkData: Identifiable {
-    let id           = UUID()
-    let startVerseId: String
-    let endVerseId:   String?   // nil = single verse; non-nil = end of range
+    let id            = UUID()
+    let verseNumbers: [String]   // individual selected verse numbers, e.g. ["1","3","5"]
     let verseText:    String
-    let chapterRef:   String    // snapshot of chapter.reference at gesture time
+    let chapterRef:   String     // snapshot of chapter.reference at gesture time
 
     var displayReference: String {
-        if let endId = endVerseId, !endId.isEmpty, endId != startVerseId {
-            return "\(chapterRef): \(startVerseId)-\(endId)"
-        } else {
-            return "\(chapterRef): \(startVerseId)"
-        }
+        guard !verseNumbers.isEmpty else { return chapterRef }
+        return "\(chapterRef): \(Bookmark.formatVerseList(verseNumbers))"
     }
 }
 
@@ -73,6 +69,7 @@ struct ReaderView: View {
     // ── Community verse navigation ────────────────────────────────────────────
     /// The verse number (e.g. "16") to scroll to and flash when arriving from Community.
     @State private var pendingTargetVerse:     String? = nil
+    @State private var pendingTargetVerseNums: [String]? = nil
     /// End of a verse range to highlight (e.g. "5" for v3-5); nil for single verse.
     @State private var pendingTargetVerseEnd:  String? = nil
     /// Y offset (in scroll-content coordinates) to jump to; cleared by ZoomScrollView.
@@ -200,15 +197,14 @@ struct ReaderView: View {
                             let book    = vm.selectedBook
                         else { return }
                         bookmarksVM.addBookmark(
-                            bibleId:    bible.id,
-                            bookId:     book.id,
-                            chapter:    chapter,
-                            verseId:    data.startVerseId,
-                            verseIdEnd: data.endVerseId ?? "",
-                            verseText:  data.verseText,
-                            colorHex:   colorHex,
-                            emoji:      emoji,
-                            groupId:    groupId
+                            bibleId:      bible.id,
+                            bookId:       book.id,
+                            chapter:      chapter,
+                            verseNumbers: data.verseNumbers,
+                            verseText:    data.verseText,
+                            colorHex:     colorHex,
+                            emoji:        emoji,
+                            groupId:      groupId
                         )
                     },
                     onRemove: {
@@ -251,9 +247,11 @@ struct ReaderView: View {
         .onChange(of: appNav.pendingChapterId) { _, newId in
             guard let id = newId else { return }
             pendingTargetVerse       = appNav.pendingVerseNumber     // save before clearing
-            pendingTargetVerseEnd    = appNav.pendingVerseEndNumber  // end of range (nil for single)
+            pendingTargetVerseEnd    = appNav.pendingVerseEndNumber  // end of range (legacy)
+            pendingTargetVerseNums   = appNav.pendingVerseNumbers    // individual verse numbers
             appNav.pendingVerseNumber    = nil
             appNav.pendingVerseEndNumber = nil
+            appNav.pendingVerseNumbers   = nil
             appNav.pendingChapterId      = nil
             Task {
                 // Guarantee translations + books are ready before navigating.
@@ -279,8 +277,10 @@ struct ReaderView: View {
 
             if let target = pendingTargetVerse, let content = vm.chapterContent {
                 let endVerse = pendingTargetVerseEnd
+                let verseNums = pendingTargetVerseNums
                 pendingTargetVerse    = nil
                 pendingTargetVerseEnd = nil
+                pendingTargetVerseNums = nil
 
                 // Step 1 — trigger the same staggered scroll-to-top resets used by
                 // normal chapter navigation.  This gives UIHostingController time to
@@ -291,11 +291,16 @@ struct ReaderView: View {
 
                 let verses = BibleTextView.parseVerses(from: content.textContent)
                 if let idx = verses.firstIndex(where: { $0.number == target }) {
-                    // Build the set of verse numbers to highlight (single or range)
-                    var versesToHighlight: Set<String> = [target]
-                    if let end = endVerse, let startNum = Int(target), let endNum = Int(end), endNum > startNum {
-                        for n in startNum...endNum {
-                            versesToHighlight.insert(String(n))
+                    // Build the set of verse numbers to highlight (individual verses or range fallback)
+                    var versesToHighlight: Set<String>
+                    if let nums = verseNums, !nums.isEmpty {
+                        versesToHighlight = Set(nums)
+                    } else {
+                        versesToHighlight = [target]
+                        if let end = endVerse, let startNum = Int(target), let endNum = Int(end), endNum > startNum {
+                            for n in startNum...endNum {
+                                versesToHighlight.insert(String(n))
+                            }
                         }
                     }
                     // Calculate the verse's Y position using NSString.boundingRect
@@ -501,8 +506,7 @@ struct ReaderView: View {
                     scrollToOffset:      $verseScrollOffset,
                     resetTrigger:        scrollViewReset,
                     onDoubleTap: {
-                        guard annotationVM.useDoubleTapForNote,
-                              let id = vm.selectedChapter?.id else { return false }
+                        guard let id = vm.selectedChapter?.id else { return false }
                         notesVM.addNote(to: id)
                         return true
                     }
@@ -524,10 +528,9 @@ struct ReaderView: View {
                         BibleTextView(
                             content: content,
                             vm: vm,
-                            onLongPressVerse: { startVerseId, endVerseId, verseText in
+                            onLongPressVerse: { verseNumbers, verseText in
                                 pendingVerseBookmark = VerseBookmarkData(
-                                    startVerseId: startVerseId,
-                                    endVerseId:   endVerseId,
+                                    verseNumbers: verseNumbers,
                                     verseText:    verseText,
                                     chapterRef:   vm.selectedChapter?.reference ?? ""
                                 )
@@ -693,8 +696,7 @@ struct ReaderView: View {
                 scrollToOffset:      $verseScrollOffset,
                 resetTrigger:        scrollViewReset,
                 onDoubleTap: {
-                    guard annotationVM.useDoubleTapForNote,
-                          let id = vm.selectedChapter?.id else { return false }
+                    guard let id = vm.selectedChapter?.id else { return false }
                     notesVM.addNote(to: id)
                     return true
                 }
@@ -705,10 +707,9 @@ struct ReaderView: View {
                     BibleTextView(
                         content: content,
                         vm:      vm,
-                        onLongPressVerse: { startVerseId, endVerseId, verseText in
+                        onLongPressVerse: { verseNumbers, verseText in
                             pendingVerseBookmark = VerseBookmarkData(
-                                startVerseId: startVerseId,
-                                endVerseId:   endVerseId,
+                                verseNumbers: verseNumbers,
                                 verseText:    verseText,
                                 chapterRef:   vm.selectedChapter?.reference ?? ""
                             )
