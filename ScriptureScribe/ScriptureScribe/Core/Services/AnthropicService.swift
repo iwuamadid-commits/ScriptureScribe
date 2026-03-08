@@ -34,6 +34,46 @@ struct AnthropicService {
 
     // MARK: - Public
 
+    /// Reformats a Bible chapter's plain text for calm, reverent TTS narration.
+    /// Adds natural pauses via punctuation without changing any words.
+    /// Returns the reformatted text, or the original if the API call fails.
+    func reformatForTTS(text: String, reference: String) async -> String {
+        guard let apiKey = AppConfig.anthropicAPIKey else { return text }
+
+        let prompt = """
+        You are formatting a Bible passage for calm, reverent text-to-speech narration. \
+        The passage is \(reference).
+
+        STRICT RULES — follow these exactly:
+        1. Do NOT change, remove, add, reorder, or rephrase ANY words. Every single word \
+        must remain identical to the original.
+        2. You may ONLY add or adjust punctuation — commas and periods — to create natural \
+        breathing pauses within and between clauses.
+        3. Do NOT add verse numbers, labels, spoken numbers, or any text not already in \
+        the original.
+        4. PRESERVE all blank lines exactly as they appear — do not remove, compress, or \
+        reduce any blank lines. They represent deliberate pauses and must remain intact.
+        5. PRESERVE every [V:N] marker exactly where it appears — do not move, remove, or \
+        alter them in any way. They are invisible synchronization tags, not spoken aloud.
+
+        Punctuation guidance:
+        - Add a comma at natural breath points within long clauses.
+        - Ensure each sentence ends with a period.
+
+        Return only the formatted passage with all blank lines and [V:N] markers preserved. \
+        No extra labels, no explanation, nothing else.
+
+        Original passage:
+        \(text)
+        """
+
+        guard let responseText = try? await callClaude(prompt: prompt, apiKey: apiKey, maxTokens: 4096) else {
+            return text
+        }
+        let result = responseText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return result.isEmpty ? text : result
+    }
+
     /// Generates a DailyEntry for the given verse and date.
     /// - Throws AnthropicError.notConfigured if no API key is set.
     func generateDailyEntry(
@@ -87,7 +127,7 @@ struct AnthropicService {
         """
     }
 
-    private func callClaude(prompt: String, apiKey: String) async throws -> String {
+    private func callClaude(prompt: String, apiKey: String, maxTokens: Int = 1024) async throws -> String {
         var request        = URLRequest(url: URL(string: AppConfig.anthropicBaseURL)!)
         request.httpMethod = "POST"
         request.setValue(apiKey,            forHTTPHeaderField: "x-api-key")
@@ -96,7 +136,7 @@ struct AnthropicService {
 
         let body: [String: Any] = [
             "model":      "claude-haiku-4-5-20251001",
-            "max_tokens": 1024,
+            "max_tokens": maxTokens,
             "messages": [
                 ["role": "user", "content": prompt]
             ]

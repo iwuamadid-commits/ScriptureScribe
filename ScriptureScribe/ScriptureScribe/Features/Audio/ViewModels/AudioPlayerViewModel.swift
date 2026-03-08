@@ -10,6 +10,10 @@
 //  • Streaming: AVPlayer's built-in periodic time observer (accurate to the frame).
 //  • TTS fallback: a lightweight Timer polling elapsed wall-clock time.
 //
+//  Auto-scroll:
+//  • currentVerseNumber is published whenever the active verse changes.
+//  • ReaderView observes it and calls verseScrollOffset to follow the audio.
+//
 
 import AVFoundation
 import Combine
@@ -20,55 +24,130 @@ final class AudioPlayerViewModel: ObservableObject {
 
     // MARK: - Published State
 
-    @Published var isVisible    = false
-    @Published var isPlaying    = false
-    @Published var currentTime  = 0.0   // seconds
-    @Published var duration     = 0.0   // seconds
-    @Published var isSeeking    = false
-    @Published var isBuffering  = false // true while streaming audio loads
+    @Published var isVisible      = false
+    @Published var isPlaying      = false
+    @Published var currentTime    = 0.0   // seconds (wall-clock)
+    @Published var duration       = 0.0   // seconds (at current playback speed)
+    @Published var isSeeking      = false
+    @Published var isBuffering    = false // true while streaming audio loads
+    @Published var isPreparingTTS = false // true while Claude reformats text
+
+    /// Displayed in the player header (e.g. "John 3")
+    @Published var currentReference   = ""
+
+    /// Current verse being spoken ("1", "2", …; "" = none). Drives reader auto-scroll.
+    @Published var currentVerseNumber = ""
+
+    /// Pulses true then immediately back to false when a chapter finishes playing naturally.
+    /// ReaderView observes this to auto-advance to the next chapter like an audiobook.
+    @Published var chapterDidFinish = false
+
+    /// User-selected playback speed. Applies immediately to AVPlayer; restarts TTS.
+    @Published var playbackRate: Float = 1.0 {
+        didSet {
+            guard oldValue != playbackRate else { return }
+            if isStreamingMode {
+                avPlayer?.rate = isPlaying ? playbackRate : 0
+            } else if isPlaying {
+                let savedTime = currentTime
+                synthesizer.stopSpeaking(at: .immediate)
+                progressTimer?.invalidate()
+                progressTimer = nil
+                isPlaying    = false
+                pausedAtTime = savedTime
+                // playTTS() will set duration from the reformatted text length — don't override below.
+                playTTS()
+                return
+            }
+            // Paused: estimate duration from cleanText length (playTTS will correct it when played).
+            if !isStreamingMode, !currentText.isEmpty {
+                duration = Double(currentText.count) / (charsPerSecond * Double(playbackRate))
+            }
+        }
+    }
+
     var audioSource = ""   // internal diagnostic only; not displayed
 
     // MARK: - Preferences
 
-    @AppStorage("preferredVoiceId") var preferredVoiceId: String = ""
+    @AppStorage("preferredVoiceIdentifier") var preferredVoiceIdentifier: String = ""
 
-    // MARK: - TTS Voice Options (used only when streaming is unavailable)
+    // MARK: - TTS Voice Options (dynamically built from installed system voices)
 
     struct VoiceOption: Identifiable {
-        let id:    String   // AVSpeechSynthesisVoice language code
-        let label: String   // display name
+        let id:      String                        // AVSpeechSynthesisVoice.identifier
+        let name:    String                        // display name, e.g. "Samantha"
+        let quality: AVSpeechSynthesisVoiceQuality
+        let language: String                       // e.g. "en-US"
     }
 
-    let voiceOptions: [VoiceOption] = [
-        VoiceOption(id: "en-US", label: "American English"),
-        VoiceOption(id: "en-GB", label: "British English"),
-        VoiceOption(id: "en-AU", label: "Australian English"),
-        VoiceOption(id: "en-IE", label: "Irish English"),
-        VoiceOption(id: "en-IN", label: "Indian English"),
-    ]
+    /// All English voices installed on this device, sorted: Premium → Enhanced → Default.
+    var availableVoices: [VoiceOption] {
+        let order: [AVSpeechSynthesisVoiceQuality] = [.premium, .enhanced, .default]
+        return AVSpeechSynthesisVoice.speechVoices()
+            .filter { $0.language.hasPrefix("en") }
+            .sorted {
+                let li = order.firstIndex(of: $0.quality) ?? 99
+                let ri = order.firstIndex(of: $1.quality) ?? 99
+                return li == ri ? $0.name < $1.name : li < ri
+            }
+            .map { VoiceOption(id: $0.identifier, name: $0.name, quality: $0.quality, language: $0.language) }
+    }
 
     var selectedVoice: AVSpeechSynthesisVoice? {
-        let lang = preferredVoiceId.isEmpty ? "en-US" : preferredVoiceId
-        let candidates = AVSpeechSynthesisVoice.speechVoices()
-            .filter { $0.language.hasPrefix(lang) }
-        return candidates.first(where: { $0.quality == .premium })
-            ?? candidates.first(where: { $0.quality == .enhanced })
-            ?? AVSpeechSynthesisVoice(language: lang)
+        // Look up by full identifier first (new format)
+        if !preferredVoiceIdentifier.isEmpty,
+           let voice = AVSpeechSynthesisVoice(identifier: preferredVoiceIdentifier) {
+            return voice
+        }
+        // Fallback: pick best available English voice
+        let all = AVSpeechSynthesisVoice.speechVoices().filter { $0.language.hasPrefix("en") }
+        return all.first(where: { $0.quality == .premium })
+            ?? all.first(where: { $0.quality == .enhanced })
+            ?? AVSpeechSynthesisVoice(language: "en-US")
     }
 
     // MARK: - Private: Shared
 
-    private var pausedAtTime     = 0.0
-    private var currentChapterId = ""
-    private var currentBibleId   = ""
+    private var pausedAtTime        = 0.0
+    private var currentChapterId    = ""
+    private var currentBibleId      = ""
+    private let anthropic           = AnthropicService()
+    /// Set to true when a chapter ends naturally so the next openPlayer call auto-plays from 0.
+    private var pendingAutoPlay     = false
+
+    // MARK: - Private: Verse Tracking
+
+    /// Approximate char-start of each verse in the cleaned (TTS) text.
+    private var verseCharOffsets: [(number: String, startChar: Int)] = []
+
+    private func buildVerseOffsets(from rawText: String) {
+        var offsets: [(number: String, startChar: Int)] = []
+        guard let pattern = try? NSRegularExpression(pattern: #"\[(\d+)\]\s*"#) else {
+            verseCharOffsets = offsets; return
+        }
+        let nsRaw   = rawText as NSString
+        let matches = pattern.matches(in: rawText, range: NSRange(location: 0, length: nsRaw.length))
+        // Each "[N]\s*" (length L) is replaced by " " (length 1) → removes L-1 chars.
+        var totalRemoved = 0
+        for match in matches {
+            let num       = nsRaw.substring(with: match.range(at: 1))
+            let cleanedPos = max(0, match.range.location - totalRemoved)
+            offsets.append((number: num, startChar: cleanedPos))
+            totalRemoved  += match.range.length - 1
+        }
+        verseCharOffsets = offsets
+    }
 
     // MARK: - Private: TTS
 
-    private var synthesizer    = AVSpeechSynthesizer()
-    private var progressTimer: Timer?
-    private var playStartDate: Date?
-    private var currentText    = ""
-    private let charsPerSecond: Double = 13.0
+    private var synthesizer      = AVSpeechSynthesizer()
+    private var progressTimer:   Timer?
+    private var playStartDate:   Date?
+    private var currentText      = ""      // cleaned text (no [N] markers) — used for TTS
+    private var rawChapterText   = ""      // original text (with [N] markers) — passed to Claude
+    private var ttsSpokenCount   = 0       // char count of the spoken TTS text (after [V:N] markers stripped)
+    private let charsPerSecond:  Double = 6.5  // calibrated for half-default speech rate (0.25)
 
     // MARK: - Private: Streaming
 
@@ -82,20 +161,38 @@ final class AudioPlayerViewModel: ObservableObject {
 
     // MARK: - Open / Change Chapter
 
-    func openPlayer(for chapterId: String, text: String, bibleId: String = "") {
+    func openPlayer(for chapterId: String, text: String, bibleId: String = "", reference: String = "") {
         isVisible = true
-        guard chapterId != currentChapterId || currentText.isEmpty else { return }
+        // Reload whenever the chapter OR the translation changes, so TTS always matches
+        // the text on screen.  The text itself is always the authoritative check.
+        guard chapterId != currentChapterId || bibleId != currentBibleId || currentText.isEmpty else { return }
 
+        let wasPlaying    = isPlaying || pendingAutoPlay   // true if playing OR auto-advancing
+        pendingAutoPlay   = false
+        let prevChapterId = currentChapterId
+        let prevBibleId   = currentBibleId
         stopEverything()
-        currentChapterId = chapterId
-        currentBibleId   = bibleId
-        currentText      = cleanText(text)
-        duration         = Double(currentText.count) / charsPerSecond   // TTS estimate; updated later if streaming
+        currentChapterId  = chapterId
+        currentBibleId    = bibleId
+        // Each translation may have different audio availability — reset when switching.
+        if bibleId != prevBibleId { confirmedNoAudio = false; cachedAudioBibleId = nil }
+        currentReference  = reference
+        rawChapterText    = text
+        buildVerseOffsets(from: text)             // must run before cleanText strips markers
+        currentText       = cleanText(text)
+        duration          = Double(currentText.count) / (charsPerSecond * Double(playbackRate))
 
-        // Restore saved position
-        let saved = UserDefaults.standard.double(forKey: posKey(chapterId))
-        pausedAtTime = min(saved, max(0, duration - 1))
-        currentTime  = pausedAtTime
+        let isChapterChange = chapterId != prevChapterId || bibleId != prevBibleId
+        if wasPlaying || isChapterChange {
+            // Chapter switched (or was auto-advancing) → always start from the very beginning.
+            pausedAtTime = 0
+            currentTime  = 0
+        } else {
+            // Same chapter reopened while paused → restore where the user left off.
+            let saved = UserDefaults.standard.double(forKey: posKey(chapterId))
+            pausedAtTime = min(saved, max(0, duration - 1))
+            currentTime  = pausedAtTime
+        }
 
         // Try to get real streaming audio in the background.
         // TTS is ready immediately as a fallback.
@@ -105,13 +202,17 @@ final class AudioPlayerViewModel: ObservableObject {
         } else {
             audioSource = "Text-to-Speech"
         }
+
+        if wasPlaying { play() }
     }
 
     func updateText(_ text: String, for chapterId: String) {
         guard chapterId == currentChapterId else { return }
+        rawChapterText = text
+        buildVerseOffsets(from: text)
         currentText = cleanText(text)
         if !isStreamingMode {
-            duration = Double(currentText.count) / charsPerSecond
+            duration = Double(currentText.count) / (charsPerSecond * Double(playbackRate))
         }
     }
 
@@ -152,9 +253,47 @@ final class AudioPlayerViewModel: ObservableObject {
         seek(to: max(0, min(duration, currentTime + seconds)))
     }
 
+    /// Seeks to the verse immediately before the currently playing one.
+    /// If already at the first verse, seeks to its beginning.
+    func skipToPreviousVerse() {
+        guard !verseCharOffsets.isEmpty else { return }
+        if let idx = verseCharOffsets.firstIndex(where: { $0.number == currentVerseNumber }) {
+            let target = verseCharOffsets[max(0, idx - 1)]
+            seekToVerse(target.number)
+        } else {
+            seek(to: 0)
+        }
+    }
+
+    /// Seeks to the verse immediately after the currently playing one.
+    /// No-op if already at the last verse.
+    func skipToNextVerse() {
+        guard !verseCharOffsets.isEmpty else { return }
+        if let idx = verseCharOffsets.firstIndex(where: { $0.number == currentVerseNumber }) {
+            let nextIdx = idx + 1
+            guard nextIdx < verseCharOffsets.count else { return }
+            seekToVerse(verseCharOffsets[nextIdx].number)
+        } else {
+            seekToVerse(verseCharOffsets[0].number)
+        }
+    }
+
+    /// Seeks playback to the start of the given verse number.
+    /// No-op if the verse is not found or the player is not loaded.
+    func seekToVerse(_ verseNumber: String) {
+        guard !verseCharOffsets.isEmpty, duration > 0,
+              let entry = verseCharOffsets.first(where: { $0.number == verseNumber }) else { return }
+        // verseCharOffsets are in spoken-text space for TTS, currentText space for streaming.
+        let spaceSize  = isStreamingMode ? currentText.count : ttsSpokenCount
+        let ratio      = Double(entry.startChar) / Double(max(spaceSize, 1))
+        let targetTime = ratio * duration
+        seek(to: min(targetTime, duration - 0.1))
+    }
+
     func seek(to time: Double) {
         pausedAtTime = time
         currentTime  = time
+        updateVerseFromTime(time)   // update verse marker immediately on scrub
         if isStreamingMode {
             let target = CMTime(seconds: time, preferredTimescale: 600)
             avPlayer?.seek(to: target)
@@ -167,6 +306,21 @@ final class AudioPlayerViewModel: ObservableObject {
                 isPlaying = false
             }
             if wasPlaying { playTTS() }
+        }
+    }
+
+    /// Computes which verse corresponds to a given playback time and updates currentVerseNumber.
+    private func updateVerseFromTime(_ time: Double) {
+        guard !verseCharOffsets.isEmpty, duration > 0 else { return }
+        let ratio = min(time / duration, 1.0)
+        if isStreamingMode {
+            // Streaming: proportional index into verse list
+            let idx = min(Int(ratio * Double(verseCharOffsets.count)), verseCharOffsets.count - 1)
+            currentVerseNumber = verseCharOffsets[idx].number
+        } else {
+            // TTS: proportional position in spoken-text space (verseCharOffsets rebuilt from reformatted text)
+            let cleanChar = Int(ratio * Double(ttsSpokenCount))
+            currentVerseNumber = verseCharOffsets.last(where: { $0.startChar <= cleanChar })?.number ?? ""
         }
     }
 
@@ -195,17 +349,12 @@ final class AudioPlayerViewModel: ObservableObject {
                 cachedAudioBibleId = nil
             }
 
-            // Discovery pass: build the candidate list.
-            // 1. Try the translation-specific match first (most accurate).
+            // Only use audio Bibles linked to the current text translation.
+            // Falling back to arbitrary English audio would play a DIFFERENT translation,
+            // which won't match the text on screen. TTS is always the correct fallback.
             var candidates: [AudioBible] = []
             if !bibleId.isEmpty {
                 candidates = (try? await audioService.fetchAudioBibles(bibleId: bibleId)) ?? []
-            }
-            // 2. If nothing matched, try every English audio Bible the key can access.
-            if candidates.isEmpty {
-                audioSource = "Searching all English audio…"
-                let all = try await audioService.fetchAudioBibles()
-                candidates = all.filter { $0.isEnglish }
             }
 
             guard !candidates.isEmpty else {
@@ -287,10 +436,20 @@ final class AudioPlayerViewModel: ObservableObject {
             Task { @MainActor [weak self] in
                 guard let self, !self.isSeeking else { return }
                 self.currentTime = time.seconds
+                // Proportional verse tracking for streaming (no server-side timing data)
+                if self.duration > 0, !self.verseCharOffsets.isEmpty {
+                    let ratio = self.currentTime / self.duration
+                    let idx   = min(
+                        Int(ratio * Double(self.verseCharOffsets.count)),
+                        self.verseCharOffsets.count - 1
+                    )
+                    let verse = self.verseCharOffsets[idx].number
+                    if verse != self.currentVerseNumber { self.currentVerseNumber = verse }
+                }
             }
         }
 
-        // Detect when the chapter finishes playing.
+        // Detect when the chapter finishes playing — advance to next chapter.
         playerObserver = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: item,
@@ -298,10 +457,7 @@ final class AudioPlayerViewModel: ObservableObject {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.isPlaying    = false
-                self.currentTime  = 0
-                self.pausedAtTime = 0
-                UserDefaults.standard.removeObject(forKey: self.posKey(self.currentChapterId))
+                self.handleChapterEnd()
             }
         }
     }
@@ -312,12 +468,15 @@ final class AudioPlayerViewModel: ObservableObject {
             let target = CMTime(seconds: pausedAtTime, preferredTimescale: 600)
             player.seek(to: target) { [weak self] _ in
                 Task { @MainActor [weak self] in
-                    self?.avPlayer?.play()
-                    self?.isPlaying = true
+                    guard let self else { return }
+                    self.avPlayer?.play()
+                    self.avPlayer?.rate = self.playbackRate
+                    self.isPlaying = true
                 }
             }
         } else {
             player.play()
+            player.rate = playbackRate
             isPlaying = true
         }
     }
@@ -342,9 +501,113 @@ final class AudioPlayerViewModel: ObservableObject {
     private func playTTS() {
         guard !currentText.isEmpty else { return }
 
-        let charPos  = max(0, min(Int(pausedAtTime * charsPerSecond), currentText.count - 1))
-        let startIdx = currentText.index(currentText.startIndex, offsetBy: charPos)
-        let slice    = String(currentText[startIdx...])
+        // v9: half-speed speech rate (0.5 × default); chapter title spoken first with 2 s pause;
+        //     heading pause 2 s; verse-1 has no pre-pause (heading gap covers it).
+        // Stored WITH markers so the cache can rebuild accurate verse offsets on reload.
+        let cacheKey = "ttsReformatted_v9_\(currentBibleId)_\(currentChapterId)"
+
+        // Cache hit: stored WITH [V:N] markers — strip them now to rebuild offsets + get spoken text.
+        if let cachedWithMarkers = UserDefaults.standard.string(forKey: cacheKey) {
+            let (spoken, offsets) = stripVerseMarkers(cachedWithMarkers)
+            if !offsets.isEmpty { verseCharOffsets = offsets }
+            ttsSpokenCount = spoken.count
+            duration = Double(spoken.count) / (charsPerSecond * Double(playbackRate))
+            speakText(spoken)
+            return
+        }
+
+        // Build text for Claude:
+        //   Prepend chapter title ("Habakkuk 1.") + 25-newline pause (≈ 2 s).
+        //   [§] headings → heading text + period + 25-newline pause (≈ 2 s).
+        //   [1] verse 1 → [V:1] + 2 newlines (no pre-pause; heading gap already provides it).
+        //   [N≥2] other verses → 12-newline pre-pause + [V:N] + 2 newlines (≈ 1.6 s gap).
+        let textForClaude: String = {
+            // Prefix: chapter title + 2 s pause before the chapter body.
+            var t = "\(currentReference).\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n" + rawChapterText
+            // Step 1: "[§] HEADING [N]…" → "HEADING.\n×25" (≈ 2 s gap).
+            if let r = try? NSRegularExpression(
+                pattern: #"\[§\]\s*(.*?)\s*(?=\[\d+\]|\[§\])"#,
+                options: [.dotMatchesLineSeparators]
+            ) {
+                t = r.stringByReplacingMatches(
+                    in: t, range: NSRange(t.startIndex..., in: t),
+                    withTemplate: "$1.\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n"
+                )
+            }
+            // Step 2: any leftover [§] (heading at end of text, no verse follows)
+            if let r = try? NSRegularExpression(pattern: #"\[§\]\s*"#) {
+                t = r.stringByReplacingMatches(in: t, range: NSRange(t.startIndex..., in: t), withTemplate: "")
+            }
+            // Step 3a: verse 1 → [V:1] + 2 newlines (no pre-pause; chapter title/heading gap is enough).
+            if let r = try? NSRegularExpression(pattern: #"\[1\]\s*"#) {
+                t = r.stringByReplacingMatches(
+                    in: t, range: NSRange(t.startIndex..., in: t),
+                    withTemplate: "[V:1]\n\n"
+                )
+            }
+            // Step 3b: all other verse markers → 12-newline pre-pause + [V:N] + 2 newlines (≈ 1.6 s).
+            // [V:N] is preserved by Claude (rule 5) and stripped before speaking.
+            if let r = try? NSRegularExpression(pattern: #"\[(\d+)\]\s*"#) {
+                t = r.stringByReplacingMatches(
+                    in: t, range: NSRange(t.startIndex..., in: t),
+                    withTemplate: "\n\n\n\n\n\n\n\n\n\n\n\n[V:$1]\n\n"
+                )
+            }
+            return t.trimmingCharacters(in: .whitespacesAndNewlines)
+        }()
+
+        // Call Claude to add natural punctuation pauses while preserving [V:N] markers.
+        isPreparingTTS = true
+        let reference = currentReference
+        let chapterId = currentChapterId
+
+        Task {
+            let reformatted = await anthropic.reformatForTTS(text: textForClaude, reference: reference)
+
+            // Parse [V:N] markers from Claude's output to build accurate verse offsets
+            // in spoken-text space, then strip them before speaking.
+            let (spoken, parsedOffsets) = stripVerseMarkers(reformatted)
+            if !parsedOffsets.isEmpty { verseCharOffsets = parsedOffsets }
+
+            // Cache with markers intact so future loads can also rebuild offsets accurately.
+            UserDefaults.standard.set(reformatted, forKey: cacheKey)
+
+            guard currentChapterId == chapterId else {
+                isPreparingTTS = false
+                return
+            }
+            ttsSpokenCount = spoken.count
+            duration       = Double(spoken.count) / (charsPerSecond * Double(playbackRate))
+            isPreparingTTS = false
+            speakText(spoken)
+        }
+    }
+
+    /// Strips `[V:N]` synchronization markers from the text, returning both
+    /// the speakable text and verse char offsets relative to that stripped text.
+    private func stripVerseMarkers(_ text: String) -> (spoken: String, offsets: [(number: String, startChar: Int)]) {
+        var offsets: [(number: String, startChar: Int)] = []
+        guard let rx = try? NSRegularExpression(pattern: #"\[V:(\d+)\]"#) else {
+            return (text, offsets)
+        }
+        let ns      = text as NSString
+        let matches = rx.matches(in: text, range: NSRange(location: 0, length: ns.length))
+        var stripped = 0
+        for m in matches {
+            let num = ns.substring(with: m.range(at: 1))
+            offsets.append((number: num, startChar: m.range.location - stripped))
+            stripped += m.range.length
+        }
+        let spoken = rx.stringByReplacingMatches(
+            in: text, range: NSRange(location: 0, length: ns.length), withTemplate: ""
+        )
+        return (spoken, offsets)
+    }
+
+    private func speakText(_ text: String) {
+        let charPos  = max(0, min(Int(pausedAtTime * charsPerSecond), text.count - 1))
+        let startIdx = text.index(text.startIndex, offsetBy: charPos)
+        let slice    = String(text[startIdx...])
         guard !slice.isEmpty else { return }
 
         try? AVAudioSession.sharedInstance().setCategory(
@@ -355,7 +618,8 @@ final class AudioPlayerViewModel: ObservableObject {
 
         let utterance   = AVSpeechUtterance(string: slice)
         utterance.voice = selectedVoice
-        utterance.rate  = AVSpeechUtteranceDefaultSpeechRate
+        // 0.5 × default = half-speed base rate; playbackRate multiplies from there (1x, 1.5x, 2x…)
+        utterance.rate  = AVSpeechUtteranceDefaultSpeechRate * 0.5 * playbackRate
 
         synthesizer.speak(utterance)
         isPlaying     = true
@@ -376,14 +640,20 @@ final class AudioPlayerViewModel: ObservableObject {
                 let newTime = startTime + elapsed
                 if !self.isSeeking { self.currentTime = min(newTime, self.duration) }
 
+                // Proportional verse tracking: ratio × spoken-text length → char position.
+                // verseCharOffsets are now in spoken-text space (rebuilt from reformatted text)
+                // so this ratio correctly maps elapsed time to the current verse.
+                if !self.verseCharOffsets.isEmpty, self.duration > 0, self.ttsSpokenCount > 0 {
+                    let ratio     = min(newTime / self.duration, 1.0)
+                    let cleanChar = Int(ratio * Double(self.ttsSpokenCount))
+                    let verse     = self.verseCharOffsets.last(where: { $0.startChar <= cleanChar })?.number ?? ""
+                    if verse != self.currentVerseNumber { self.currentVerseNumber = verse }
+                }
+
                 if !self.synthesizer.isSpeaking && !self.synthesizer.isPaused {
                     self.progressTimer?.invalidate()
                     self.progressTimer = nil
-                    self.isPlaying    = false
-                    self.currentTime  = 0
-                    self.pausedAtTime = 0
-                    UserDefaults.standard.removeObject(
-                        forKey: self.posKey(self.currentChapterId))
+                    self.handleChapterEnd()
                 }
             }
         }
@@ -391,14 +661,30 @@ final class AudioPlayerViewModel: ObservableObject {
 
     // MARK: - Stop Everything
 
+    /// Called when a chapter finishes playing to the end (not when the user stops manually).
+    /// Resets state and signals ReaderView to advance to the next chapter.
+    private func handleChapterEnd() {
+        let finishedChapter = currentChapterId
+        isPlaying           = false
+        currentTime         = 0
+        pausedAtTime        = 0
+        currentVerseNumber  = ""
+        UserDefaults.standard.removeObject(forKey: posKey(finishedChapter))
+        // Tell the next openPlayer call to auto-play from 0 (audiobook flow).
+        pendingAutoPlay  = true
+        chapterDidFinish = true
+    }
+
     private func stopEverything() {
         synthesizer.stopSpeaking(at: .immediate)
         progressTimer?.invalidate()
-        progressTimer = nil
+        progressTimer      = nil
         cleanupAVPlayer()
-        isPlaying    = false
-        currentTime  = 0
-        pausedAtTime = 0
+        isPlaying          = false
+        isSeeking          = false
+        currentTime        = 0
+        pausedAtTime       = 0
+        currentVerseNumber = ""
     }
 
     // MARK: - Helpers

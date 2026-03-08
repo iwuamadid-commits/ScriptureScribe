@@ -26,8 +26,14 @@ struct BibleTextView: View {
     let content:            BibleChapterContent
     @ObservedObject var vm: ReaderViewModel
     let onLongPressVerse:   ([String], String) -> Void  // (verseNumbers, combinedText)
+    /// Called when user taps a verse while the audio player is active.
+    /// Passes the verse number so the caller can seek audio to it.
+    /// Nil when the player is not visible — tapping does nothing in that case.
+    var onTapVerse:         ((String) -> Void)? = nil
     /// Verse numbers to briefly highlight (e.g. {"3","4","5"}). Empty when no navigation target.
     var highlightedVerses:  Set<String> = []
+    /// The verse currently being narrated by the audio player ("" when not playing).
+    var playingVerse:       String      = ""
 
     @EnvironmentObject var themeManager: ThemeManager
 
@@ -74,7 +80,10 @@ struct BibleTextView: View {
                     alignment:         swiftUIAlignment,
                     theme:             themeManager.currentTheme,
                     navFlashOpacity:   flashVerses.contains(verse.number) ? navFlashOpacity : 0.0,
+                    isPlayingVerse:    !playingVerse.isEmpty && verse.number == playingVerse,
                     onBookmarkVerse:   { onLongPressVerse([verse.number], verse.text) },
+                    // Section headings (§) are not addressable by the audio player.
+                    onTapVerse:        verse.number == "§" ? nil : onTapVerse.map { cb in { cb(verse.number) } },
                     isInSelectionMode: isInSelectionMode,
                     isSelected:        selectedIndices.contains(index),
                     onToggleSelection: {
@@ -298,9 +307,14 @@ private struct VerseRow: View {
     let theme:             any AppTheme
     /// 0–1 opacity for the gold flash overlay driven by BibleTextView.
     let navFlashOpacity:   Double
+    /// True when the audio player is narrating this verse right now.
+    let isPlayingVerse:    Bool
     /// Spring-animated scale for the peek effect. Driven by onChange(of: navFlashOpacity).
     @State private var peekScale: CGFloat = 1.0
     let onBookmarkVerse:   () -> Void
+    /// When non-nil, tapping this row seeks the audio player to this verse.
+    /// Nil when the player is not active — tap does nothing outside selection mode.
+    let onTapVerse:        (() -> Void)?
     /// True when any verse is selected (drives dimming of non-selected rows).
     let isInSelectionMode: Bool
     /// True when this row is currently in the selection set.
@@ -336,6 +350,15 @@ private struct VerseRow: View {
             .padding(.trailing, 20)
             .padding(.vertical, 4)
             .fontWeight(isSelected ? .semibold : .regular)
+            // Audio-playing verse: left accent bar marks current verse
+            .overlay(alignment: .leading) {
+                if isPlayingVerse {
+                    Rectangle()
+                        .fill(theme.primary)
+                        .frame(width: 3)
+                }
+            }
+            .animation(.easeInOut(duration: 0.3), value: isPlayingVerse)
             // Dim non-selected verses; lift selected ones with scale + shadow.
             .opacity(isInSelectionMode && !isSelected ? 0.35 : 1.0)
             .scaleEffect(isSelected ? 1.02 : 1.0, anchor: .leading)
@@ -360,9 +383,13 @@ private struct VerseRow: View {
                 }
             }
             .contentShape(Rectangle())
-            // Tap toggles this verse in/out of the selection set.
+            // Tap: in selection mode → toggle; player active → seek to verse; else → no-op.
             .onTapGesture {
-                if isInSelectionMode { onToggleSelection() }
+                if isInSelectionMode {
+                    onToggleSelection()
+                } else if let onTapVerse {
+                    onTapVerse()
+                }
             }
             // Context menu coordinates natively with UIScrollView — iOS yields to
             // scrolling if the user pans before the menu fires, so there is no gesture conflict.
@@ -374,6 +401,12 @@ private struct VerseRow: View {
                     }
                     Button { onToggleSelection() } label: {
                         Label("Select Verse", systemImage: "checkmark.circle")
+                    }
+                    if let onTapVerse {
+                        Divider()
+                        Button { onTapVerse() } label: {
+                            Label("Play from here", systemImage: "play.circle")
+                        }
                     }
                 }
             }

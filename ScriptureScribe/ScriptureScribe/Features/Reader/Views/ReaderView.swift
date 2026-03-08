@@ -80,6 +80,8 @@ struct ReaderView: View {
     @State private var navIndicatorY:          CGFloat?    = nil
     /// 0–1 opacity of the gold accent bar that renders above the annotation canvas.
     @State private var navIndicatorOpacity:    Double      = 0
+    /// Last verse number that triggered an audio auto-scroll (prevents duplicates).
+    @State private var lastAudioVerse:         String      = ""
 
     // ── Chapter transition ────────────────────────────────────────────────────
     /// Fades the content area out when a chapter switch starts and back in when
@@ -418,15 +420,42 @@ struct ReaderView: View {
         }
         // When new chapter text finishes loading, feed it to the audio player.
         .onChange(of: vm.chapterContent?.id) { _, _ in
+            lastAudioVerse = ""   // reset auto-scroll tracking on chapter change
             if audioVM.isVisible, let content = vm.chapterContent {
                 withAnimation {
                     audioVM.openPlayer(
                         for: content.id,
                         text: content.textContent,
-                        bibleId: vm.selectedTranslation?.id ?? ""
+                        bibleId: vm.selectedTranslation?.id ?? "",
+                        reference: vm.selectedChapter?.reference ?? ""
                     )
                 }
             }
+        }
+        // When the user switches translations, reload audio so it reads the new text.
+        .onChange(of: vm.selectedTranslation?.id) { _, _ in
+            guard audioVM.isVisible, let content = vm.chapterContent else { return }
+            audioVM.openPlayer(
+                for: content.id,
+                text: content.textContent,
+                bibleId: vm.selectedTranslation?.id ?? "",
+                reference: vm.selectedChapter?.reference ?? ""
+            )
+        }
+        // Auto-scroll the reader to follow the currently-playing verse.
+        .onChange(of: audioVM.currentVerseNumber) { _, newVerse in
+            guard audioVM.isPlaying,
+                  !newVerse.isEmpty,
+                  newVerse != lastAudioVerse,
+                  let content = vm.chapterContent else { return }
+            lastAudioVerse = newVerse
+            autoScrollToVerse(newVerse, in: content)
+        }
+        // Audiobook auto-advance: when a chapter finishes naturally, go to the next chapter.
+        .onChange(of: audioVM.chapterDidFinish) { _, finished in
+            guard finished else { return }
+            audioVM.chapterDidFinish = false
+            Task { await vm.goToNextChapter() }
         }
         // Handle a photo the user just picked from the toolbar.
         .onChange(of: annotationVM.pendingPhoto) { _, image in
@@ -535,7 +564,14 @@ struct ReaderView: View {
                                     chapterRef:   vm.selectedChapter?.reference ?? ""
                                 )
                             },
-                            highlightedVerses: highlightedVerses
+                            onTapVerse: audioVM.isVisible
+                                ? { verseNumber in
+                                      if !audioVM.isPlaying { audioVM.play() }
+                                      audioVM.seekToVerse(verseNumber)
+                                  }
+                                : nil,
+                            highlightedVerses: highlightedVerses,
+                            playingVerse:      audioVM.currentVerseNumber
                         )
                         .frame(width: bibleWidth)
                         .background(
@@ -714,7 +750,14 @@ struct ReaderView: View {
                                 chapterRef:   vm.selectedChapter?.reference ?? ""
                             )
                         },
-                        highlightedVerses: highlightedVerses
+                        onTapVerse: audioVM.isVisible
+                            ? { verseNumber in
+                                  if !audioVM.isPlaying { audioVM.play() }
+                                  audioVM.seekToVerse(verseNumber)
+                              }
+                            : nil,
+                        highlightedVerses: highlightedVerses,
+                        playingVerse:      audioVM.currentVerseNumber
                     )
                     .background(
                         GeometryReader { g in
@@ -896,7 +939,8 @@ struct ReaderView: View {
                         audioVM.openPlayer(
                             for: content.id,
                             text: content.textContent,
-                            bibleId: vm.selectedTranslation?.id ?? ""
+                            bibleId: vm.selectedTranslation?.id ?? "",
+                            reference: vm.selectedChapter?.reference ?? ""
                         )
                     }
                 }
@@ -1044,6 +1088,49 @@ struct ReaderView: View {
                     Task { await vm.goToPreviousChapter() }
                 }
             }
+    }
+
+    // MARK: - Audio Auto-Scroll
+
+    /// Smoothly scrolls the reader to the Y position of the given verse number.
+    /// Reuses the same NSString.boundingRect measurement as deep-link navigation.
+    private func autoScrollToVerse(_ target: String, in content: BibleChapterContent) {
+        let verses = BibleTextView.parseVerses(from: content.textContent)
+        guard let idx = verses.firstIndex(where: { $0.number == target }) else { return }
+
+        let screenW    = UIScreen.main.bounds.width
+        let effectiveW = annotationVM.layoutMode == .splitView
+            ? floor(screenW * 0.60) : screenW
+        let textAreaW  = effectiveW - 68   // 20 leading + 22 verse# + 6 gap + 20 trailing
+
+        let uiFont: UIFont = {
+            switch vm.fontChoice {
+            case "Georgia":     return UIFont(name: "Georgia",        size: vm.fontSize) ?? .systemFont(ofSize: vm.fontSize)
+            case "Palatino":    return UIFont(name: "Palatino-Roman", size: vm.fontSize) ?? .systemFont(ofSize: vm.fontSize)
+            case "Baskerville": return UIFont(name: "Baskerville",    size: vm.fontSize) ?? .systemFont(ofSize: vm.fontSize)
+            default:            return .systemFont(ofSize: vm.fontSize)
+            }
+        }()
+        let fontLineH = uiFont.lineHeight
+
+        // For the first verse, scroll to absolute top so the chapter title stays visible.
+        // For later verses, offset by the chapter heading height (64pt).
+        var estimatedY: CGFloat = idx == 0 ? 0 : 64
+        for i in 0..<idx {
+            if verses[i].number == "§" {
+                estimatedY += 34
+            } else {
+                let r = (verses[i].text as NSString).boundingRect(
+                    with: CGSize(width: textAreaW, height: .greatestFiniteMagnitude),
+                    options: [.usesLineFragmentOrigin, .usesFontLeading],
+                    attributes: [.font: uiFont], context: nil)
+                let textH    = ceil(r.height)
+                let numLines = max(1, round(textH / fontLineH))
+                estimatedY  += textH + max(0, numLines - 1) * vm.lineSpacing + 8
+            }
+        }
+        // Set directly — no scroll-to-top reset needed (unlike deep-link navigation)
+        verseScrollOffset = estimatedY
     }
 }
 

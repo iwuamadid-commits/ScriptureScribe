@@ -30,6 +30,11 @@ final class SubscriptionViewModel: ObservableObject {
     // MARK: - Init
 
     init() {
+        #if DEBUG
+        isPremium = true
+        return
+        #endif
+
         // Restore cached premium status immediately (offline support)
         isPremium = UserDefaults.standard.bool(forKey: premiumKey)
 
