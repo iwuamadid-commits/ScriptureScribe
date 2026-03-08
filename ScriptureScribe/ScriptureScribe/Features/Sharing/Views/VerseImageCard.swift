@@ -40,68 +40,74 @@ struct GradientPreset: Identifiable, Hashable {
     let colors: [Color]
     let startPoint: UnitPoint
     let endPoint: UnitPoint
+    let isPremium: Bool
 
+    /// All presets — free themes first, then premium.
     static let presets: [GradientPreset] = [
-        GradientPreset(id: "warmSunset",   name: "Warm Sunset",
-                       colors: [Color(red: 0.95, green: 0.55, blue: 0.25),
-                                Color(red: 0.85, green: 0.30, blue: 0.45),
-                                Color(red: 0.45, green: 0.20, blue: 0.55)],
-                       startPoint: .topLeading, endPoint: .bottomTrailing),
+        // ── Free ──────────────────────────────────────────────────────────
+        GradientPreset(id: "ivory",      name: "Ivory",
+                       colors: [Color(red: 0.96, green: 0.93, blue: 0.87),
+                                Color(red: 0.92, green: 0.88, blue: 0.80),
+                                Color(red: 0.88, green: 0.84, blue: 0.76)],
+                       startPoint: .top, endPoint: .bottom,
+                       isPremium: false),
 
-        GradientPreset(id: "deepOcean",    name: "Deep Ocean",
-                       colors: [Color(red: 0.06, green: 0.13, blue: 0.15),
-                                Color(red: 0.12, green: 0.25, blue: 0.30),
-                                Color(red: 0.17, green: 0.33, blue: 0.39)],
-                       startPoint: .top, endPoint: .bottom),
-
-        GradientPreset(id: "goldenHour",   name: "Golden Hour",
-                       colors: [Color(red: 0.96, green: 0.82, blue: 0.55),
-                                Color(red: 0.92, green: 0.65, blue: 0.40),
-                                Color(red: 0.80, green: 0.45, blue: 0.30)],
-                       startPoint: .top, endPoint: .bottom),
-
-        GradientPreset(id: "midnightSky",  name: "Midnight Sky",
-                       colors: [Color(red: 0.05, green: 0.05, blue: 0.15),
-                                Color(red: 0.10, green: 0.10, blue: 0.30),
-                                Color(red: 0.20, green: 0.15, blue: 0.40)],
-                       startPoint: .topLeading, endPoint: .bottomTrailing),
-
-        GradientPreset(id: "forestMist",   name: "Forest Mist",
+        GradientPreset(id: "forest",     name: "Forest",
                        colors: [Color(red: 0.15, green: 0.25, blue: 0.18),
                                 Color(red: 0.22, green: 0.38, blue: 0.28),
                                 Color(red: 0.35, green: 0.50, blue: 0.40)],
-                       startPoint: .top, endPoint: .bottom),
+                       startPoint: .top, endPoint: .bottom,
+                       isPremium: false),
 
-        GradientPreset(id: "dustyRose",    name: "Dusty Rose",
-                       colors: [Color(red: 0.55, green: 0.30, blue: 0.35),
-                                Color(red: 0.70, green: 0.45, blue: 0.50),
-                                Color(red: 0.85, green: 0.65, blue: 0.68)],
-                       startPoint: .topLeading, endPoint: .bottomTrailing),
+        // ── Premium ───────────────────────────────────────────────────────
+        GradientPreset(id: "parchment",  name: "Parchment",
+                       colors: [Color(red: 0.87, green: 0.80, blue: 0.68),
+                                Color(red: 0.80, green: 0.72, blue: 0.58),
+                                Color(red: 0.72, green: 0.64, blue: 0.50)],
+                       startPoint: .top, endPoint: .bottom,
+                       isPremium: true),
 
-        GradientPreset(id: "softLavender", name: "Soft Lavender",
-                       colors: [Color(red: 0.40, green: 0.30, blue: 0.60),
-                                Color(red: 0.55, green: 0.45, blue: 0.72),
-                                Color(red: 0.75, green: 0.65, blue: 0.85)],
-                       startPoint: .top, endPoint: .bottom),
+        GradientPreset(id: "midnight",   name: "Midnight",
+                       colors: [Color(red: 0.05, green: 0.05, blue: 0.15),
+                                Color(red: 0.10, green: 0.10, blue: 0.30),
+                                Color(red: 0.20, green: 0.15, blue: 0.40)],
+                       startPoint: .topLeading, endPoint: .bottomTrailing,
+                       isPremium: true),
 
-        GradientPreset(id: "earthyBrown",  name: "Earthy Brown",
-                       colors: [Color(red: 0.35, green: 0.25, blue: 0.18),
-                                Color(red: 0.50, green: 0.38, blue: 0.28),
-                                Color(red: 0.65, green: 0.52, blue: 0.40)],
-                       startPoint: .topLeading, endPoint: .bottomTrailing),
+        GradientPreset(id: "serene",     name: "Serene",
+                       colors: [Color(red: 0.60, green: 0.78, blue: 0.82),
+                                Color(red: 0.45, green: 0.65, blue: 0.72),
+                                Color(red: 0.35, green: 0.55, blue: 0.65)],
+                       startPoint: .top, endPoint: .bottom,
+                       isPremium: true),
 
-        GradientPreset(id: "royalBlue",    name: "Royal Blue",
+        GradientPreset(id: "blossom",    name: "Blossom",
+                       colors: [Color(red: 0.90, green: 0.70, blue: 0.75),
+                                Color(red: 0.82, green: 0.55, blue: 0.62),
+                                Color(red: 0.72, green: 0.42, blue: 0.52)],
+                       startPoint: .topLeading, endPoint: .bottomTrailing,
+                       isPremium: true),
+
+        GradientPreset(id: "slate",      name: "Slate",
+                       colors: [Color(red: 0.35, green: 0.38, blue: 0.42),
+                                Color(red: 0.48, green: 0.52, blue: 0.56),
+                                Color(red: 0.62, green: 0.65, blue: 0.68)],
+                       startPoint: .top, endPoint: .bottom,
+                       isPremium: true),
+
+        GradientPreset(id: "royal",      name: "Royal",
                        colors: [Color(red: 0.08, green: 0.10, blue: 0.35),
                                 Color(red: 0.15, green: 0.20, blue: 0.55),
                                 Color(red: 0.25, green: 0.35, blue: 0.70)],
-                       startPoint: .top, endPoint: .bottom),
-
-        GradientPreset(id: "warmGray",     name: "Warm Gray",
-                       colors: [Color(red: 0.35, green: 0.32, blue: 0.30),
-                                Color(red: 0.50, green: 0.47, blue: 0.45),
-                                Color(red: 0.65, green: 0.62, blue: 0.60)],
-                       startPoint: .topLeading, endPoint: .bottomTrailing),
+                       startPoint: .top, endPoint: .bottom,
+                       isPremium: true),
     ]
+
+    /// Only the free presets.
+    static let freePresets: [GradientPreset] = presets.filter { !$0.isPremium }
+
+    /// Only the premium presets.
+    static let premiumPresets: [GradientPreset] = presets.filter { $0.isPremium }
 }
 
 // MARK: - Verse Image Card
@@ -147,12 +153,13 @@ struct VerseImageCard: View {
             }
             .padding(36)
 
-            // Watermark for free users — large centered "SS"
+            // Watermark for free users — logo centered
             if showWatermark {
-                Text("SS")
-                    .font(.system(size: 220, weight: .black, design: .serif))
-                    .foregroundStyle(.white.opacity(0.15))
-                    .rotationEffect(.degrees(-25))
+                Image("WatermarkLogo")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 280, height: 280)
+                    .opacity(0.15)
                     .allowsHitTesting(false)
             }
         }

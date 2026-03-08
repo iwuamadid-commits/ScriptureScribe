@@ -3,7 +3,8 @@
 //  ScriptureScribe
 //
 //  Sheet for choosing a verse image background.
-//    • "Suggested" section — gradient presets displayed as thumbnail cards
+//    • "Free" section — Ivory & Forest (available to all users)
+//    • "Premium" section — locked behind subscription with lock overlay
 //    • "Choose Your Own" section — pick a photo from the library
 //
 
@@ -13,11 +14,13 @@ import PhotosUI
 struct BackgroundPickerView: View {
 
     @Binding var selectedBackground: VerseBackground
+    @EnvironmentObject var subscriptionVM: SubscriptionViewModel
     @Environment(\.dismiss) private var dismiss
 
     // PhotosPicker selection
     @State private var photoItem: PhotosPickerItem?
     @State private var loadingPhoto = false
+    @State private var showPaywall = false
 
     private let columns = [
         GridItem(.flexible(), spacing: 12),
@@ -30,20 +33,40 @@ struct BackgroundPickerView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
 
-                    // ── Suggested Gradients ──────────────────────────────────
-                    Text("SUGGESTED")
+                    // ── Free Themes ────────────────────────────────────────
+                    Text("FREE")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 20)
 
                     LazyVGrid(columns: columns, spacing: 12) {
-                        ForEach(GradientPreset.presets) { preset in
-                            gradientThumbnail(preset)
+                        ForEach(GradientPreset.freePresets) { preset in
+                            gradientThumbnail(preset, locked: false)
                         }
                     }
                     .padding(.horizontal, 20)
 
-                    // ── Create Your Own ──────────────────────────────────────
+                    // ── Premium Themes ──────────────────────────────────────
+                    HStack(spacing: 6) {
+                        Text("PREMIUM")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        if !subscriptionVM.isPremium {
+                            Image(systemName: "crown.fill")
+                                .font(.caption2)
+                                .foregroundStyle(.yellow)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+
+                    LazyVGrid(columns: columns, spacing: 12) {
+                        ForEach(GradientPreset.premiumPresets) { preset in
+                            gradientThumbnail(preset, locked: !subscriptionVM.isPremium)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+
+                    // ── Create Your Own ─────────────────────────────────────
                     VStack(alignment: .leading, spacing: 4) {
                         Text("CREATE YOUR OWN")
                             .font(.caption.weight(.semibold))
@@ -111,33 +134,61 @@ struct BackgroundPickerView: View {
                     loadingPhoto = false
                 }
             }
+            .sheet(isPresented: $showPaywall) {
+                PaywallView()
+            }
         }
     }
 
     // MARK: - Gradient Thumbnail
 
-    private func gradientThumbnail(_ preset: GradientPreset) -> some View {
+    private func gradientThumbnail(_ preset: GradientPreset, locked: Bool) -> some View {
         let isSelected: Bool = {
             if case .gradient(let sel) = selectedBackground { return sel.id == preset.id }
             return false
         }()
 
         return Button {
-            selectedBackground = .gradient(preset)
-            dismiss()
+            if locked {
+                showPaywall = true
+            } else {
+                selectedBackground = .gradient(preset)
+                dismiss()
+            }
         } label: {
-            LinearGradient(
-                colors:     preset.colors,
-                startPoint: preset.startPoint,
-                endPoint:   preset.endPoint
-            )
-            .aspectRatio(1, contentMode: .fill)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(isSelected ? Color.white : Color.clear, lineWidth: 3)
-            )
-            .shadow(color: .black.opacity(isSelected ? 0.3 : 0.1), radius: 4, y: 2)
+            ZStack {
+                LinearGradient(
+                    colors:     preset.colors,
+                    startPoint: preset.startPoint,
+                    endPoint:   preset.endPoint
+                )
+                .aspectRatio(1, contentMode: .fill)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(isSelected ? Color.white : Color.clear, lineWidth: 3)
+                )
+                .shadow(color: .black.opacity(isSelected ? 0.3 : 0.1), radius: 4, y: 2)
+
+                if locked {
+                    // Dark overlay + lock icon
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(.black.opacity(0.35))
+                    Image(systemName: "lock.fill")
+                        .font(.title3)
+                        .foregroundStyle(.white)
+                }
+
+                // Theme name label
+                VStack {
+                    Spacer()
+                    Text(preset.name)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.5), radius: 2, y: 1)
+                        .padding(.bottom, 6)
+                }
+            }
         }
     }
 
