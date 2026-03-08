@@ -51,7 +51,7 @@ struct BookSelectorRow: View {
                             // Extra horizontal layout space lets the scaled chip expand
                             // without bleeding into its neighbors.
                             .padding(.horizontal, isSelected ? 4 : 0)
-                            .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isSelected)
+                            .animation(.spring(response: 0.8, dampingFraction: 0.85), value: isSelected)
                             .id(book.id)
                             .onTapGesture {
                                 Task {
@@ -81,7 +81,9 @@ struct BookSelectorRow: View {
             }
             .onChange(of: selectedBookId) { _, newID in
                 if let id = newID {
-                    withAnimation { proxy.scrollTo(id, anchor: .center) }
+                    withAnimation(.spring(response: 1.0, dampingFraction: 0.85)) {
+                        proxy.scrollTo(id, anchor: .center)
+                    }
                 }
             }
         }
@@ -114,6 +116,6 @@ private struct BookChip: View {
                 }
             }
             .scaleEffect(isSelected ? 1.12 : 1.0)
-            .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isSelected)
+            .animation(.spring(response: 0.8, dampingFraction: 0.85), value: isSelected)
     }
 }

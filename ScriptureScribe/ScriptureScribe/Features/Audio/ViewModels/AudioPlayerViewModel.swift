@@ -180,6 +180,7 @@ final class AudioPlayerViewModel: ObservableObject {
         rawChapterText    = text
         buildVerseOffsets(from: text)             // must run before cleanText strips markers
         currentText       = cleanText(text)
+        ttsSpokenCount    = currentText.count     // preliminary; playTTS will refine from reformatted text
         duration          = Double(currentText.count) / (charsPerSecond * Double(playbackRate))
 
         let isChapterChange = chapterId != prevChapterId || bibleId != prevBibleId
@@ -247,6 +248,14 @@ final class AudioPlayerViewModel: ObservableObject {
         pausedAtTime = currentTime
         isPlaying    = false
         UserDefaults.standard.set(currentTime, forKey: posKey(currentChapterId))
+    }
+
+    /// Stops audio immediately but signals that the next chapter should auto-play.
+    /// Used during chapter transitions so the new chapter picks up playback.
+    func pauseForChapterChange() {
+        guard isPlaying else { return }
+        pause()
+        pendingAutoPlay = true
     }
 
     func skip(_ seconds: Double) {
@@ -511,7 +520,7 @@ final class AudioPlayerViewModel: ObservableObject {
             let (spoken, offsets) = stripVerseMarkers(cachedWithMarkers)
             if !offsets.isEmpty { verseCharOffsets = offsets }
             ttsSpokenCount = spoken.count
-            duration = Double(spoken.count) / (charsPerSecond * Double(playbackRate))
+            duration = Double(spoken.count) / (charsPerSecond * Double(playbackRate)) + sentencePauseTime(spoken)
             speakText(spoken)
             return
         }
@@ -577,7 +586,7 @@ final class AudioPlayerViewModel: ObservableObject {
                 return
             }
             ttsSpokenCount = spoken.count
-            duration       = Double(spoken.count) / (charsPerSecond * Double(playbackRate))
+            duration       = Double(spoken.count) / (charsPerSecond * Double(playbackRate)) + sentencePauseTime(spoken)
             isPreparingTTS = false
             speakText(spoken)
         }
@@ -616,15 +625,48 @@ final class AudioPlayerViewModel: ObservableObject {
 
         synthesizer.stopSpeaking(at: .immediate)
 
-        let utterance   = AVSpeechUtterance(string: slice)
-        utterance.voice = selectedVoice
-        // 0.5 × default = half-speed base rate; playbackRate multiplies from there (1x, 1.5x, 2x…)
-        utterance.rate  = AVSpeechUtteranceDefaultSpeechRate * 0.5 * playbackRate
+        // Split into sentences so the synthesizer applies natural sentence-ending
+        // intonation (slight pitch drop) at each period, plus a brief breath pause.
+        let sentences = splitIntoSentences(slice)
+        let voice     = selectedVoice
+        let rate      = AVSpeechUtteranceDefaultSpeechRate * 0.5 * playbackRate
 
-        synthesizer.speak(utterance)
+        for (i, sentence) in sentences.enumerated() {
+            let utterance   = AVSpeechUtterance(string: sentence)
+            utterance.voice = voice
+            utterance.rate  = rate
+            // Small pause after each sentence (except the last) for natural rhythm.
+            if i < sentences.count - 1 {
+                utterance.postUtteranceDelay = 0.25
+            }
+            synthesizer.speak(utterance)
+        }
+
         isPlaying     = true
         playStartDate = Date()
         startProgressTimer(from: pausedAtTime)
+    }
+
+    /// Estimates total sentence-boundary pause time for a given text (0.25 s per boundary).
+    private func sentencePauseTime(_ text: String) -> Double {
+        let count = splitIntoSentences(text).count
+        return count > 1 ? Double(count - 1) * 0.25 : 0
+    }
+
+    /// Splits text into sentence-sized chunks, keeping the terminating punctuation
+    /// attached. Falls back to the full text if no sentence boundaries are found.
+    private func splitIntoSentences(_ text: String) -> [String] {
+        var sentences: [String] = []
+        text.enumerateSubstrings(
+            in: text.startIndex...,
+            options: .bySentences
+        ) { sub, _, _, _ in
+            if let s = sub {
+                let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { sentences.append(trimmed) }
+            }
+        }
+        return sentences.isEmpty ? [text] : sentences
     }
 
     // MARK: - TTS Timer

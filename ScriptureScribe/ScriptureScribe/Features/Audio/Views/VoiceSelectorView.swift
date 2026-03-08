@@ -5,20 +5,26 @@
 //  Shows all English voices installed on the device, grouped by quality tier.
 //  The user picks one; the selection is stored by voice identifier.
 //
+//  Takes a snapshot of voices + selected ID (no @ObservedObject) so that
+//  rapid timer updates from the audio player don't cause constant re-renders.
+//
 
 import AVFoundation
 import SwiftUI
 
 struct VoiceSelectorView: View {
 
-    @ObservedObject var audioVM: AudioPlayerViewModel
+    let voices:     [AudioPlayerViewModel.VoiceOption]
+    let selectedId: String
+    let onSelect:   (String) -> Void
+
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var themeManager: ThemeManager
 
     // Group voices by quality tier
-    private var premiumVoices:  [AudioPlayerViewModel.VoiceOption] { audioVM.availableVoices.filter { $0.quality == .premium } }
-    private var enhancedVoices: [AudioPlayerViewModel.VoiceOption] { audioVM.availableVoices.filter { $0.quality == .enhanced } }
-    private var standardVoices: [AudioPlayerViewModel.VoiceOption] { audioVM.availableVoices.filter { $0.quality == .default } }
+    private var premiumVoices:  [AudioPlayerViewModel.VoiceOption] { voices.filter { $0.quality == .premium } }
+    private var enhancedVoices: [AudioPlayerViewModel.VoiceOption] { voices.filter { $0.quality == .enhanced } }
+    private var standardVoices: [AudioPlayerViewModel.VoiceOption] { voices.filter { $0.quality == .default } }
 
     var body: some View {
         NavigationStack {
@@ -79,10 +85,10 @@ struct VoiceSelectorView: View {
 
     @ViewBuilder
     private func voiceRow(_ voice: AudioPlayerViewModel.VoiceOption) -> some View {
-        let isSelected = audioVM.preferredVoiceIdentifier == voice.id
+        let isSelected = selectedId == voice.id
 
         Button {
-            audioVM.preferredVoiceIdentifier = voice.id
+            onSelect(voice.id)
             dismiss()
         } label: {
             HStack(spacing: 12) {

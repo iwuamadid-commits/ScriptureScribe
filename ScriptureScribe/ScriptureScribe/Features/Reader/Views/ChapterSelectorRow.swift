@@ -35,7 +35,7 @@ struct ChapterSelectorRow: View {
                         // Extra horizontal layout space lets the scaled chip expand
                         // without bleeding into its neighbors.
                         .padding(.horizontal, isSelected ? 3 : 0)
-                        .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isSelected)
+                        .animation(.spring(response: 0.8, dampingFraction: 0.85), value: isSelected)
                         .id(chapter.id)
                         .onTapGesture {
                             Task {
@@ -52,14 +52,12 @@ struct ChapterSelectorRow: View {
             // Scroll the selected chapter into view — on first appearance and on change
             .onAppear {
                 if let id = selectedChapterId {
-                    DispatchQueue.main.async {
-                        proxy.scrollTo(id, anchor: .center)
-                    }
+                    proxy.scrollTo(id, anchor: .center)
                 }
             }
             .onChange(of: selectedChapterId) { _, newID in
                 guard let id = newID else { return }
-                DispatchQueue.main.async {
+                withAnimation(.spring(response: 1.0, dampingFraction: 0.85)) {
                     proxy.scrollTo(id, anchor: .center)
                 }
             }
@@ -102,6 +100,6 @@ private struct ChapterChip: View {
                 .opacity(hasAnnotation ? 1 : 0)
         }
         .scaleEffect(isSelected ? 1.12 : 1.0)
-        .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isSelected)
+        .animation(.spring(response: 0.8, dampingFraction: 0.85), value: isSelected)
     }
 }

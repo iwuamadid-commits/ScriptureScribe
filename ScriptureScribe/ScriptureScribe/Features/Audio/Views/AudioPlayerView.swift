@@ -33,9 +33,13 @@ struct AudioPlayerView: View {
         .padding(.top, 4)
         .background(.regularMaterial)
         .sheet(isPresented: $showVoices) {
-            VoiceSelectorView(audioVM: audioVM)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
+            VoiceSelectorView(
+                voices:     audioVM.availableVoices,
+                selectedId: audioVM.preferredVoiceIdentifier,
+                onSelect:   { audioVM.preferredVoiceIdentifier = $0 }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
         }
     }
 

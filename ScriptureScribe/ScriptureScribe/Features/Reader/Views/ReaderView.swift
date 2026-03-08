@@ -92,6 +92,10 @@ struct ReaderView: View {
     /// contentOpacity is 0 during the snap.
     @State private var scrollViewReset: Int    = 0
 
+    // ── Interactive swipe-to-turn-page ──────────────────────────────────────
+    @State private var swipeOffset: CGFloat = 0
+    @State private var isSwipeTransitioning = false
+
     // MARK: - Helpers
 
     /// Chapter IDs that should show the annotation dot in the chapter selector.
@@ -268,6 +272,23 @@ struct ReaderView: View {
         // We watch contentLoadCounter (not chapterContent?.id) so the animation
         // also fires when the user navigates to a verse in the *already-open* chapter.
         .onChange(of: vm.contentLoadCounter) { _, _ in
+            // ── Swipe-to-turn slide-in ──────────────────────────────────────
+            if isSwipeTransitioning {
+                // New content starts slightly off to the opposite side, then slides to center
+                let slideFrom: CGFloat = swipeOffset < 0 ? 80 : -80
+                swipeOffset = slideFrom
+                scrollViewReset += 1
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                        swipeOffset = 0
+                        contentOpacity = 1
+                    }
+                    isSwipeTransitioning = false
+                    scheduleAudioForNewChapter(delay: 1.2)
+                }
+                return
+            }
+
             // Always hide content immediately so the staggered scroll-to-top resets
             // (which fire synchronously below) happen while the screen is blank.
             // For normal chapter changes, contentOpacity is already 0 (set by the
@@ -350,6 +371,7 @@ struct ReaderView: View {
                     // The user sees the chapter appear and glide down to the target verse.
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                         withAnimation(.easeIn(duration: 0.25)) { contentOpacity = 1 }
+                        scheduleAudioForNewChapter(delay: 1.2)
                     }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
                         verseScrollOffset = estimatedY          // 1.0 s UIView.animate scroll
@@ -374,6 +396,7 @@ struct ReaderView: View {
                     // Target verse not found in parsed content — just fade in at top.
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                         withAnimation(.easeIn(duration: 0.3)) { contentOpacity = 1 }
+                        scheduleAudioForNewChapter(delay: 1.2)
                     }
                 }
             } else {
@@ -386,6 +409,7 @@ struct ReaderView: View {
                 scrollViewReset += 1
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                     withAnimation(.easeIn(duration: 0.3)) { contentOpacity = 1 }
+                    scheduleAudioForNewChapter(delay: 1.2)
                 }
             }
         }
@@ -418,18 +442,12 @@ struct ReaderView: View {
             guard let id = newId else { return }
             annotationVM.loadPhotoAnnotations(for: id)
         }
-        // When new chapter text finishes loading, feed it to the audio player.
+        // Stop the old chapter's audio immediately when new content arrives,
+        // then schedule the new chapter's audio after the slide-in animation settles.
         .onChange(of: vm.chapterContent?.id) { _, _ in
-            lastAudioVerse = ""   // reset auto-scroll tracking on chapter change
-            if audioVM.isVisible, let content = vm.chapterContent {
-                withAnimation {
-                    audioVM.openPlayer(
-                        for: content.id,
-                        text: content.textContent,
-                        bibleId: vm.selectedTranslation?.id ?? "",
-                        reference: vm.selectedChapter?.reference ?? ""
-                    )
-                }
+            lastAudioVerse = ""
+            if audioVM.isVisible {
+                audioVM.pauseForChapterChange()
             }
         }
         // When the user switches translations, reload audio so it reads the new text.
@@ -485,9 +503,40 @@ struct ReaderView: View {
     @ViewBuilder
     private func fullWidthContent(content: BibleChapterContent) -> some View {
         scrollableReaderStack(content: content)
-            // Only block the swipe gesture when a drawing tool is active AND
-            // finger drawing is on (otherwise finger should still turn pages).
-            .gesture(annotationVM.isDrawingTool && !annotationVM.allowFingerDrawing ? swipeGesture : nil)
+            .offset(x: swipeOffset)
+            .overlay { swipeChapterLabel }
+            .simultaneousGesture(canSwipePages ? swipeGesture : nil)
+    }
+
+    /// True when horizontal swipe-to-turn is allowed (not during finger drawing or lasso).
+    private var canSwipePages: Bool {
+        !((annotationVM.isDrawingTool && annotationVM.allowFingerDrawing) || annotationVM.isLassoActive)
+    }
+
+    /// Peeking chapter number on the edge during a swipe drag (e.g. "14" on the right).
+    @ViewBuilder
+    private var swipeChapterLabel: some View {
+        if swipeOffset < -20, let next = nextChapterNumber {
+            HStack {
+                Spacer()
+                Text(next)
+                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                    .foregroundStyle(themeManager.currentTheme.textSecondary.opacity(
+                        Double(min(1.0, abs(swipeOffset) / 60.0)) * 0.5   // fade in as user drags
+                    ))
+                    .padding(.trailing, 8)
+            }
+        } else if swipeOffset > 20, let prev = previousChapterNumber {
+            HStack {
+                Text(prev)
+                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                    .foregroundStyle(themeManager.currentTheme.textSecondary.opacity(
+                        Double(min(1.0, abs(swipeOffset) / 60.0)) * 0.5
+                    ))
+                    .padding(.leading, 8)
+                Spacer()
+            }
+        }
     }
 
     @ViewBuilder
@@ -712,7 +761,9 @@ struct ReaderView: View {
                     .frame(width: geo.size.width)
                 }
                 .onPreferenceChange(ContentHeightKey.self) { h in if h > 0 { contentHeight = h } }
-                .gesture(annotationVM.isDrawingTool && !annotationVM.allowFingerDrawing ? swipeGesture : nil)
+                .offset(x: swipeOffset)
+                .overlay { swipeChapterLabel }
+                .simultaneousGesture(canSwipePages ? swipeGesture : nil)
                 .opacity(contentOpacity)
             }
         }
@@ -1074,20 +1125,119 @@ struct ReaderView: View {
             }
         }
 
+    // MARK: - Audio After Chapter Load
+
+    /// Starts audio for the current chapter after the given delay (seconds).
+    /// Guards against stale calls if the user switches chapters again before the delay fires.
+    private func scheduleAudioForNewChapter(delay: Double) {
+        guard audioVM.isVisible, let content = vm.chapterContent else { return }
+        let chapterId = content.id
+        let text      = content.textContent
+        let bibleId   = vm.selectedTranslation?.id ?? ""
+        let reference = vm.selectedChapter?.reference ?? ""
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            guard vm.chapterContent?.id == chapterId else { return }
+            withAnimation {
+                audioVM.openPlayer(
+                    for: chapterId,
+                    text: text,
+                    bibleId: bibleId,
+                    reference: reference
+                )
+            }
+        }
+    }
+
     // MARK: - Swipe to Turn Pages
+
+    /// Maximum distance (pts) the content shifts during a swipe peek.
+    private let swipeMaxShift: CGFloat = 80
 
     private var swipeGesture: some Gesture {
         DragGesture(minimumDistance: 40)
-            .onEnded { value in
-                let horizontal = value.translation.width
-                let vertical   = abs(value.translation.height)
-                guard abs(horizontal) > vertical else { return }
-                if horizontal < 0 {
-                    Task { await vm.goToNextChapter() }
+            .onChanged { value in
+                guard !isSwipeTransitioning else { return }
+                let h = value.translation.width
+                let v = abs(value.translation.height)
+                guard abs(h) > v else { return }
+
+                if (h > 0 && isAtFirstChapter) || (h < 0 && isAtLastChapter) {
+                    // Rubber-band at the edge — capped to a tiny amount
+                    swipeOffset = max(-20, min(20, h * 0.15))
                 } else {
-                    Task { await vm.goToPreviousChapter() }
+                    // Soft-cap: follow finger up to swipeMaxShift, then decelerate
+                    let clamped = max(-swipeMaxShift, min(swipeMaxShift, h))
+                    swipeOffset = clamped
                 }
             }
+            .onEnded { value in
+                guard !isSwipeTransitioning else { return }
+                let h = value.translation.width
+                let threshold: CGFloat = 80
+
+                if h < -threshold && !isAtLastChapter {
+                    commitPageTurn(direction: .next)
+                } else if h > threshold && !isAtFirstChapter {
+                    commitPageTurn(direction: .previous)
+                } else {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                        swipeOffset = 0
+                    }
+                }
+            }
+    }
+
+    private func commitPageTurn(direction: SwipeDirection) {
+        isSwipeTransitioning = true
+        let nudge: CGFloat = direction == .next ? -120 : 120
+
+        // Small nudge off + fade out
+        withAnimation(.easeIn(duration: 0.18)) {
+            swipeOffset = nudge
+            contentOpacity = 0
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            Task {
+                if direction == .next {
+                    await vm.goToNextChapter()
+                } else {
+                    await vm.goToPreviousChapter()
+                }
+            }
+        }
+    }
+
+    private enum SwipeDirection { case next, previous }
+
+    private var isAtFirstChapter: Bool {
+        guard let current = vm.selectedChapter,
+              let idx = vm.chapters.firstIndex(where: { $0.id == current.id })
+        else { return true }
+        return idx == 0
+    }
+
+    private var isAtLastChapter: Bool {
+        guard let current = vm.selectedChapter,
+              let idx = vm.chapters.firstIndex(where: { $0.id == current.id })
+        else { return true }
+        return idx == vm.chapters.count - 1
+    }
+
+    private var nextChapterNumber: String? {
+        guard let current = vm.selectedChapter,
+              let idx = vm.chapters.firstIndex(where: { $0.id == current.id }),
+              idx + 1 < vm.chapters.count
+        else { return nil }
+        return vm.chapters[idx + 1].number
+    }
+
+    private var previousChapterNumber: String? {
+        guard let current = vm.selectedChapter,
+              let idx = vm.chapters.firstIndex(where: { $0.id == current.id }),
+              idx > 0
+        else { return nil }
+        return vm.chapters[idx - 1].number
     }
 
     // MARK: - Audio Auto-Scroll
