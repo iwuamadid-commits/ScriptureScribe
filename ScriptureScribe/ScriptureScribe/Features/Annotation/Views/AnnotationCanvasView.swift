@@ -122,6 +122,17 @@ struct AnnotationCanvasView: UIViewRepresentable {
         canvas.delegate        = context.coordinator
         applyFingerPolicy(to: canvas)
 
+        // On iPhone, disable PKCanvasView's own scrolling and zoom so it doesn't
+        // conflict with the parent ZoomScrollView. Without this, finger strokes
+        // appear offset and at the wrong scale during drawing, snapping into place
+        // only after the touch ends.
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            canvas.isScrollEnabled  = false
+            canvas.minimumZoomScale = 1.0
+            canvas.maximumZoomScale = 1.0
+            canvas.bouncesZoom      = false
+        }
+
         context.coordinator.canvas               = canvas
         context.coordinator.currentChapterId     = chapterId
         context.coordinator.currentChapterRef    = chapterReference
@@ -204,6 +215,13 @@ struct AnnotationCanvasView: UIViewRepresentable {
         canvas.drawingPolicy   = vm.allowFingerDrawing ? .anyInput : .pencilOnly
         canvas.isUserInteractionEnabled = vm.isDrawingTool || vm.isLassoActive
         applyFingerPolicy(to: canvas)
+
+        // Keep PKCanvasView's own scrolling disabled on iPhone (reinforced every update)
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            canvas.isScrollEnabled  = false
+            canvas.minimumZoomScale = 1.0
+            canvas.maximumZoomScale = 1.0
+        }
     }
 
     // MARK: - Finger policy helper

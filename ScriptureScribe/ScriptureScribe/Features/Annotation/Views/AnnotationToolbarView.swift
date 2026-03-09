@@ -21,6 +21,9 @@ struct AnnotationToolbarView: View {
     @ObservedObject var vm: AnnotationViewModel
     @EnvironmentObject var themeManager: ThemeManager
     @EnvironmentObject var subscriptionVM: SubscriptionViewModel
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
+    private var isCompact: Bool { sizeClass == .compact }
 
     @State private var showColorPicker       = false
     @State private var showToolSettings      = false
@@ -36,10 +39,10 @@ struct AnnotationToolbarView: View {
     @State private var dragSourceVisibleIndex: Int    = 0
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: isCompact ? 4 : 8) {
 
             // ── Tool buttons + camera ────────────────────────────────────
-            HStack(spacing: 8) {
+            HStack(spacing: isCompact ? 4 : 8) {
                 ForEach(AnnotationViewModel.DrawingTool.allCases, id: \.self) { tool in
                     toolButton(for: tool)
                 }
@@ -49,8 +52,8 @@ struct AnnotationToolbarView: View {
                     showPhotoSourcePicker = true
                 } label: {
                     Image(systemName: "camera")
-                        .font(.title3)
-                        .frame(width: 44, height: 44)
+                        .font(isCompact ? .footnote : .title3)
+                        .frame(width: isCompact ? 32 : 44, height: isCompact ? 32 : 44)
                         .foregroundStyle(themeManager.currentTheme.textSecondary)
                 }
                 .accessibilityLabel("Add Photo")
@@ -58,7 +61,7 @@ struct AnnotationToolbarView: View {
 
             // ── Saved Colors (inline, always visible, scrollable) ────────
             Divider()
-                .frame(height: 28)
+                .frame(height: isCompact ? 22 : 28)
                 .padding(.horizontal, 2)
 
             ScrollView(.horizontal, showsIndicators: false) {
@@ -95,18 +98,18 @@ struct AnnotationToolbarView: View {
             .scrollDisabled(draggedVisibleIndex != nil)
 
             // ── Right: Undo / Redo / Settings ───────────────────────────
-            HStack(spacing: 8) {
+            HStack(spacing: isCompact ? 4 : 8) {
                 Button { vm.undo() } label: {
                     Image(systemName: "arrow.uturn.backward")
-                        .font(.title3)
-                        .frame(width: 44, height: 44)
+                        .font(isCompact ? .footnote : .title3)
+                        .frame(width: isCompact ? 32 : 44, height: isCompact ? 32 : 44)
                 }
                 .accessibilityLabel("Undo")
 
                 Button { vm.redo() } label: {
                     Image(systemName: "arrow.uturn.forward")
-                        .font(.title3)
-                        .frame(width: 44, height: 44)
+                        .font(isCompact ? .footnote : .title3)
+                        .frame(width: isCompact ? 32 : 44, height: isCompact ? 32 : 44)
                 }
                 .accessibilityLabel("Redo")
 
@@ -114,8 +117,8 @@ struct AnnotationToolbarView: View {
             }
             .foregroundStyle(themeManager.currentTheme.textSecondary)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
+        .padding(.horizontal, isCompact ? 8 : 16)
+        .padding(.vertical, isCompact ? 4 : 8)
         .background(themeManager.currentTheme.surface)
         // Tool settings panel — pen style, eraser type, size favorites
         .sheet(isPresented: $showToolSettings) {
@@ -224,16 +227,16 @@ struct AnnotationToolbarView: View {
                     highlighterMarkerIcon
                 } else {
                     Image(systemName: tool.systemImage)
-                        .font(.title3)
+                        .font(isCompact ? .footnote : .title3)
                 }
             }
-            .frame(width: 44, height: 44)
+            .frame(width: isCompact ? 32 : 44, height: isCompact ? 32 : 44)
             .foregroundStyle(tint)
             .background(
                 isSelected
                     ? themeManager.currentTheme.primary.opacity(0.15)
                     : Color.clear,
-                in: RoundedRectangle(cornerRadius: 10)
+                in: RoundedRectangle(cornerRadius: isCompact ? 8 : 10)
             )
         }
         .accessibilityLabel(tool.label)
@@ -323,8 +326,8 @@ struct AnnotationToolbarView: View {
 
         } label: {
             Image(systemName: "gearshape")
-                .font(.title3)
-                .frame(width: 44, height: 44)
+                .font(isCompact ? .footnote : .title3)
+                .frame(width: isCompact ? 32 : 44, height: isCompact ? 32 : 44)
                 .foregroundStyle(themeManager.currentTheme.primary)
         }
         .accessibilityLabel("Settings")
@@ -347,7 +350,7 @@ struct AnnotationToolbarView: View {
                 lineWidth: isSelected ? 2.5 : 1.5
             )
         }
-        .frame(width: 28, height: 28)
+        .frame(width: isCompact ? 22 : 28, height: isCompact ? 22 : 28)
         .scaleEffect(isDragged ? 1.2 : (isSelected ? 1.25 : 1.0))
         .shadow(color: .black.opacity(isDragged ? 0.25 : 0.15),
                 radius: isDragged ? 6 : 2,

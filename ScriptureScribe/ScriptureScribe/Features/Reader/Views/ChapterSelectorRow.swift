@@ -19,6 +19,9 @@ struct ChapterSelectorRow: View {
     let annotatedChapterIds:  Set<String>   // chapters that have a dot indicator
     let vm:                   ReaderViewModel   // plain ref for tap callbacks
     @EnvironmentObject var themeManager: ThemeManager
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
+    private var isCompact: Bool { sizeClass == .compact }
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -30,7 +33,8 @@ struct ChapterSelectorRow: View {
                             chapter:       chapter,
                             isSelected:    isSelected,
                             hasAnnotation: annotatedChapterIds.contains(chapter.id),
-                            theme:         themeManager.currentTheme
+                            theme:         themeManager.currentTheme,
+                            isCompact:     isCompact
                         )
                         // Extra horizontal layout space lets the scaled chip expand
                         // without bleeding into its neighbors.
@@ -46,7 +50,7 @@ struct ChapterSelectorRow: View {
                     }
                 }
                 .padding(.horizontal, 12)
-                .padding(.vertical, 6)
+                .padding(.vertical, isCompact ? 3 : 6)
             }
             .background(themeManager.currentTheme.surface)
             // Scroll the selected chapter into view — on first appearance and on change
@@ -73,14 +77,17 @@ private struct ChapterChip: View {
     let isSelected:    Bool
     let hasAnnotation: Bool
     let theme:         any AppTheme
+    var isCompact:     Bool = false
 
     var body: some View {
-        VStack(spacing: 2) {
+        VStack(spacing: isCompact ? 1 : 2) {
             Text(chapter.number)
-                .font(.footnote.weight(isSelected ? .bold : .regular))
-                .frame(minWidth: 32)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 6)
+                .font(isCompact
+                      ? .caption2.weight(isSelected ? .bold : .regular)
+                      : .footnote.weight(isSelected ? .bold : .regular))
+                .frame(minWidth: isCompact ? 26 : 32)
+                .padding(.horizontal, isCompact ? 4 : 6)
+                .padding(.vertical, isCompact ? 4 : 6)
                 .foregroundStyle(isSelected ? Color.white : theme.text)
                 .background {
                     ZStack {
@@ -96,7 +103,7 @@ private struct ChapterChip: View {
             // Annotation dot indicator
             Circle()
                 .fill(theme.primary)
-                .frame(width: 5, height: 5)
+                .frame(width: isCompact ? 4 : 5, height: isCompact ? 4 : 5)
                 .opacity(hasAnnotation ? 1 : 0)
         }
         .scaleEffect(isSelected ? 1.12 : 1.0)

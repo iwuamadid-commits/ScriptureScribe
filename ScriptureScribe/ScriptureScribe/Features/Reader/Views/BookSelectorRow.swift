@@ -20,6 +20,9 @@ struct BookSelectorRow: View {
     let isLoadingBooks: Bool
     let vm:             ReaderViewModel             // plain ref for actions
     @EnvironmentObject var themeManager: ThemeManager
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
+    private var isCompact: Bool { sizeClass == .compact }
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -31,9 +34,9 @@ struct BookSelectorRow: View {
                     }
                 } label: {
                     Image(systemName: bookSortOrder == .canonical ? "list.number" : "textformat.abc")
-                        .font(.footnote)
+                        .font(isCompact ? .caption : .footnote)
                         .foregroundStyle(themeManager.currentTheme.primary)
-                        .frame(width: 36, height: 36)
+                        .frame(width: isCompact ? 28 : 36, height: isCompact ? 28 : 36)
                 }
                 .padding(.leading, 8)
                 .help(bookSortOrder == .canonical ? "Switch to A–Z order" : "Switch to Bible order")
@@ -46,7 +49,8 @@ struct BookSelectorRow: View {
                             BookChip(
                                 book:       book,
                                 isSelected: isSelected,
-                                theme:      themeManager.currentTheme
+                                theme:      themeManager.currentTheme,
+                                isCompact:  isCompact
                             )
                             // Extra horizontal layout space lets the scaled chip expand
                             // without bleeding into its neighbors.
@@ -62,7 +66,7 @@ struct BookSelectorRow: View {
                         }
                     }
                     .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
+                    .padding(.vertical, isCompact ? 3 : 6)
                 }
 
                 // Loading spinner while books are being fetched
@@ -97,13 +101,16 @@ private struct BookChip: View {
     let book:       BibleBook
     let isSelected: Bool
     let theme:      any AppTheme
+    var isCompact:  Bool = false
 
     var body: some View {
         Text(book.name)
-            .font(.footnote.weight(isSelected ? .bold : .regular))
+            .font(isCompact
+                  ? .caption2.weight(isSelected ? .bold : .regular)
+                  : .footnote.weight(isSelected ? .bold : .regular))
             .lineLimit(1)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.horizontal, isCompact ? 7 : 10)
+            .padding(.vertical, isCompact ? 4 : 6)
             .foregroundStyle(isSelected ? Color.white : theme.text)
             .background {
                 ZStack {
