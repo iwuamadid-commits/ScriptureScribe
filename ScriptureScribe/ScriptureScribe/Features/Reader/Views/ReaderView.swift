@@ -87,6 +87,11 @@ struct ReaderView: View {
     /// contentOpacity is 0 during the snap.
     @State private var scrollViewReset: Int    = 0
 
+    // ── Book browser ─────────────────────────────────────────────────────────
+    enum BrowserScrollTarget { case book, chapter }
+    @State private var showBookBrowser = false
+    @State private var browserScrollTarget: BrowserScrollTarget = .book
+
     // ── Interactive swipe-to-turn-page ──────────────────────────────────────
     @State private var swipeOffset: CGFloat = 0
     @State private var isSwipeTransitioning = false
@@ -118,14 +123,16 @@ struct ReaderView: View {
                         selectedBookId: vm.selectedBook?.id,
                         bookSortOrder:  vm.bookSortOrder,
                         isLoadingBooks: vm.isLoadingBooks,
-                        vm:             vm
+                        vm:             vm,
+                        onOpenBrowser:  { browserScrollTarget = .book; showBookBrowser = true }
                     )
                     Divider()
                     ChapterSelectorRow(
                         chapters:            vm.chapters,
                         selectedChapterId:   vm.selectedChapter?.id,
                         annotatedChapterIds: annotatedChapterIds,
-                        vm:                  vm
+                        vm:                  vm,
+                        onOpenBrowser:       { browserScrollTarget = .chapter; showBookBrowser = true }
                     )
                     Divider()
                     // Annotation toolbar (always visible, positioned under book/chapter selectors)
@@ -179,6 +186,20 @@ struct ReaderView: View {
             // ── Sheets ──────────────────────────────────────────────────────
             .sheet(isPresented: $vm.showTranslationBrowser) {
                 TranslationBrowserView(vm: vm)
+            }
+            .sheet(isPresented: $showBookBrowser) {
+                BookBrowserView(
+                    books:             vm.books,
+                    selectedBookId:    vm.selectedBook?.id,
+                    selectedChapterId: vm.selectedChapter?.id,
+                    vm:                vm,
+                    scrollToChapter:   browserScrollTarget == .chapter,
+                    annotationVM:      annotationVM,
+                    notesVM:           notesVM
+                )
+                .environmentObject(themeManager)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
             }
             .sheet(item: $pendingVerseBookmark) { data in
                 BookmarkPickerView(
@@ -462,7 +483,7 @@ struct ReaderView: View {
 
     /// True when horizontal swipe-to-turn is allowed (not during any drawing tool or lasso).
     private var canSwipePages: Bool {
-        !(annotationVM.isDrawingTool || annotationVM.isLassoActive)
+        !(annotationVM.isDrawingTool || annotationVM.isLassoActive || annotationVM.selectedPhotoId != nil)
     }
 
     /// Peeking chapter number on the edge during a swipe drag (e.g. "14" on the right).
@@ -512,14 +533,16 @@ struct ReaderView: View {
                     selectedBookId: vm.selectedBook?.id,
                     bookSortOrder:  vm.bookSortOrder,
                     isLoadingBooks: vm.isLoadingBooks,
-                    vm:             vm
+                    vm:             vm,
+                    onOpenBrowser:  { browserScrollTarget = .book; showBookBrowser = true }
                 )
                 Divider()
                 ChapterSelectorRow(
                     chapters:            vm.chapters,
                     selectedChapterId:   vm.selectedChapter?.id,
                     annotatedChapterIds: annotatedChapterIds,
-                    vm:                  vm
+                    vm:                  vm,
+                    onOpenBrowser:       { browserScrollTarget = .chapter; showBookBrowser = true }
                 )
                 Divider()
                 // Annotation toolbar (always visible, positioned under book/chapter selectors)
@@ -1042,7 +1065,16 @@ struct ReaderView: View {
                 guard !isSwipeTransitioning else { return }
                 let h = value.translation.width
                 let v = abs(value.translation.height)
-                guard abs(h) > v else { return }
+                // Only engage when the drag is clearly horizontal (not diagonal scrolling)
+                guard abs(h) > v * 1.5 else {
+                    // Reset if the user drifted diagonal
+                    if swipeOffset != 0 {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                            swipeOffset = 0
+                        }
+                    }
+                    return
+                }
 
                 if (h > 0 && isAtFirstChapter) || (h < 0 && isAtLastChapter) {
                     // Rubber-band at the edge — capped to a tiny amount
@@ -1056,11 +1088,13 @@ struct ReaderView: View {
             .onEnded { value in
                 guard !isSwipeTransitioning else { return }
                 let h = value.translation.width
+                let v = abs(value.translation.height)
                 let threshold: CGFloat = 80
 
-                if h < -threshold && !isAtLastChapter {
+                // Only commit page turn if the gesture was clearly horizontal
+                if abs(h) > v * 1.5 && h < -threshold && !isAtLastChapter {
                     commitPageTurn(direction: .next)
-                } else if h > threshold && !isAtFirstChapter {
+                } else if abs(h) > v * 1.5 && h > threshold && !isAtFirstChapter {
                     commitPageTurn(direction: .previous)
                 } else {
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
@@ -1215,7 +1249,7 @@ private struct PhotoAnnotationOverlay: View {
         )
         .sheet(isPresented: $showStyleSheet) {
             PhotoStyleSheetView(photo: photo, chapterId: chapterId, annotationVM: annotationVM)
-                .presentationDetents([.height(380)])
+                .presentationDetents([.height(520)])
                 .presentationDragIndicator(.visible)
         }
         .fullScreenCover(isPresented: $showCropView) {

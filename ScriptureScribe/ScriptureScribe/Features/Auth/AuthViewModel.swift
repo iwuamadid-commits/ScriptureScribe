@@ -112,7 +112,8 @@ final class AuthViewModel: ObservableObject {
         isLoading    = true
         errorMessage = nil
 
-        // Find the currently visible window/screen to present the Google sheet from
+        // Find the topmost presented view controller so Google Sign-In
+        // can present its sheet even when AuthView is already a modal.
         guard let scene = UIApplication.shared.connectedScenes
                 .first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene,
               let rootVC = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController
@@ -121,9 +122,13 @@ final class AuthViewModel: ObservableObject {
             isLoading = false
             return
         }
+        var topVC = rootVC
+        while let presented = topVC.presentedViewController {
+            topVC = presented
+        }
 
         do {
-            let user     = try await authService.signInWithGoogle(presenting: rootVC)
+            let user     = try await authService.signInWithGoogle(presenting: topVC)
             currentUser  = user
         } catch {
             errorMessage = error.localizedDescription

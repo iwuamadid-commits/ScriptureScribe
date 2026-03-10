@@ -209,6 +209,12 @@ final class AnnotationViewModel: ObservableObject {
     /// LassoOverlayView observes this and runs the hit test.
     @Published var lassoPathPoints: [CGPoint] = []
 
+    /// Tracks which chapter IDs (including "notebook_" prefixed ones) currently
+    /// have drawing strokes on disk. Updated reactively in saveDrawing() so the
+    /// chapter-row dot indicators update immediately — even when strokes are
+    /// erased one-by-one rather than using the "clear all" action.
+    @Published var chaptersWithStrokes: Set<String> = []
+
     // Per-tool settings (each tool remembers its own color and stroke)
     @Published var toolSettings: [DrawingTool: ToolSettings] = [:]
 
@@ -268,6 +274,9 @@ final class AnnotationViewModel: ObservableObject {
 
         // ── Initialize with hand tool (pan/scroll mode by default) ───────
         loadToolSettings(for: .hand)
+
+        // ── Seed chaptersWithStrokes from existing drawing files on disk ──
+        seedChaptersWithStrokes()
 
         // ── Subscribe: persist changes whenever they happen ──────────────
         $layoutMode
@@ -1001,8 +1010,8 @@ final class AnnotationViewModel: ObservableObject {
     /// drawn/handwritten strokes on either canvas, placed photos, or typed notes.
     /// (Typed notes are checked separately in ChapterSelectorRow via NotesViewModel.)
     func hasAnnotation(for chapterId: String) -> Bool {
-        drawingHasStrokes(for: chapterId) ||
-        drawingHasStrokes(for: "notebook_\(chapterId)") ||
+        chaptersWithStrokes.contains(chapterId) ||
+        chaptersWithStrokes.contains("notebook_\(chapterId)") ||
         chapterHasPhotos(for: chapterId)
     }
 
@@ -1031,6 +1040,12 @@ final class AnnotationViewModel: ObservableObject {
 
     func saveDrawing(_ drawing: PKDrawing, for chapterId: String) {
         try? drawing.dataRepresentation().write(to: drawingURL(for: chapterId), options: .atomic)
+        // Keep the reactive stroke-tracking set in sync so chapter-row dots update instantly.
+        if drawing.strokes.isEmpty {
+            chaptersWithStrokes.remove(chapterId)
+        } else {
+            chaptersWithStrokes.insert(chapterId)
+        }
     }
 
     func loadDrawing(for chapterId: String) -> PKDrawing? {
@@ -1039,6 +1054,12 @@ final class AnnotationViewModel: ObservableObject {
               let data = try? Data(contentsOf: url),
               let drawing = try? PKDrawing(data: data)
         else { return nil }
+        // Keep the reactive stroke set in sync when drawings are loaded.
+        if drawing.strokes.isEmpty {
+            chaptersWithStrokes.remove(chapterId)
+        } else {
+            chaptersWithStrokes.insert(chapterId)
+        }
         return drawing
     }
 
@@ -1048,6 +1069,48 @@ final class AnnotationViewModel: ObservableObject {
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: ".", with: "_")
         return docs.appendingPathComponent("annotation_\(safeId).pkdrawing")
+    }
+
+    /// Scans the Documents directory for existing .pkdrawing files and populates
+    /// chaptersWithStrokes so the chapter-row dots are correct from launch.
+    private func seedChaptersWithStrokes() {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: docs, includingPropertiesForKeys: [.fileSizeKey], options: .skipsHiddenFiles
+        ) else { return }
+
+        for url in files where url.pathExtension == "pkdrawing" {
+            let name = url.deletingPathExtension().lastPathComponent
+            guard name.hasPrefix("annotation_") else { continue }
+            // File size > 100 bytes means it has real strokes
+            if let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize,
+               size > 100 {
+                // Reverse the safe-ID encoding: "annotation_GEN_1" → "GEN.1"
+                // and "annotation_notebook_GEN_1" → "notebook_GEN.1"
+                let safeId = String(name.dropFirst("annotation_".count))
+                let chapterId: String
+                if safeId.hasPrefix("notebook_") {
+                    let rest = String(safeId.dropFirst("notebook_".count))
+                    chapterId = "notebook_" + restoreChapterId(from: rest)
+                } else {
+                    chapterId = restoreChapterId(from: safeId)
+                }
+                chaptersWithStrokes.insert(chapterId)
+            }
+        }
+    }
+
+    /// Converts a safe filename component back to a chapter ID.
+    /// e.g. "GEN_1" → "GEN.1", "1CO_3" → "1CO.3"
+    private func restoreChapterId(from safeId: String) -> String {
+        // The last underscore-separated component is the chapter number;
+        // everything before it is the book code. Book codes never contain dots,
+        // so we just need to restore the single underscore that replaced the dot
+        // between book and chapter number.
+        guard let lastUnderscore = safeId.lastIndex(of: "_") else { return safeId }
+        let book    = safeId[safeId.startIndex..<lastUnderscore]
+        let chapter = safeId[safeId.index(after: lastUnderscore)...]
+        return "\(book).\(chapter)"
     }
 
     // MARK: - Lasso Hit Testing

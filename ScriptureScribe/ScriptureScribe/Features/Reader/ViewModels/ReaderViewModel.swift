@@ -241,6 +241,31 @@ final class ReaderViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Book Browser Support
+
+    /// Fetches chapters for a book without changing the current selection.
+    /// Used by BookBrowserView to show chapter grids for any book.
+    func fetchChapters(for book: BibleBook) async -> [BibleChapter] {
+        guard let translation = selectedTranslation else { return [] }
+        return (try? await api.fetchChapters(bibleId: translation.id, bookId: book.id)) ?? []
+    }
+
+    /// Navigates directly to a specific book and chapter. Used by the book browser.
+    func selectBookAndChapter(bookId: String, chapterId: String) async {
+        lastChapterId = chapterId
+        guard let book = books.first(where: { $0.id == bookId }) else { return }
+
+        if selectedBook?.id == bookId {
+            // Same book — just switch to the target chapter directly.
+            if let chapter = chapters.first(where: { $0.id == chapterId }) {
+                await selectChapter(chapter)
+            }
+        } else {
+            // Different book — selectBook will use lastChapterId to pick the right chapter.
+            await selectBook(book)
+        }
+    }
+
     // MARK: - Private Loaders
 
     private func loadBooks(for translation: BibleTranslation) async {

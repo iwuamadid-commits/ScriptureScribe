@@ -83,7 +83,10 @@ struct ScriptureScribeApp: App {
                 .environmentObject(habitsVM)
                 .environmentObject(subscriptionVM)
                 .environmentObject(streakVM)
-                // Grant admins automatic premium access when they sign in
+                // Grant admins automatic premium access on launch and when they sign in
+                .onAppear {
+                    subscriptionVM.configureForUser(authViewModel.currentUserID)
+                }
                 .onChange(of: authViewModel.currentUserID) { _, uid in
                     subscriptionVM.configureForUser(uid)
                 }

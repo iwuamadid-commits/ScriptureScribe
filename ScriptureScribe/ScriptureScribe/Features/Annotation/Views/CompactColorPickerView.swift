@@ -42,7 +42,8 @@ struct CompactColorPickerView: View {
             }
             .padding(.bottom, 8)
         }
-        .padding(20)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 8)
         .onAppear { initHSB(from: selectedColor) }
         .onChange(of: hue)        { _, _ in selectedColor = currentUIColor }
         .onChange(of: saturation) { _, _ in selectedColor = currentUIColor }

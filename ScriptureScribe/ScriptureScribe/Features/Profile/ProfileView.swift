@@ -20,6 +20,7 @@ struct ProfileView: View {
     @State private var showAuth        = false
     @State private var showPaywall     = false
     @State private var photoPickerItem: PhotosPickerItem? = nil
+    @State private var showSignOutConfirmation = false
 
     // Read streak values written by StreakViewModel in the Reader tab
     @AppStorage("streak_currentCount") private var currentStreak: Int = 0
@@ -226,7 +227,7 @@ struct ProfileView: View {
 
                             // Sign Out button
                             Button(role: .destructive) {
-                                authVM.signOut()
+                                showSignOutConfirmation = true
                             } label: {
                                 HStack(spacing: 12) {
                                     Image(systemName: "rectangle.portrait.and.arrow.right")
@@ -235,6 +236,14 @@ struct ProfileView: View {
                                     Text("Sign Out")
                                         .foregroundStyle(.red)
                                 }
+                            }
+                            .alert("Sign Out", isPresented: $showSignOutConfirmation) {
+                                Button("Cancel", role: .cancel) { }
+                                Button("Sign Out", role: .destructive) {
+                                    authVM.signOut()
+                                }
+                            } message: {
+                                Text("Are you sure you want to sign out?")
                             }
                         } else {
                             // Signed-out: show sign-in prompt

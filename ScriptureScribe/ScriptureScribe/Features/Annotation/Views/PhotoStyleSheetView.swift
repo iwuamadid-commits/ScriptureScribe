@@ -62,10 +62,14 @@ struct PhotoStyleSheetView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
+            VStack(alignment: .leading, spacing: 20) {
 
                 // ── Opacity ──────────────────────────────────────────────
-                Section("Opacity") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Opacity")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.secondary)
+                        .textCase(.uppercase)
                     HStack(spacing: 10) {
                         Image(systemName: "circle.lefthalf.filled")
                             .foregroundStyle(.secondary)
@@ -80,8 +84,15 @@ struct PhotoStyleSheetView: View {
                     }
                 }
 
+                Divider()
+
                 // ── Rotation ─────────────────────────────────────────────
-                Section("Rotation") {
+                VStack(spacing: 8) {
+                    Text("Rotation")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.secondary)
+                        .textCase(.uppercase)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     HStack(spacing: 16) {
                         Spacer()
 
@@ -117,30 +128,29 @@ struct PhotoStyleSheetView: View {
 
                         Spacer()
                     }
-                    .padding(.vertical, 4)
-                    .listRowSeparator(.hidden)
 
-                    HStack {
-                        Spacer()
-                        Button("Reset") {
-                            rotation = 0
-                            applyRotation(0)
-                        }
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        Spacer()
+                    Button("Reset") {
+                        rotation = 0
+                        applyRotation(0)
                     }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
 
+                Divider()
+
                 // ── Border ───────────────────────────────────────────────
-                Section("Border") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Border")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.secondary)
+                        .textCase(.uppercase)
                     HStack(spacing: 0) {
                         ForEach(borderPresets, id: \.0) { (width, label) in
                             borderPresetButton(width: width, label: label)
                         }
                     }
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 4)
 
                     // Color picker — only visible when a border is active
                     if borderWidth > 0 {
@@ -150,7 +160,11 @@ struct PhotoStyleSheetView: View {
                             }
                     }
                 }
+
+                Spacer()
             }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
             .navigationTitle("Image Style")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

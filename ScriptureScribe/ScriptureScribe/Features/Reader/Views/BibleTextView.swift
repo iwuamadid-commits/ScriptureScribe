@@ -325,14 +325,14 @@ private struct VerseRow: View {
 
     var body: some View {
         if number == "§" {
-            // Section heading — sits on its own line, no verse number, no selection gesture
+            // Section heading — larger, bold title like YouVersion, with breathing room
             Text(text)
-                .font(.footnote.weight(.bold))
-                .foregroundStyle(theme.textSecondary)
+                .font(.title3.weight(.heavy))
+                .foregroundStyle(theme.text)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 26)
-                .padding(.top, 16)
-                .padding(.bottom, 2)
+                .padding(.horizontal, 20)
+                .padding(.top, 28)
+                .padding(.bottom, 12)
         } else {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 // Small superscript-style verse number

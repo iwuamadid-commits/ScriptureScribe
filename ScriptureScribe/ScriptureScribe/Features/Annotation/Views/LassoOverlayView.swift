@@ -26,8 +26,10 @@ struct LassoOverlayView: View {
     let areaSize:  CGSize
 
     @EnvironmentObject var themeManager: ThemeManager
+    @EnvironmentObject var subscriptionVM: SubscriptionViewModel
 
     @State private var showColorPicker = false
+    @State private var showPaywall     = false
     @State private var lassoColor: UIColor = .black
 
     // Drag state
@@ -48,8 +50,11 @@ struct LassoOverlayView: View {
         }
         .sheet(isPresented: $showColorPicker) {
             lassoColorPickerSheet
-                .presentationDetents([.height(480), .large])
+                .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showPaywall) {
+            PaywallView()
         }
     }
 
@@ -246,32 +251,36 @@ struct LassoOverlayView: View {
 
     // MARK: - Color Picker Sheet
 
+    private var isAtFreeLimit: Bool {
+        !subscriptionVM.isPremium && annotationVM.savedColors.count >= PremiumLimits.maxFreeSavedColors
+    }
+
     private var lassoColorPickerSheet: some View {
-        ScrollView {
-            VStack(spacing: 16) {
-                Text("Stroke Color")
-                    .font(.headline)
-                    .padding(.top, 16)
-
-                CompactColorPickerView(selectedColor: $lassoColor)
-
-                Button {
+        NavigationStack {
+            ColorPickerWheelView(
+                selectedColor: $lassoColor,
+                onAdd: { color in
+                    if isAtFreeLimit {
+                        showColorPicker = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+                            showPaywall = true
+                        }
+                        return
+                    }
+                    annotationVM.addSavedColor(color)
+                    annotationVM.saveCurrentToolSettings()
+                },
+                onDone: { color in
+                    lassoColor = color
                     annotationVM.recolorLassoSelection(
-                        newColor:  lassoColor,
+                        newColor:  color,
                         chapterId: chapterId
                     )
                     showColorPicker = false
-                } label: {
-                    Text("Apply Color")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(Color.blue, in: RoundedRectangle(cornerRadius: 10))
-                }
-                .padding(.horizontal, 24)
-                .padding(.bottom, 24)
-            }
+                },
+                vm: annotationVM,
+                isAtLimit: isAtFreeLimit
+            )
         }
     }
 

@@ -5,7 +5,7 @@
 //  A horizontal scrollable row of Bible book names at the top of the reader.
 //  The selected book is highlighted with a pill that slides to the new selection.
 //  A sort button lets the user switch between canonical order (Genesis → Revelation)
-//  and A–Z order.
+//  and A–Z order. Tapping the already-selected book opens the full-screen book browser.
 //
 
 import SwiftUI
@@ -19,6 +19,7 @@ struct BookSelectorRow: View {
     let bookSortOrder:  ReaderViewModel.SortOrder
     let isLoadingBooks: Bool
     let vm:             ReaderViewModel             // plain ref for actions
+    var onOpenBrowser: () -> Void
     @EnvironmentObject var themeManager: ThemeManager
     @Environment(\.horizontalSizeClass) private var sizeClass
 
@@ -45,6 +46,11 @@ struct BookSelectorRow: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 4) {
                         ForEach(sortedBooks) { book in
+                            // Show testament divider before the first NT book (canonical order only)
+                            if bookSortOrder == .canonical && book.id == Self.firstNTBookId(in: sortedBooks) {
+                                TestamentDivider(label: "NT", theme: themeManager.currentTheme, isCompact: isCompact)
+                            }
+
                             let isSelected = selectedBookId == book.id
                             BookChip(
                                 book:       book,
@@ -58,9 +64,13 @@ struct BookSelectorRow: View {
                             .animation(.spring(response: 0.8, dampingFraction: 0.85), value: isSelected)
                             .id(book.id)
                             .onTapGesture {
-                                Task {
-                                    await vm.loadInitialData()
-                                    await vm.selectBook(book)
+                                if isSelected {
+                                    onOpenBrowser()
+                                } else {
+                                    Task {
+                                        await vm.loadInitialData()
+                                        await vm.selectBook(book)
+                                    }
                                 }
                             }
                         }
@@ -91,6 +101,39 @@ struct BookSelectorRow: View {
                 }
             }
         }
+    }
+
+    /// Returns the ID of the first New Testament book in the given list, or nil.
+    static func firstNTBookId(in books: [BibleBook]) -> String? {
+        books.first(where: { BibleBook.ntBookIds.contains($0.id) })?.id
+    }
+}
+
+// MARK: - Testament Divider
+
+private struct TestamentDivider: View {
+    let label:     String
+    let theme:     any AppTheme
+    var isCompact: Bool = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            // Thin vertical line
+            RoundedRectangle(cornerRadius: 1)
+                .fill(theme.primary.opacity(0.5))
+                .frame(width: 1.5, height: isCompact ? 18 : 22)
+
+            // Label in primary/indicator color
+            Text(label)
+                .font(.system(size: isCompact ? 9 : 10, weight: .bold))
+                .foregroundStyle(theme.primary)
+
+            // Thin vertical line
+            RoundedRectangle(cornerRadius: 1)
+                .fill(theme.primary.opacity(0.5))
+                .frame(width: 1.5, height: isCompact ? 18 : 22)
+        }
+        .padding(.horizontal, 4)
     }
 }
 

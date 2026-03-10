@@ -18,6 +18,7 @@ struct ChapterSelectorRow: View {
     let selectedChapterId:    String?
     let annotatedChapterIds:  Set<String>   // chapters that have a dot indicator
     let vm:                   ReaderViewModel   // plain ref for tap callbacks
+    var onOpenBrowser: () -> Void
     @EnvironmentObject var themeManager: ThemeManager
     @Environment(\.horizontalSizeClass) private var sizeClass
 
@@ -42,9 +43,13 @@ struct ChapterSelectorRow: View {
                         .animation(.spring(response: 0.8, dampingFraction: 0.85), value: isSelected)
                         .id(chapter.id)
                         .onTapGesture {
-                            Task {
-                                await vm.loadInitialData()
-                                await vm.selectChapter(chapter)
+                            if isSelected {
+                                onOpenBrowser()
+                            } else {
+                                Task {
+                                    await vm.loadInitialData()
+                                    await vm.selectChapter(chapter)
+                                }
                             }
                         }
                     }
