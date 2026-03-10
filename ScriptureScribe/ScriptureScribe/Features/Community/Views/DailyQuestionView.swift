@@ -215,8 +215,14 @@ struct DailyQuestionView: View {
                     DailyAnswerCommentsView(answer: answer, currentUser: authVM.currentUser)
                 }
                 .sheet(item: $editingAnswer) { answer in
-                    EditTextSheet(title: "Edit Answer", originalText: answer.text) { newText in
-                        Task { await vm.editAnswer(answer, newText: newText) }
+                    if AdminManager.isAdmin(authVM.currentUserID) {
+                        AdminEditTextSheet(title: "Edit Answer", originalText: answer.text, originalDisplayName: answer.displayName) { text, displayName in
+                            Task { await vm.adminEditAnswer(answer, text: text, displayName: displayName) }
+                        }
+                    } else {
+                        EditTextSheet(title: "Edit Answer", originalText: answer.text) { newText in
+                            Task { await vm.editAnswer(answer, newText: newText) }
+                        }
                     }
                 }
                 .sheet(isPresented: $showCalendar) {

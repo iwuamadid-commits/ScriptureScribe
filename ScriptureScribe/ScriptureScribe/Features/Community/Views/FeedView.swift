@@ -179,8 +179,14 @@ struct FeedView: View {
                 CommentsView(post: post, currentUser: authVM.currentUser)
             }
             .sheet(item: $editingPost) { post in
-                EditTextSheet(title: "Edit Post", originalText: post.text) { newText in
-                    Task { await communityVM.editPost(post, newText: newText) }
+                if AdminManager.isAdmin(authVM.currentUserID) {
+                    AdminEditPostSheet(post: post) { text, verseRef, verseText, displayName in
+                        Task { await communityVM.adminEditPost(post, text: text, verseRef: verseRef, verseText: verseText, displayName: displayName) }
+                    }
+                } else {
+                    EditTextSheet(title: "Edit Post", originalText: post.text) { newText in
+                        Task { await communityVM.editPost(post, newText: newText) }
+                    }
                 }
             }
         }

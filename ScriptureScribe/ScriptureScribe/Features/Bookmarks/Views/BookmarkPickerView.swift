@@ -5,10 +5,10 @@
 //  Instagram/TikTok-style "Save to Collection" bottom sheet.
 //
 //  • Shows a verse preview thumbnail at the top.
-//  • Lists all existing groups with a "+" to instantly save into that group.
+//  • Lists all existing groups — user can select multiple collections.
 //  • "New collection" link opens CreateGroupSheet.
-//  • "Save without a collection" saves the bookmark ungrouped.
-//  • After saving, a checkmark replaces "+" for ~1 second, then the sheet dismisses.
+//  • "Done" button saves the bookmark to all selected collections.
+//  • Sheet stays open until user taps "Done".
 //
 //  BookmarksViewModel is read via @EnvironmentObject — so the group list
 //  stays live even after the user creates a new collection from inside this sheet.
@@ -24,15 +24,14 @@ struct BookmarkPickerView: View {
     let isAlreadyBookmarked: Bool
 
     // Callbacks
-    let onSave:   (String, String, String?) -> Void  // (colorHex, emoji, groupId?)
+    let onSave:   (String, String, [String]) -> Void  // (colorHex, emoji, groupIds)
     let onRemove: () -> Void
 
     @EnvironmentObject var bookmarksVM:    BookmarksViewModel
     @EnvironmentObject var subscriptionVM: SubscriptionViewModel
     @Environment(\.dismiss) private var dismiss
 
-    @State private var savedGroupId:    String? = nil  // which group just got the checkmark
-    @State private var savedUngrouped               = false
+    @State private var selectedGroupIds: Set<String> = []
     @State private var showCreateGroup              = false
     @State private var showImageComposer            = false
     @State private var showPaywall                  = false
@@ -96,7 +95,7 @@ struct BookmarkPickerView: View {
                 .padding(.horizontal, 16)
                 .padding(.bottom, 10)
 
-                // ── Collection options (ungrouped row always first) ────────
+                // ── Collection options ────────────────────────────────────
                 collectionList
 
                 Divider()
@@ -104,6 +103,32 @@ struct BookmarkPickerView: View {
 
                 // ── Footer actions ─────────────────────────────────────────
                 VStack(spacing: 8) {
+                    // Done button — saves and dismisses
+                    Button {
+                        let groups = Array(selectedGroupIds)
+                        // Use color/emoji from first selected group, or defaults
+                        let colorHex: String
+                        let emoji: String
+                        if let firstGroupId = groups.first,
+                           let group = bookmarksVM.groups.first(where: { $0.id == firstGroupId }) {
+                            colorHex = group.colorHex
+                            emoji = group.emoji
+                        } else {
+                            colorHex = "F5C842"
+                            emoji = "\u{1F516}"
+                        }
+                        onSave(colorHex, emoji, groups)
+                        dismiss()
+                    } label: {
+                        Text("Done")
+                            .font(.body.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(Color.blue, in: RoundedRectangle(cornerRadius: 12))
+                            .foregroundStyle(.white)
+                    }
+                    .padding(.horizontal, 16)
+
                     // Share buttons side by side
                     HStack(spacing: 12) {
                         ShareLink(item: verseShareText) {
@@ -189,16 +214,9 @@ struct BookmarkPickerView: View {
 
     // MARK: - Collection List
 
-    /// Unified list: "No Collection" row always first, then user groups.
     private var collectionList: some View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 0) {
-                // "No Collection" — first-class option matching the group row style
-                if !isAlreadyBookmarked {
-                    ungroupedRow
-                    Divider().padding(.leading, 72)
-                }
-
                 if bookmarksVM.groups.isEmpty {
                     Text("Tap \"New collection\" above to organize your bookmarks.")
                         .font(.caption)
@@ -217,48 +235,8 @@ struct BookmarkPickerView: View {
         .frame(maxHeight: 400)
     }
 
-    private var ungroupedRow: some View {
-        let isSaved = savedUngrouped
-        return HStack(spacing: 14) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color(hex: "F5C842").opacity(0.18))
-                    .frame(width: 52, height: 52)
-                Image(systemName: "bookmark.fill")
-                    .font(.title2)
-                    .foregroundStyle(Color(hex: "F5C842"))
-            }
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("No Collection")
-                    .font(.subheadline.weight(.medium))
-                Text("Save without grouping")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
-            Button { saveUngrouped() } label: {
-                ZStack {
-                    Circle()
-                        .strokeBorder(isSaved ? Color.green : Color(.systemGray3), lineWidth: 1.5)
-                        .frame(width: 32, height: 32)
-                    Image(systemName: isSaved ? "checkmark" : "plus")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(isSaved ? .green : .primary)
-                }
-            }
-            .disabled(isSaved)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .contentShape(Rectangle())
-        .onTapGesture { saveUngrouped() }
-    }
-
     private func groupRow(_ group: BookmarkGroup) -> some View {
-        let isSaved = savedGroupId == group.id
+        let isSelected = selectedGroupIds.contains(group.id)
         return HStack(spacing: 14) {
 
             // Thumbnail square (like Instagram's collection cover)
@@ -270,51 +248,44 @@ struct BookmarkPickerView: View {
                     .font(.title2)
             }
 
-            // Name + "Private" label
+            // Name + count
             VStack(alignment: .leading, spacing: 2) {
                 Text(group.name)
                     .font(.subheadline.weight(.medium))
-                Text("Private")
+                let count = bookmarksVM.bookmarks.filter { $0.groupIds.contains(group.id) }.count
+                Text("\(count) saved")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
 
             Spacer()
 
-            // "+" / checkmark button
-            Button {
-                saveToGroup(group)
-            } label: {
-                ZStack {
+            // Toggle checkmark
+            ZStack {
+                Circle()
+                    .strokeBorder(isSelected ? Color.blue : Color(.systemGray3), lineWidth: 1.5)
+                    .frame(width: 32, height: 32)
+                if isSelected {
                     Circle()
-                        .strokeBorder(isSaved ? Color.green : Color(.systemGray3), lineWidth: 1.5)
+                        .fill(Color.blue)
                         .frame(width: 32, height: 32)
-                    Image(systemName: isSaved ? "checkmark" : "plus")
+                    Image(systemName: "checkmark")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(isSaved ? .green : .primary)
+                        .foregroundStyle(.white)
                 }
             }
-            .disabled(isSaved)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .contentShape(Rectangle())
-        .onTapGesture { saveToGroup(group) }
-    }
-
-    // MARK: - Save Actions
-
-    private func saveToGroup(_ group: BookmarkGroup) {
-        guard savedGroupId == nil && !savedUngrouped else { return }
-        onSave(group.colorHex, group.emoji, group.id)
-        withAnimation(.spring(response: 0.2)) { savedGroupId = group.id }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { dismiss() }
-    }
-
-    private func saveUngrouped() {
-        guard savedGroupId == nil && !savedUngrouped else { return }
-        onSave("F5C842", "🔖", nil)
-        withAnimation(.spring(response: 0.2)) { savedUngrouped = true }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { dismiss() }
+        .onTapGesture {
+            withAnimation(.spring(response: 0.2)) {
+                if isSelected {
+                    selectedGroupIds.remove(group.id)
+                } else {
+                    selectedGroupIds.insert(group.id)
+                }
+            }
+        }
     }
 }

@@ -104,6 +104,19 @@ final class GratitudeViewModel: ObservableObject {
         }
     }
 
+    func adminEditPost(_ post: GratitudePost, text: String, displayName: String) async {
+        var fields: [String: Any] = [:]
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed != post.text              { fields["text"]        = trimmed }
+        if displayName != post.displayName   { fields["displayName"] = displayName }
+        guard !fields.isEmpty else { return }
+        do {
+            try await firestore.updateGratitudePostFields(id: post.id, fields: fields)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     // MARK: - Delete Post
 
     func deletePost(_ post: GratitudePost) async {

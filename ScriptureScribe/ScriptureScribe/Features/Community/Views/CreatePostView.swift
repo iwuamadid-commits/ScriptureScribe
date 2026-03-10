@@ -3,12 +3,12 @@
 //  ScriptureScribe
 //
 //  Sheet for writing and posting a reflection to the community feed.
-//  Optionally, the user can attach a Bible verse to their post.
+//  Users can attach one or more Bible verses — consecutive, non-consecutive, or individual.
 //
 //  Verse picker flow (when the user taps "Add Verse"):
 //    1. A verse picker sheet opens showing a text field to type a reference
 //       (e.g. "John 3:16") — stored as a plain string.
-//    2. No complex book/chapter/verse tree is needed for the MVP.
+//    2. Tapping the fetched verse attaches it. User can add more verses.
 //
 
 import SwiftUI
@@ -22,9 +22,12 @@ struct CreatePostView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var postText      = ""
-    @State private var verseRef      = ""   // e.g. "John 3:16"
-    @State private var verseText     = ""   // the actual verse text
+    /// Each attached verse stored as (reference, text).
+    @State private var verses: [(ref: String, text: String)] = []
     @State private var showVersePicker = false
+    /// Temporary bindings used by the verse picker sheet.
+    @State private var pickerRef  = ""
+    @State private var pickerText = ""
 
     private var canPost: Bool {
         !postText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -47,28 +50,27 @@ struct CreatePostView: View {
                         }
                         .padding(.top, 8)
 
-                        // ── Verse attachment (optional) ────────────────
-                        if !verseRef.isEmpty {
+                        // ── Attached verses ──────────────────────────────
+                        ForEach(Array(verses.enumerated()), id: \.offset) { index, verse in
                             HStack(alignment: .top, spacing: 10) {
                                 VStack(alignment: .leading, spacing: 4) {
                                     HStack {
                                         Image(systemName: "book.closed.fill")
                                             .font(.caption)
                                             .foregroundStyle(themeManager.currentTheme.primary)
-                                        Text(verseRef)
+                                        Text(verse.ref)
                                             .font(.caption.weight(.semibold))
                                             .foregroundStyle(themeManager.currentTheme.primary)
                                         Spacer()
                                         Button {
-                                            verseRef = ""
-                                            verseText = ""
+                                            verses.remove(at: index)
                                         } label: {
                                             Image(systemName: "xmark.circle.fill")
                                                 .foregroundStyle(themeManager.currentTheme.textSecondary)
                                         }
                                     }
-                                    if !verseText.isEmpty {
-                                        Text(verseText)
+                                    if !verse.text.isEmpty {
+                                        Text(verse.text)
                                             .font(.footnote.italic())
                                             .foregroundStyle(themeManager.currentTheme.textSecondary)
                                     }
@@ -82,7 +84,7 @@ struct CreatePostView: View {
                         // ── Main text editor ───────────────────────────
                         ZStack(alignment: .topLeading) {
                             if postText.isEmpty {
-                                Text("Share a reflection, prayer, or thought…")
+                                Text("Share a reflection, prayer, or thought\u{2026}")
                                     .foregroundStyle(themeManager.currentTheme.textSecondary)
                                     .padding(.top, 8)
                                     .padding(.leading, 5)
@@ -95,23 +97,23 @@ struct CreatePostView: View {
                         .foregroundStyle(themeManager.currentTheme.text)
                         .font(.body)
 
-                        // ── Add verse button ───────────────────────────
-                        if verseRef.isEmpty {
-                            Button {
-                                showVersePicker = true
-                            } label: {
-                                HStack(spacing: 8) {
-                                    Image(systemName: "book.closed")
-                                        .foregroundStyle(themeManager.currentTheme.primary)
-                                    Text("Add a verse")
-                                        .foregroundStyle(themeManager.currentTheme.primary)
-                                        .font(.subheadline)
-                                }
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 10)
-                                .background(themeManager.currentTheme.primary.opacity(0.08))
-                                .clipShape(RoundedRectangle(cornerRadius: 20))
+                        // ── Add verse button (always visible) ────────
+                        Button {
+                            pickerRef  = ""
+                            pickerText = ""
+                            showVersePicker = true
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "book.closed")
+                                    .foregroundStyle(themeManager.currentTheme.primary)
+                                Text(verses.isEmpty ? "Add a verse" : "Add another verse")
+                                    .foregroundStyle(themeManager.currentTheme.primary)
+                                    .font(.subheadline)
                             }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                            .background(themeManager.currentTheme.primary.opacity(0.08))
+                            .clipShape(RoundedRectangle(cornerRadius: 20))
                         }
                     }
                     .padding(.horizontal, 20)
@@ -127,10 +129,13 @@ struct CreatePostView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Post") {
+                        // Combine all verse refs and texts with separators
+                        let combinedRef  = verses.map(\.ref).joined(separator: "; ")
+                        let combinedText = verses.map(\.text).filter { !$0.isEmpty }.joined(separator: "\n\n")
                         onPost(
                             postText.trimmingCharacters(in: .whitespacesAndNewlines),
-                            verseRef,
-                            verseText
+                            combinedRef,
+                            combinedText
                         )
                         dismiss()
                     }
@@ -141,8 +146,14 @@ struct CreatePostView: View {
             }
             .toolbarBackground(themeManager.currentTheme.surface, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
-            .sheet(isPresented: $showVersePicker) {
-                VerseReferencePickerView(verseRef: $verseRef, verseText: $verseText)
+            .sheet(isPresented: $showVersePicker, onDismiss: {
+                // When the picker closes, add the verse if a ref was set
+                let ref = pickerRef.trimmingCharacters(in: .whitespaces)
+                if !ref.isEmpty {
+                    verses.append((ref: ref, text: pickerText))
+                }
+            }) {
+                VerseReferencePickerView(verseRef: $pickerRef, verseText: $pickerText)
             }
         }
     }
@@ -151,8 +162,8 @@ struct CreatePostView: View {
 // MARK: - Verse Reference Picker
 
 /// Sheet where the user types a reference like "John 3:16".
-/// • While typing the book name, matching book names appear as suggestions.
-/// • Once a full chapter:verse reference is recognized, the verse text is
+/// - While typing the book name, matching book names appear as suggestions.
+/// - Once a full chapter:verse reference is recognized, the verse text is
 ///   auto-fetched from API.Bible and shown as a one-tap "Attach" card.
 private struct VerseReferencePickerView: View {
 
@@ -269,7 +280,7 @@ private struct VerseReferencePickerView: View {
                     } else if isFetching {
                         HStack(spacing: 8) {
                             ProgressView().scaleEffect(0.8)
-                            Text("Looking up verse…")
+                            Text("Looking up verse\u{2026}")
                                 .font(.subheadline)
                                 .foregroundStyle(themeManager.currentTheme.textSecondary)
                         }
@@ -284,7 +295,12 @@ private struct VerseReferencePickerView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") { dismiss() }
+                    Button("Cancel") {
+                        // Clear so onDismiss doesn't add a verse
+                        verseRef  = ""
+                        verseText = ""
+                        dismiss()
+                    }
                         .foregroundStyle(themeManager.currentTheme.textSecondary)
                 }
                 ToolbarItem(placement: .topBarTrailing) {

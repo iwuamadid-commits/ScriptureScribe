@@ -103,8 +103,14 @@ struct PrayerFeedView: View {
                     PrayerCommentsView(request: req, currentUser: authVM.currentUser)
                 }
                 .sheet(item: $editingRequest) { req in
-                    EditTextSheet(title: "Edit Prayer Request", originalText: req.text) { newText in
-                        Task { await vm.editRequest(req, newText: newText) }
+                    if AdminManager.isAdmin(authVM.currentUserID) {
+                        AdminEditTextSheet(title: "Edit Prayer Request", originalText: req.text, originalDisplayName: req.displayName) { text, displayName in
+                            Task { await vm.adminEditRequest(req, text: text, displayName: displayName) }
+                        }
+                    } else {
+                        EditTextSheet(title: "Edit Prayer Request", originalText: req.text) { newText in
+                            Task { await vm.editRequest(req, newText: newText) }
+                        }
                     }
                 }
 

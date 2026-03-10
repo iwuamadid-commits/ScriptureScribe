@@ -64,30 +64,35 @@ struct PostCardView: View {
                 Spacer()
             }
 
-            // ── Verse reference — tappable link to the Reader ─────────
+            // ── Verse references — tappable links to the Reader ─────────
             if !post.verseRef.isEmpty {
-                Button {
-                    if let chId = BibleReferenceParser.chapterId(from: post.verseRef) {
-                        appNav.pendingVerseNumber = BibleReferenceParser.verseNumber(from: post.verseRef)
-                        appNav.pendingChapterId   = chId
-                        appNav.selectedTab        = 0
+                let refs = post.verseRef.components(separatedBy: "; ").filter { !$0.isEmpty }
+                WrappingHStack(spacing: 6) {
+                    ForEach(refs, id: \.self) { ref in
+                        Button {
+                            if let chId = BibleReferenceParser.chapterId(from: ref) {
+                                appNav.pendingVerseNumber = BibleReferenceParser.verseNumber(from: ref)
+                                appNav.pendingChapterId   = chId
+                                appNav.selectedTab        = 0
+                            }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "book.closed.fill")
+                                    .font(.caption)
+                                Text(ref)
+                                    .font(.caption.weight(.medium))
+                                Image(systemName: "arrow.up.right")
+                                    .font(.system(size: 9, weight: .semibold))
+                            }
+                            .foregroundStyle(themeManager.currentTheme.primary)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(themeManager.currentTheme.primary.opacity(0.08))
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                        .buttonStyle(.plain)
                     }
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "book.closed.fill")
-                            .font(.caption)
-                        Text(post.verseRef)
-                            .font(.caption.weight(.medium))
-                        Image(systemName: "arrow.up.right")
-                            .font(.system(size: 9, weight: .semibold))
-                    }
-                    .foregroundStyle(themeManager.currentTheme.primary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(themeManager.currentTheme.primary.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
-                .buttonStyle(.plain)
             }
 
             // ── Verse text (optional) ─────────────────────────────────
@@ -174,7 +179,7 @@ struct PostCardView: View {
             ShareLink(item: postShareText) {
                 Label("Share Post", systemImage: "square.and.arrow.up")
             }
-            if currentUserId == post.userId {
+            if currentUserId == post.userId || AdminManager.isAdmin(currentUserId) {
                 Button { onEdit() } label: {
                     Label("Edit Post", systemImage: "pencil")
                 }

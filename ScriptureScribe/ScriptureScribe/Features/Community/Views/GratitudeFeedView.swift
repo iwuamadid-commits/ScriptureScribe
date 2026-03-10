@@ -117,8 +117,14 @@ struct GratitudeFeedView: View {
                     GratitudeCommentsView(post: post, currentUser: authVM.currentUser)
                 }
                 .sheet(item: $editingPost) { post in
-                    EditTextSheet(title: "Edit Post", originalText: post.text) { newText in
-                        Task { await vm.editPost(post, newText: newText) }
+                    if AdminManager.isAdmin(authVM.currentUserID) {
+                        AdminEditTextSheet(title: "Edit Gratitude Post", originalText: post.text, originalDisplayName: post.displayName) { text, displayName in
+                            Task { await vm.adminEditPost(post, text: text, displayName: displayName) }
+                        }
+                    } else {
+                        EditTextSheet(title: "Edit Post", originalText: post.text) { newText in
+                            Task { await vm.editPost(post, newText: newText) }
+                        }
                     }
                 }
 

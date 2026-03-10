@@ -152,7 +152,7 @@ struct GratitudeCardView: View {
             ShareLink(item: shareText) {
                 Label("Share Post", systemImage: "square.and.arrow.up")
             }
-            if currentUserId == post.userId {
+            if currentUserId == post.userId || AdminManager.isAdmin(currentUserId) {
                 Button { onEdit() } label: {
                     Label("Edit Post", systemImage: "pencil")
                 }

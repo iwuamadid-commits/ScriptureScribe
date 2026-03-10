@@ -135,7 +135,7 @@ struct DailyAnswerCardView: View {
             ShareLink(item: shareText) {
                 Label("Share Answer", systemImage: "square.and.arrow.up")
             }
-            if currentUserId == answer.userId {
+            if currentUserId == answer.userId || AdminManager.isAdmin(currentUserId) {
                 Button { onEdit() } label: {
                     Label("Edit Answer", systemImage: "pencil")
                 }

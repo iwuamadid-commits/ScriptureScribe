@@ -29,6 +29,13 @@ final class SubscriptionViewModel: ObservableObject {
 
     // MARK: - Init
 
+    /// Set the signed-in user's ID so admins get automatic premium access.
+    func configureForUser(_ userId: String?) {
+        if AdminManager.isAdmin(userId) {
+            updatePremiumStatus(true)
+        }
+    }
+
     init() {
         #if DEBUG
         isPremium = true

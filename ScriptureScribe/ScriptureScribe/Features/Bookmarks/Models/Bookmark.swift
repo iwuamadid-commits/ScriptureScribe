@@ -23,10 +23,10 @@ struct Bookmark: Identifiable, Codable {
     var verseText:        String   // the verse text (combined for selected verses only), or "" for chapter
     var colorHex:         String   // e.g. "FF5733" — the ribbon color the user chose
     var emoji:            String   // e.g. "⭐" — the emoji the user chose
-    var groupId:          String?  // nil = ungrouped; set to a BookmarkGroup.id when assigned
+    var groupIds:         [String] // empty = ungrouped; contains BookmarkGroup.id values when assigned
     let createdAt:        Date
 
-    // Custom init so callers can omit verseId/verseIdEnd/verseText/groupId (all default to "" or nil)
+    // Custom init so callers can omit verseId/verseIdEnd/verseText/groupIds (all default to "" or [])
     init(
         id:               String   = UUID().uuidString,
         bibleId:          String,
@@ -39,7 +39,7 @@ struct Bookmark: Identifiable, Codable {
         verseText:        String   = "",
         colorHex:         String,
         emoji:            String,
-        groupId:          String?  = nil,
+        groupIds:         [String] = [],
         createdAt:        Date
     ) {
         self.id               = id
@@ -53,7 +53,7 @@ struct Bookmark: Identifiable, Codable {
         self.verseText        = verseText
         self.colorHex         = colorHex
         self.emoji            = emoji
-        self.groupId          = groupId
+        self.groupIds         = groupIds
         self.createdAt        = createdAt
     }
 
@@ -61,7 +61,7 @@ struct Bookmark: Identifiable, Codable {
     enum CodingKeys: String, CodingKey {
         case id, bibleId, bookId, chapterId, chapterReference
         case verseId, verseIdEnd, verseNumbers, verseText
-        case colorHex, emoji, groupId, createdAt
+        case colorHex, emoji, groupId, groupIds, createdAt
     }
 
     init(from decoder: Decoder) throws {
@@ -76,8 +76,16 @@ struct Bookmark: Identifiable, Codable {
         verseText        = try  c.decode(String.self,    forKey: .verseText)
         colorHex         = try  c.decode(String.self,    forKey: .colorHex)
         emoji            = try  c.decode(String.self,    forKey: .emoji)
-        groupId          = try? c.decode(String.self,    forKey: .groupId)
         createdAt        = try  c.decode(Date.self,      forKey: .createdAt)
+
+        // Backward compat: migrate old single groupId to groupIds array
+        if let ids = try? c.decode([String].self, forKey: .groupIds), !ids.isEmpty {
+            groupIds = ids
+        } else if let singleId = try? c.decode(String.self, forKey: .groupId), !singleId.isEmpty {
+            groupIds = [singleId]
+        } else {
+            groupIds = []
+        }
 
         // Backward compat: reconstruct verseNumbers from verseId/verseIdEnd if missing
         if let nums = try? c.decode([String].self, forKey: .verseNumbers), !nums.isEmpty {
@@ -91,6 +99,23 @@ struct Bookmark: Identifiable, Codable {
         } else {
             verseNumbers = []
         }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id,               forKey: .id)
+        try c.encode(bibleId,          forKey: .bibleId)
+        try c.encode(bookId,           forKey: .bookId)
+        try c.encode(chapterId,        forKey: .chapterId)
+        try c.encode(chapterReference, forKey: .chapterReference)
+        try c.encode(verseId,          forKey: .verseId)
+        try c.encode(verseIdEnd,       forKey: .verseIdEnd)
+        try c.encode(verseNumbers,     forKey: .verseNumbers)
+        try c.encode(verseText,        forKey: .verseText)
+        try c.encode(colorHex,         forKey: .colorHex)
+        try c.encode(emoji,            forKey: .emoji)
+        try c.encode(groupIds,         forKey: .groupIds)
+        try c.encode(createdAt,        forKey: .createdAt)
     }
 
     /// The verse numbers to highlight when navigating to this bookmark in the reader.

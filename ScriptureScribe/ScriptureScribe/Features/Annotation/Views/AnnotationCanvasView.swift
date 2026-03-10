@@ -76,9 +76,6 @@ final class PassThroughPKCanvasView: PKCanvasView {
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         // Hand mode: pass ALL touches through the canvas.
-        // Pencil → scroll view handles scrolling
-        // Finger swipe → scroll view handles scrolling
-        // Finger long-press → BibleTextView handles bookmarking
         if !isDrawingToolActive && !isLassoActive {
             return nil
         }
@@ -89,7 +86,8 @@ final class PassThroughPKCanvasView: PKCanvasView {
         }
 
         // Pencil-only drawing or lasso mode:
-        // accept pencil, pass finger through for bookmarking
+        // Accept pencil touches for drawing, pass finger touches through
+        // so the user can scroll the page with their finger.
         if let touches = event?.allTouches, !touches.isEmpty {
             let allArePencil = touches.allSatisfy { $0.type == .pencil }
             if !allArePencil { return nil }
@@ -132,6 +130,11 @@ struct AnnotationCanvasView: UIViewRepresentable {
             canvas.maximumZoomScale = 1.0
             canvas.bouncesZoom      = false
         }
+
+        // Apple Pencil double-tap → toggle eraser
+        let pencilInteraction = UIPencilInteraction()
+        pencilInteraction.delegate = context.coordinator
+        canvas.addInteraction(pencilInteraction)
 
         context.coordinator.canvas               = canvas
         context.coordinator.currentChapterId     = chapterId
@@ -176,12 +179,22 @@ struct AnnotationCanvasView: UIViewRepresentable {
 
         context.coordinator.currentChapterRef = chapterReference
 
-        // Chapter changed → save old drawing, load new
+        // Chapter changed → save old drawing, clear canvas, load new
         if context.coordinator.currentChapterId != chapterId {
             let oldId = context.coordinator.currentChapterId
             if !oldId.isEmpty && !canvas.drawing.strokes.isEmpty {
                 vm.saveDrawing(canvas.drawing, for: oldId)
             }
+
+            // Reset PencilKit's built-in undo manager so strokes from the
+            // previous chapter can never be restored via three-finger swipe,
+            // shake, or the undo toolbar button.
+            canvas.undoManager?.removeAllActions()
+
+            // Clear the canvas immediately so old strokes never appear on the new chapter
+            context.coordinator.isRewriting = true
+            canvas.drawing = PKDrawing()
+            context.coordinator.isRewriting = false
 
             context.coordinator.currentChapterId = chapterId
             vm.currentChapterId = chapterId
@@ -191,6 +204,10 @@ struct AnnotationCanvasView: UIViewRepresentable {
             canvas.drawing = newDrawing
             context.coordinator.isRewriting = false
             context.coordinator.previousStrokeCount = newDrawing.strokes.count
+
+            // Clear lasso undo/redo stacks so operations from the old chapter
+            // cannot be restored on the new page.
+            vm.clearUndoStacks()
 
             context.coordinator.lastContainerWidth = containerWidth
         }
@@ -202,7 +219,10 @@ struct AnnotationCanvasView: UIViewRepresentable {
             let scale     = containerWidth / previousWidth
             let transform = CGAffineTransform(scaleX: scale, y: scale)
             let scaled    = canvas.drawing.transformed(using: transform)
+            context.coordinator.isRewriting = true
             canvas.drawing = scaled
+            context.coordinator.isRewriting = false
+            context.coordinator.previousStrokeCount = scaled.strokes.count
             // Only persist if there is actual content — avoids creating empty files
             // that would falsely trigger the annotation indicator dot.
             if !scaled.strokes.isEmpty {
@@ -243,7 +263,7 @@ struct AnnotationCanvasView: UIViewRepresentable {
 
     // MARK: - Coordinator
 
-    class Coordinator: NSObject, PKCanvasViewDelegate {
+    class Coordinator: NSObject, PKCanvasViewDelegate, UIPencilInteractionDelegate {
         let vm: AnnotationViewModel
         var currentChapterId  = ""
         var currentChapterRef = ""
@@ -255,6 +275,14 @@ struct AnnotationCanvasView: UIViewRepresentable {
         private var ocrTimer:    Timer?
 
         init(vm: AnnotationViewModel) { self.vm = vm }
+
+        // MARK: Apple Pencil double-tap
+
+        func pencilInteractionDidTap(_ interaction: UIPencilInteraction) {
+            DispatchQueue.main.async { [weak self] in
+                self?.vm.handlePencilDoubleTap()
+            }
+        }
 
         // MARK: Drawing delegate
 

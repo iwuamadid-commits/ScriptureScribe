@@ -101,6 +101,16 @@ final class FirestoreService {
         try await db.collection("posts").document(postId).updateData(["text": text])
     }
 
+    /// Admin: update multiple fields on a post (text, verse, display name).
+    func updatePostFields(postId: String, fields: [String: Any]) async throws {
+        try await db.collection("posts").document(postId).updateData(fields)
+    }
+
+    /// Admin: update a user's display name in their profile document.
+    func updateUserDisplayName(userId: String, displayName: String) async throws {
+        try await db.collection("users").document(userId).updateData(["displayName": displayName])
+    }
+
     private func decodePost(_ doc: DocumentSnapshot) -> Post? {
         guard let data = doc.data() else { return nil }
         return Post(
@@ -247,7 +257,7 @@ final class FirestoreService {
             "emoji":            bookmark.emoji,
             "createdAt":        Timestamp(date: bookmark.createdAt)
         ]
-        if let groupId = bookmark.groupId { data["groupId"] = groupId }
+        if !bookmark.groupIds.isEmpty { data["groupIds"] = bookmark.groupIds }
         try await ref.setData(data)
     }
 
@@ -277,7 +287,12 @@ final class FirestoreService {
             verseText:        data["verseText"]         as? String ?? "",
             colorHex:         data["colorHex"]          as? String ?? "F5C842",
             emoji:            data["emoji"]             as? String ?? "⭐",
-            groupId:          data["groupId"]           as? String,
+            groupIds: {
+                // Backward compat: try groupIds array first, then fall back to single groupId
+                if let ids = data["groupIds"] as? [String], !ids.isEmpty { return ids }
+                if let single = data["groupId"] as? String, !single.isEmpty { return [single] }
+                return []
+            }(),
             createdAt:        (data["createdAt"] as? Timestamp)?.dateValue() ?? Date()
         )
     }
@@ -353,6 +368,10 @@ final class FirestoreService {
 
     func updateGratitudePost(id: String, text: String) async throws {
         try await db.collection("gratitudePosts").document(id).updateData(["text": text])
+    }
+
+    func updateGratitudePostFields(id: String, fields: [String: Any]) async throws {
+        try await db.collection("gratitudePosts").document(id).updateData(fields)
     }
 
     private func decodeGratitudePost(_ doc: DocumentSnapshot) -> GratitudePost? {
@@ -459,6 +478,10 @@ final class FirestoreService {
 
     func updatePrayerRequest(id: String, text: String) async throws {
         try await db.collection("prayerRequests").document(id).updateData(["text": text])
+    }
+
+    func updatePrayerRequestFields(id: String, fields: [String: Any]) async throws {
+        try await db.collection("prayerRequests").document(id).updateData(fields)
     }
 
     /// Adds or removes the user's 🙏 on a prayer request and adjusts the count.
@@ -568,6 +591,10 @@ final class FirestoreService {
 
     func updateDailyAnswer(id: String, text: String) async throws {
         try await db.collection("dailyAnswers").document(id).updateData(["text": text])
+    }
+
+    func updateDailyAnswerFields(id: String, fields: [String: Any]) async throws {
+        try await db.collection("dailyAnswers").document(id).updateData(fields)
     }
 
     /// Adds or removes the current user's ♥ like on a daily answer.

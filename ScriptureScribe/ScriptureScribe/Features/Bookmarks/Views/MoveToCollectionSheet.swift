@@ -2,9 +2,10 @@
 //  MoveToCollectionSheet.swift
 //  ScriptureScribe
 //
-//  Sheet for moving a bookmark to a different collection, or removing
-//  it from its current collection.  Reuses the same "New collection"
-//  inline creation flow as BookmarkPickerView.
+//  Sheet for managing which collections a bookmark belongs to.
+//  Supports multiple group membership — user can toggle groups on/off.
+//  Also supports moving from one group to another when accessed from
+//  a specific collection context.
 //
 
 import SwiftUI
@@ -12,12 +13,19 @@ import SwiftUI
 struct MoveToCollectionSheet: View {
 
     let bookmark: Bookmark
+    /// When set, the sheet is opened from a specific collection context (for "Move" action).
+    var fromGroupId: String? = nil
+
     @EnvironmentObject var bookmarksVM: BookmarksViewModel
     @EnvironmentObject var authVM:      AuthViewModel
     @Environment(\.dismiss) private var dismiss
 
     @State private var showCreateGroup = false
-    @State private var didMove         = false
+
+    /// Live bookmark from the VM so changes are reflected immediately.
+    private var currentBookmark: Bookmark {
+        bookmarksVM.bookmarks.first { $0.id == bookmark.id } ?? bookmark
+    }
 
     var body: some View {
         NavigationStack {
@@ -51,7 +59,7 @@ struct MoveToCollectionSheet: View {
 
                 // ── Header ───────────────────────────────────────────────
                 HStack {
-                    Text("Move to Collection")
+                    Text(fromGroupId != nil ? "Move to Collection" : "Collections")
                         .font(.headline)
                     Spacer()
                     Button("New collection") {
@@ -66,10 +74,15 @@ struct MoveToCollectionSheet: View {
                 // ── Collection list ──────────────────────────────────────
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 0) {
-                        // "Remove from collection" row (only if bookmark is in a group)
-                        if bookmark.groupId != nil {
+                        // "Remove from all collections" row
+                        if !currentBookmark.groupIds.isEmpty {
                             Button {
-                                moveBookmark(to: nil)
+                                bookmarksVM.setGroups(
+                                    bookmarkId: bookmark.id,
+                                    groupIds:   [],
+                                    userId:     authVM.currentUserID
+                                )
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { dismiss() }
                             } label: {
                                 HStack(spacing: 14) {
                                     ZStack {
@@ -79,7 +92,7 @@ struct MoveToCollectionSheet: View {
                                         Image(systemName: "folder.badge.minus")
                                             .foregroundStyle(.secondary)
                                     }
-                                    Text("Remove from collection")
+                                    Text("Remove from all collections")
                                         .font(.subheadline.weight(.medium))
                                         .foregroundStyle(.primary)
                                     Spacer()
@@ -92,9 +105,25 @@ struct MoveToCollectionSheet: View {
                         }
 
                         ForEach(bookmarksVM.groups.sorted { $0.createdAt < $1.createdAt }) { group in
-                            let isCurrent = bookmark.groupId == group.id
+                            let isMember = currentBookmark.groupIds.contains(group.id)
                             Button {
-                                if !isCurrent { moveBookmark(to: group.id) }
+                                if let source = fromGroupId {
+                                    // "Move" mode: remove from source, add to target
+                                    bookmarksVM.moveBookmark(
+                                        id:   bookmark.id,
+                                        from: source,
+                                        to:   group.id,
+                                        userId: authVM.currentUserID
+                                    )
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { dismiss() }
+                                } else {
+                                    // Toggle mode: add or remove from this group
+                                    bookmarksVM.toggleGroup(
+                                        bookmarkId: bookmark.id,
+                                        groupId:    group.id,
+                                        userId:     authVM.currentUserID
+                                    )
+                                }
                             } label: {
                                 HStack(spacing: 14) {
                                     ZStack {
@@ -108,13 +137,13 @@ struct MoveToCollectionSheet: View {
                                         Text(group.name)
                                             .font(.subheadline.weight(.medium))
                                             .foregroundStyle(.primary)
-                                        let count = bookmarksVM.bookmarks.filter { $0.groupId == group.id }.count
+                                        let count = bookmarksVM.bookmarks.filter { $0.groupIds.contains(group.id) }.count
                                         Text("\(count) bookmark\(count == 1 ? "" : "s")")
                                             .font(.caption2)
                                             .foregroundStyle(.secondary)
                                     }
                                     Spacer()
-                                    if isCurrent {
+                                    if isMember {
                                         Image(systemName: "checkmark")
                                             .font(.system(size: 14, weight: .semibold))
                                             .foregroundStyle(.blue)
@@ -130,6 +159,22 @@ struct MoveToCollectionSheet: View {
                 }
 
                 Spacer()
+
+                // Done button
+                if fromGroupId == nil {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Text("Done")
+                            .font(.body.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(Color.blue, in: RoundedRectangle(cornerRadius: 12))
+                            .foregroundStyle(.white)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 24)
+                }
             }
             .sheet(isPresented: $showCreateGroup) {
                 CreateGroupSheet(bookmarksVM: bookmarksVM)
@@ -137,17 +182,5 @@ struct MoveToCollectionSheet: View {
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.hidden)
-    }
-
-    // MARK: - Move Action
-
-    private func moveBookmark(to groupId: String?) {
-        bookmarksVM.assignBookmark(
-            id:     bookmark.id,
-            to:     groupId,
-            userId: authVM.currentUserID
-        )
-        didMove = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { dismiss() }
     }
 }

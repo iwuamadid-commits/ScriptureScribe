@@ -93,7 +93,7 @@ final class BookmarksViewModel: ObservableObject {
         verseText:    String   = "",
         colorHex:     String,
         emoji:        String,
-        groupId:      String?  = nil,
+        groupIds:     [String] = [],
         userId:       String?  = nil
     ) {
         // Build the display reference using smart grouping: "Genesis 1: 1-3, 5"
@@ -124,7 +124,7 @@ final class BookmarksViewModel: ObservableObject {
             verseText:        verseText,
             colorHex:         colorHex,
             emoji:            emoji,
-            groupId:          groupId,
+            groupIds:         groupIds,
             createdAt:        Date()
         )
         bookmarks.append(bookmark)
@@ -195,12 +195,12 @@ final class BookmarksViewModel: ObservableObject {
         }
     }
 
-    /// Deletes a group and ungroups any bookmarks that belonged to it.
+    /// Deletes a group and removes it from any bookmarks that belonged to it.
     func deleteGroup(id: String, userId: String? = nil) {
         groups.removeAll { $0.id == id }
-        // Ungroup bookmarks that were in this group
-        for index in bookmarks.indices where bookmarks[index].groupId == id {
-            bookmarks[index].groupId = nil
+        // Remove this group from all bookmarks that reference it
+        for index in bookmarks.indices {
+            bookmarks[index].groupIds.removeAll { $0 == id }
         }
         saveGroups()
         save()
@@ -241,10 +241,39 @@ final class BookmarksViewModel: ObservableObject {
         }
     }
 
-    /// Moves a bookmark into a group, or removes it from all groups when groupId is nil.
-    func assignBookmark(id: String, to groupId: String?, userId: String? = nil) {
+    /// Adds or removes a single group from a bookmark's groupIds.
+    func toggleGroup(bookmarkId: String, groupId: String, userId: String? = nil) {
+        guard let index = bookmarks.firstIndex(where: { $0.id == bookmarkId }) else { return }
+        if bookmarks[index].groupIds.contains(groupId) {
+            bookmarks[index].groupIds.removeAll { $0 == groupId }
+        } else {
+            bookmarks[index].groupIds.append(groupId)
+        }
+        save()
+        if let userId {
+            Task { try? await firestore.saveBookmark(bookmarks[index], userId: userId) }
+        }
+    }
+
+    /// Sets a bookmark's groupIds to the given array.
+    func setGroups(bookmarkId: String, groupIds: [String], userId: String? = nil) {
+        guard let index = bookmarks.firstIndex(where: { $0.id == bookmarkId }) else { return }
+        bookmarks[index].groupIds = groupIds
+        save()
+        if let userId {
+            Task { try? await firestore.saveBookmark(bookmarks[index], userId: userId) }
+        }
+    }
+
+    /// Moves a bookmark from one group to another (removes old, adds new).
+    func moveBookmark(id: String, from oldGroupId: String?, to newGroupId: String?, userId: String? = nil) {
         guard let index = bookmarks.firstIndex(where: { $0.id == id }) else { return }
-        bookmarks[index].groupId = groupId
+        if let old = oldGroupId {
+            bookmarks[index].groupIds.removeAll { $0 == old }
+        }
+        if let new = newGroupId, !bookmarks[index].groupIds.contains(new) {
+            bookmarks[index].groupIds.append(new)
+        }
         save()
         if let userId {
             Task { try? await firestore.saveBookmark(bookmarks[index], userId: userId) }

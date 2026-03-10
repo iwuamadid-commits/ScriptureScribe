@@ -91,6 +91,22 @@ final class CommunityViewModel: ObservableObject {
         }
     }
 
+    /// Admin: update any combination of post fields (text, verseRef, verseText, displayName).
+    func adminEditPost(_ post: Post, text: String, verseRef: String, verseText: String, displayName: String) async {
+        var fields: [String: Any] = [:]
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedText != post.text         { fields["text"]        = trimmedText }
+        if verseRef    != post.verseRef     { fields["verseRef"]    = verseRef }
+        if verseText   != post.verseText    { fields["verseText"]   = verseText }
+        if displayName != post.displayName  { fields["displayName"] = displayName }
+        guard !fields.isEmpty else { return }
+        do {
+            try await firestore.updatePostFields(postId: post.id, fields: fields)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     // MARK: - Delete Post
 
     func deletePost(_ post: Post) async {

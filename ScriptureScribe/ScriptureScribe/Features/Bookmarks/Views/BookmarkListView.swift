@@ -93,7 +93,7 @@ struct BookmarkListView: View {
                 }
 
                 // "Ungrouped" chip (only if there are ungrouped bookmarks)
-                if bookmarksVM.bookmarks.contains(where: { $0.groupId == nil }) {
+                if bookmarksVM.bookmarks.contains(where: { $0.groupIds.isEmpty }) {
                     filterChip(label: "Ungrouped", colorHex: "7A8A9A",
                                isSelected: selectedGroupFilter == "") {
                         selectedGroupFilter = ""
@@ -198,14 +198,14 @@ struct BookmarkListView: View {
         guard let filter = selectedGroupFilter else { return sorted }
         if filter.isEmpty {
             // Show ungrouped
-            return sorted.filter { $0.groupId == nil }
+            return sorted.filter { $0.groupIds.isEmpty }
         } else {
-            return sorted.filter { $0.groupId == filter }
+            return sorted.filter { $0.groupIds.contains(filter) }
         }
     }
 
     private func group(for bookmark: Bookmark) -> BookmarkGroup? {
-        guard let gid = bookmark.groupId else { return nil }
+        guard let gid = bookmark.groupIds.first else { return nil }
         return bookmarksVM.groups.first { $0.id == gid }
     }
 }
@@ -417,7 +417,7 @@ struct BookmarkDetailView: View {
     }
 
     private var currentGroup: BookmarkGroup? {
-        guard let gid = currentBookmark.groupId else { return nil }
+        guard let gid = currentBookmark.groupIds.first else { return nil }
         return bookmarksVM.groups.first { $0.id == gid }
     }
 

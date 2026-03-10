@@ -191,6 +191,9 @@ final class AnnotationViewModel: ObservableObject {
     // MARK: - Published State
 
     @Published var selectedTool:     DrawingTool  = .hand
+    /// The tool that was active before switching to eraser via Apple Pencil double-tap.
+    /// When non-nil, the next double-tap restores this tool instead of toggling to eraser.
+    var toolBeforePencilEraser:       DrawingTool? = nil
     @Published var eraserType:       EraserType   = .wholeLine
     @Published var eraserSize:       CGFloat      = 15
     @Published var selectedColor:    UIColor      = UIColor(red: 0.36, green: 0.54, blue: 0.42, alpha: 1)
@@ -380,6 +383,14 @@ final class AnnotationViewModel: ObservableObject {
         saveDrawing(drawing, for: currentChapterId)
     }
 
+    /// Clears the lasso undo/redo stacks. Called on chapter change so
+    /// old-chapter operations can't leak onto the new page.
+    func clearUndoStacks() {
+        lassoUndoStack.removeAll()
+        lassoRedoStack.removeAll()
+        preDragSnapshot = nil
+    }
+
     func undo() {
         if let snapshot = lassoUndoStack.popLast() {
             let current = LassoUndoSnapshot(
@@ -483,6 +494,22 @@ final class AnnotationViewModel: ObservableObject {
         strokeWidth              = settings.strokeWidth
         penStyle                 = settings.penStyle
         highlighterStraightLines = settings.straightLines
+    }
+
+    /// Called when the user double-taps Apple Pencil. Toggles between eraser and
+    /// the previous drawing tool.
+    func handlePencilDoubleTap() {
+        if selectedTool == .eraser, let previous = toolBeforePencilEraser {
+            // Restore previous tool
+            selectedTool = previous
+            loadToolSettings(for: previous)
+            toolBeforePencilEraser = nil
+        } else if selectedTool != .eraser {
+            // Switch to eraser, remembering current tool
+            toolBeforePencilEraser = selectedTool
+            selectedTool = .eraser
+            loadToolSettings(for: .eraser)
+        }
     }
 
     /// Save current color/width to the active tool

@@ -130,6 +130,19 @@ final class DailyQuestionViewModel: ObservableObject {
         }
     }
 
+    func adminEditAnswer(_ answer: DailyAnswer, text: String, displayName: String) async {
+        var fields: [String: Any] = [:]
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed != answer.text              { fields["text"]        = trimmed }
+        if displayName != answer.displayName   { fields["displayName"] = displayName }
+        guard !fields.isEmpty else { return }
+        do {
+            try await firestore.updateDailyAnswerFields(id: answer.id, fields: fields)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     // MARK: - Delete Answer
 
     func deleteAnswer(_ answer: DailyAnswer) async {

@@ -49,8 +49,6 @@ struct ReaderView: View {
     @StateObject private var vm           = ReaderViewModel()
     @StateObject private var annotationVM = AnnotationViewModel()
     @EnvironmentObject var streakVM:       StreakViewModel
-    @StateObject private var audioVM      = AudioPlayerViewModel()
-
     @EnvironmentObject var themeManager:   ThemeManager
     @EnvironmentObject var appNav:        AppNavigation
     @EnvironmentObject var bookmarksVM:   BookmarksViewModel
@@ -80,9 +78,6 @@ struct ReaderView: View {
     @State private var navIndicatorY:          CGFloat?    = nil
     /// 0–1 opacity of the gold accent bar that renders above the annotation canvas.
     @State private var navIndicatorOpacity:    Double      = 0
-    /// Last verse number that triggered an audio auto-scroll (prevents duplicates).
-    @State private var lastAudioVerse:         String      = ""
-
     // ── Chapter transition ────────────────────────────────────────────────────
     /// Fades the content area out when a chapter switch starts and back in when
     /// new content arrives. Avoids the double-render choppiness caused by .id().
@@ -174,12 +169,6 @@ struct ReaderView: View {
                     }
                 }
 
-                // Audio player bar — slides up from the bottom when active
-                if audioVM.isVisible {
-                    Divider()
-                    AudioPlayerView(audioVM: audioVM)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
             }
             .navigationTitle(vm.selectedChapter?.reference ?? "Scripture Scribe")
             .navigationBarTitleDisplayMode(.inline)
@@ -196,7 +185,7 @@ struct ReaderView: View {
                     chapterReference: data.displayReference,
                     verseText:        data.verseText,
                     isAlreadyBookmarked: false,
-                    onSave: { colorHex, emoji, groupId in
+                    onSave: { colorHex, emoji, groupIds in
                         guard
                             let chapter = vm.selectedChapter,
                             let bible   = vm.selectedTranslation,
@@ -210,7 +199,7 @@ struct ReaderView: View {
                             verseText:    data.verseText,
                             colorHex:     colorHex,
                             emoji:        emoji,
-                            groupId:      groupId
+                            groupIds:     groupIds
                         )
                     },
                     onRemove: {
@@ -284,7 +273,6 @@ struct ReaderView: View {
                         contentOpacity = 1
                     }
                     isSwipeTransitioning = false
-                    scheduleAudioForNewChapter(delay: 1.2)
                 }
                 return
             }
@@ -371,7 +359,6 @@ struct ReaderView: View {
                     // The user sees the chapter appear and glide down to the target verse.
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                         withAnimation(.easeIn(duration: 0.25)) { contentOpacity = 1 }
-                        scheduleAudioForNewChapter(delay: 1.2)
                     }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
                         verseScrollOffset = estimatedY          // 1.0 s UIView.animate scroll
@@ -396,7 +383,6 @@ struct ReaderView: View {
                     // Target verse not found in parsed content — just fade in at top.
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                         withAnimation(.easeIn(duration: 0.3)) { contentOpacity = 1 }
-                        scheduleAudioForNewChapter(delay: 1.2)
                     }
                 }
             } else {
@@ -409,7 +395,6 @@ struct ReaderView: View {
                 scrollViewReset += 1
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                     withAnimation(.easeIn(duration: 0.3)) { contentOpacity = 1 }
-                    scheduleAudioForNewChapter(delay: 1.2)
                 }
             }
         }
@@ -441,39 +426,6 @@ struct ReaderView: View {
         .onChange(of: vm.selectedChapter?.id) { _, newId in
             guard let id = newId else { return }
             annotationVM.loadPhotoAnnotations(for: id)
-        }
-        // Stop the old chapter's audio immediately when new content arrives,
-        // then schedule the new chapter's audio after the slide-in animation settles.
-        .onChange(of: vm.chapterContent?.id) { _, _ in
-            lastAudioVerse = ""
-            if audioVM.isVisible {
-                audioVM.pauseForChapterChange()
-            }
-        }
-        // When the user switches translations, reload audio so it reads the new text.
-        .onChange(of: vm.selectedTranslation?.id) { _, _ in
-            guard audioVM.isVisible, let content = vm.chapterContent else { return }
-            audioVM.openPlayer(
-                for: content.id,
-                text: content.textContent,
-                bibleId: vm.selectedTranslation?.id ?? "",
-                reference: vm.selectedChapter?.reference ?? ""
-            )
-        }
-        // Auto-scroll the reader to follow the currently-playing verse.
-        .onChange(of: audioVM.currentVerseNumber) { _, newVerse in
-            guard audioVM.isPlaying,
-                  !newVerse.isEmpty,
-                  newVerse != lastAudioVerse,
-                  let content = vm.chapterContent else { return }
-            lastAudioVerse = newVerse
-            autoScrollToVerse(newVerse, in: content)
-        }
-        // Audiobook auto-advance: when a chapter finishes naturally, go to the next chapter.
-        .onChange(of: audioVM.chapterDidFinish) { _, finished in
-            guard finished else { return }
-            audioVM.chapterDidFinish = false
-            Task { await vm.goToNextChapter() }
         }
         // Handle a photo the user just picked from the toolbar.
         .onChange(of: annotationVM.pendingPhoto) { _, image in
@@ -508,9 +460,9 @@ struct ReaderView: View {
             .simultaneousGesture(canSwipePages ? swipeGesture : nil)
     }
 
-    /// True when horizontal swipe-to-turn is allowed (not during finger drawing or lasso).
+    /// True when horizontal swipe-to-turn is allowed (not during any drawing tool or lasso).
     private var canSwipePages: Bool {
-        !((annotationVM.isDrawingTool && annotationVM.allowFingerDrawing) || annotationVM.isLassoActive)
+        !(annotationVM.isDrawingTool || annotationVM.isLassoActive)
     }
 
     /// Peeking chapter number on the edge during a swipe drag (e.g. "14" on the right).
@@ -577,8 +529,6 @@ struct ReaderView: View {
                 ZoomScrollView(
                     minScale:            0.5,
                     maxScale:            4.0,
-                    // Only lock scrolling when drawing AND finger input is on.
-                    // When finger is off, the finger should always be free to scroll.
                     isScrollingDisabled:  (annotationVM.isDrawingTool && annotationVM.allowFingerDrawing) || annotationVM.isLassoActive,
                     isContentInteractive: annotationVM.selectedTool != .hand,
                     scrollToOffset:      $verseScrollOffset,
@@ -613,14 +563,7 @@ struct ReaderView: View {
                                     chapterRef:   vm.selectedChapter?.reference ?? ""
                                 )
                             },
-                            onTapVerse: audioVM.isVisible
-                                ? { verseNumber in
-                                      if !audioVM.isPlaying { audioVM.play() }
-                                      audioVM.seekToVerse(verseNumber)
-                                  }
-                                : nil,
-                            highlightedVerses: highlightedVerses,
-                            playingVerse:      audioVM.currentVerseNumber
+                            highlightedVerses: highlightedVerses
                         )
                         .frame(width: bibleWidth)
                         .background(
@@ -778,7 +721,7 @@ struct ReaderView: View {
             ZoomScrollView(
                 minScale:            0.5,
                 maxScale:            4.0,
-                isScrollingDisabled:  (annotationVM.isDrawingTool && annotationVM.allowFingerDrawing) || annotationVM.isLassoActive,
+                isScrollingDisabled:  annotationVM.isDrawingTool || annotationVM.isLassoActive,
                 isContentInteractive: annotationVM.selectedTool != .hand,
                 scrollToOffset:      $verseScrollOffset,
                 resetTrigger:        scrollViewReset,
@@ -801,14 +744,7 @@ struct ReaderView: View {
                                 chapterRef:   vm.selectedChapter?.reference ?? ""
                             )
                         },
-                        onTapVerse: audioVM.isVisible
-                            ? { verseNumber in
-                                  if !audioVM.isPlaying { audioVM.play() }
-                                  audioVM.seekToVerse(verseNumber)
-                              }
-                            : nil,
-                        highlightedVerses: highlightedVerses,
-                        playingVerse:      audioVM.currentVerseNumber
+                        highlightedVerses: highlightedVerses
                     )
                     .background(
                         GeometryReader { g in
@@ -974,38 +910,8 @@ struct ReaderView: View {
             }
         }
 
-        // Right: audio button + more menu
+        // Right: more menu
         ToolbarItemGroup(placement: .topBarTrailing) {
-
-            // Headphones — opens / closes the audio player (premium only)
-            Button {
-                guard subscriptionVM.isPremium else {
-                    showPaywall = true
-                    return
-                }
-                withAnimation(.easeInOut(duration: 0.25)) {
-                    if audioVM.isVisible {
-                        audioVM.closePlayer()
-                    } else if let content = vm.chapterContent {
-                        audioVM.openPlayer(
-                            for: content.id,
-                            text: content.textContent,
-                            bibleId: vm.selectedTranslation?.id ?? "",
-                            reference: vm.selectedChapter?.reference ?? ""
-                        )
-                    }
-                }
-            } label: {
-                HStack(spacing: 2) {
-                    Image(systemName: audioVM.isVisible ? "speaker.wave.2.fill" : "speaker.wave.2")
-                    if !subscriptionVM.isPremium {
-                        Image(systemName: "lock.fill")
-                            .font(.caption2)
-                    }
-                }
-                .foregroundStyle(themeManager.currentTheme.primary)
-            }
-            .disabled(vm.chapterContent == nil)
 
             // Search — opens SearchView as a sheet
             Button { showSearch = true } label: {
@@ -1125,29 +1031,6 @@ struct ReaderView: View {
             }
         }
 
-    // MARK: - Audio After Chapter Load
-
-    /// Starts audio for the current chapter after the given delay (seconds).
-    /// Guards against stale calls if the user switches chapters again before the delay fires.
-    private func scheduleAudioForNewChapter(delay: Double) {
-        guard audioVM.isVisible, let content = vm.chapterContent else { return }
-        let chapterId = content.id
-        let text      = content.textContent
-        let bibleId   = vm.selectedTranslation?.id ?? ""
-        let reference = vm.selectedChapter?.reference ?? ""
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-            guard vm.chapterContent?.id == chapterId else { return }
-            withAnimation {
-                audioVM.openPlayer(
-                    for: chapterId,
-                    text: text,
-                    bibleId: bibleId,
-                    reference: reference
-                )
-            }
-        }
-    }
-
     // MARK: - Swipe to Turn Pages
 
     /// Maximum distance (pts) the content shifts during a swipe peek.
@@ -1240,48 +1123,6 @@ struct ReaderView: View {
         return vm.chapters[idx - 1].number
     }
 
-    // MARK: - Audio Auto-Scroll
-
-    /// Smoothly scrolls the reader to the Y position of the given verse number.
-    /// Reuses the same NSString.boundingRect measurement as deep-link navigation.
-    private func autoScrollToVerse(_ target: String, in content: BibleChapterContent) {
-        let verses = BibleTextView.parseVerses(from: content.textContent)
-        guard let idx = verses.firstIndex(where: { $0.number == target }) else { return }
-
-        let screenW    = UIScreen.main.bounds.width
-        let effectiveW = annotationVM.layoutMode == .splitView
-            ? floor(screenW * 0.60) : screenW
-        let textAreaW  = effectiveW - 68   // 20 leading + 22 verse# + 6 gap + 20 trailing
-
-        let uiFont: UIFont = {
-            switch vm.fontChoice {
-            case "Georgia":     return UIFont(name: "Georgia",        size: vm.fontSize) ?? .systemFont(ofSize: vm.fontSize)
-            case "Palatino":    return UIFont(name: "Palatino-Roman", size: vm.fontSize) ?? .systemFont(ofSize: vm.fontSize)
-            case "Baskerville": return UIFont(name: "Baskerville",    size: vm.fontSize) ?? .systemFont(ofSize: vm.fontSize)
-            default:            return .systemFont(ofSize: vm.fontSize)
-            }
-        }()
-        let fontLineH = uiFont.lineHeight
-
-        // For the first verse, scroll to absolute top so the chapter title stays visible.
-        // For later verses, offset by the chapter heading height (64pt).
-        var estimatedY: CGFloat = idx == 0 ? 0 : 64
-        for i in 0..<idx {
-            if verses[i].number == "§" {
-                estimatedY += 34
-            } else {
-                let r = (verses[i].text as NSString).boundingRect(
-                    with: CGSize(width: textAreaW, height: .greatestFiniteMagnitude),
-                    options: [.usesLineFragmentOrigin, .usesFontLeading],
-                    attributes: [.font: uiFont], context: nil)
-                let textH    = ceil(r.height)
-                let numLines = max(1, round(textH / fontLineH))
-                estimatedY  += textH + max(0, numLines - 1) * vm.lineSpacing + 8
-            }
-        }
-        // Set directly — no scroll-to-top reset needed (unlike deep-link navigation)
-        verseScrollOffset = estimatedY
-    }
 }
 
 // MARK: - Photo Annotation Overlay

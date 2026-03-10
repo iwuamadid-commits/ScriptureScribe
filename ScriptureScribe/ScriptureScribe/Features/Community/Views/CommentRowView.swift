@@ -134,7 +134,7 @@ struct CommentRowView: View {
             ShareLink(item: shareText) {
                 Label("Share Reply", systemImage: "square.and.arrow.up")
             }
-            if currentUserId == comment.userId {
+            if currentUserId == comment.userId || AdminManager.isAdmin(currentUserId) {
                 Button { onEdit() } label: {
                     Label("Edit Reply", systemImage: "pencil")
                 }

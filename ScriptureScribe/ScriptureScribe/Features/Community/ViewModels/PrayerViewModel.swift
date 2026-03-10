@@ -77,6 +77,19 @@ final class PrayerViewModel: ObservableObject {
         }
     }
 
+    func adminEditRequest(_ request: PrayerRequest, text: String, displayName: String) async {
+        var fields: [String: Any] = [:]
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed != request.text              { fields["text"]        = trimmed }
+        if displayName != request.displayName   { fields["displayName"] = displayName }
+        guard !fields.isEmpty else { return }
+        do {
+            try await firestore.updatePrayerRequestFields(id: request.id, fields: fields)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     // MARK: - Delete Request
 
     func deleteRequest(_ request: PrayerRequest) async {

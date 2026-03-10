@@ -153,7 +153,7 @@ struct PrayerCardView: View {
             ShareLink(item: shareText) {
                 Label("Share Request", systemImage: "square.and.arrow.up")
             }
-            if currentUser?.id == request.userId {
+            if currentUser?.id == request.userId || AdminManager.isAdmin(currentUser?.id) {
                 Button { onEdit() } label: {
                     Label("Edit Request", systemImage: "pencil")
                 }

@@ -19,6 +19,13 @@ private enum CollectionDestination: Hashable {
     case ungrouped
 }
 
+// MARK: - Sort Options
+
+enum CollectionSortOrder: String, CaseIterable {
+    case lastAdded    = "Last Added"
+    case alphabetical = "A–Z"
+}
+
 struct SavedView: View {
 
     @EnvironmentObject var themeManager:   ThemeManager
@@ -34,6 +41,8 @@ struct SavedView: View {
     @State private var showManageGroups = false
     @State private var collectionPath: [CollectionDestination] = []
     @State private var showPaywall = false
+    @State private var editingGroup: BookmarkGroup?
+    @State private var sortOrder: CollectionSortOrder = .lastAdded
 
     enum SavedTab: Int, CaseIterable {
         case bookmarks, prayers, devotionals, affirmations
@@ -79,8 +88,28 @@ struct SavedView: View {
             .toolbar {
                 if selectedTab == .bookmarks && collectionPath.isEmpty {
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button { showManageGroups = true } label: {
-                            Image(systemName: "plus")
+                        HStack(spacing: 12) {
+                            // Sort menu
+                            Menu {
+                                ForEach(CollectionSortOrder.allCases, id: \.self) { order in
+                                    Button {
+                                        sortOrder = order
+                                    } label: {
+                                        HStack {
+                                            Text(order.rawValue)
+                                            if sortOrder == order {
+                                                Image(systemName: "checkmark")
+                                            }
+                                        }
+                                    }
+                                }
+                            } label: {
+                                Image(systemName: "arrow.up.arrow.down")
+                            }
+
+                            Button { showManageGroups = true } label: {
+                                Image(systemName: "plus")
+                            }
                         }
                     }
                 }
@@ -99,6 +128,9 @@ struct SavedView: View {
             }
             .sheet(isPresented: $showPaywall) {
                 PaywallView()
+            }
+            .sheet(item: $editingGroup) { group in
+                EditGroupSheet(bookmarksVM: bookmarksVM, group: group)
             }
             .navigationDestination(for: CollectionDestination.self) { dest in
                 collectionDetail(for: dest)
@@ -168,7 +200,7 @@ struct SavedView: View {
 
                         // ── 2-column grid of collection tiles ───────────
                         LazyVGrid(columns: gridColumns, spacing: 14) {
-                            ForEach(allGroups) { group in
+                            ForEach(sortedGroups) { group in
                                 Button {
                                     collectionPath.append(.group(id: group.id))
                                 } label: {
@@ -180,6 +212,18 @@ struct SavedView: View {
                                     )
                                 }
                                 .buttonStyle(.plain)
+                                .contextMenu {
+                                    Button {
+                                        editingGroup = group
+                                    } label: {
+                                        Label("Edit Collection", systemImage: "pencil")
+                                    }
+                                    Button(role: .destructive) {
+                                        bookmarksVM.deleteGroup(id: group.id, userId: authVM.currentUserID)
+                                    } label: {
+                                        Label("Delete Collection", systemImage: "trash")
+                                    }
+                                }
                             }
 
                             // "Ungrouped" tile (only if ungrouped bookmarks exist)
@@ -188,7 +232,7 @@ struct SavedView: View {
                                     collectionPath.append(.ungrouped)
                                 } label: {
                                     collectionTile(
-                                        emoji:    "📌",
+                                        emoji:    "\u{1F4CC}",
                                         name:     "Ungrouped",
                                         colorHex: "7A8A9A",
                                         count:    ungroupedBookmarks.count
@@ -292,6 +336,13 @@ struct SavedView: View {
             }
         }()
 
+        let currentGroupId: String? = {
+            switch destination {
+            case .group(let id): return id
+            default: return nil
+            }
+        }()
+
         List {
             ForEach(bookmarks) { bookmark in
                 Button {
@@ -315,6 +366,18 @@ struct SavedView: View {
                         Label("Move", systemImage: "folder")
                     }
                     .tint(.blue)
+                }
+                .contextMenu {
+                    Button {
+                        movingBookmark = bookmark
+                    } label: {
+                        Label("Move to Collection", systemImage: "folder")
+                    }
+                    Button(role: .destructive) {
+                        bookmarksVM.removeBookmark(id: bookmark.id, userId: authVM.currentUserID)
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
                 }
             }
         }
@@ -341,22 +404,27 @@ struct SavedView: View {
 
     // MARK: - Bookmark Grouping Helpers
 
-    /// All groups (even empty ones), sorted by creation date.
-    private var allGroups: [BookmarkGroup] {
-        bookmarksVM.groups.sorted { $0.createdAt < $1.createdAt }
+    /// All groups sorted by the user's chosen sort order.
+    private var sortedGroups: [BookmarkGroup] {
+        switch sortOrder {
+        case .lastAdded:
+            return bookmarksVM.groups.sorted { $0.createdAt < $1.createdAt }
+        case .alphabetical:
+            return bookmarksVM.groups.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        }
     }
 
     /// Bookmarks in a specific group, sorted newest first.
     private func bookmarksForGroup(_ groupId: String) -> [Bookmark] {
         bookmarksVM.bookmarks
-            .filter { $0.groupId == groupId }
+            .filter { $0.groupIds.contains(groupId) }
             .sorted { $0.createdAt > $1.createdAt }
     }
 
     /// Bookmarks not in any group, sorted newest first.
     private var ungroupedBookmarks: [Bookmark] {
         bookmarksVM.bookmarks
-            .filter { $0.groupId == nil }
+            .filter { $0.groupIds.isEmpty }
             .sorted { $0.createdAt > $1.createdAt }
     }
 

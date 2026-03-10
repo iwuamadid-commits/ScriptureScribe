@@ -264,6 +264,26 @@ struct ProfileView: View {
                             .foregroundStyle(themeManager.currentTheme.textSecondary)
                     }
                     .listRowBackground(themeManager.currentTheme.surface)
+
+                    #if DEBUG
+                    Section {
+                        NavigationLink {
+                            AppStorePreviewGenerator()
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "camera.viewfinder")
+                                    .foregroundStyle(themeManager.currentTheme.primary)
+                                    .frame(width: 24)
+                                Text("App Store Previews")
+                                    .foregroundStyle(themeManager.currentTheme.text)
+                            }
+                        }
+                    } header: {
+                        Text("Developer Tools")
+                            .foregroundStyle(themeManager.currentTheme.textSecondary)
+                    }
+                    .listRowBackground(themeManager.currentTheme.surface)
+                    #endif
                 }
                 .scrollContentBackground(.hidden)
             }

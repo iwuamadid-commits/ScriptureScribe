@@ -101,7 +101,7 @@ struct ManageGroupsView: View {
                             Text(group.name)
                                 .font(.headline)
                                 .foregroundStyle(themeManager.currentTheme.text)
-                            let count = bookmarksVM.bookmarks.filter { $0.groupId == group.id }.count
+                            let count = bookmarksVM.bookmarks.filter { $0.groupIds.contains(group.id) }.count
                             Text("\(count) bookmark\(count == 1 ? "" : "s")")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)

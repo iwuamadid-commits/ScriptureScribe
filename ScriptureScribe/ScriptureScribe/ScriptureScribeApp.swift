@@ -83,6 +83,10 @@ struct ScriptureScribeApp: App {
                 .environmentObject(habitsVM)
                 .environmentObject(subscriptionVM)
                 .environmentObject(streakVM)
+                // Grant admins automatic premium access when they sign in
+                .onChange(of: authViewModel.currentUserID) { _, uid in
+                    subscriptionVM.configureForUser(uid)
+                }
                 // Required for Google Sign-In: handles the redirect after the user picks their account
                 .onOpenURL { url in
                     // Scripture Scribe deep links: scripturescribe://type/id
