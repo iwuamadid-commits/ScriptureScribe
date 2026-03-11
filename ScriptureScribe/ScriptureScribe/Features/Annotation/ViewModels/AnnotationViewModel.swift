@@ -267,13 +267,26 @@ final class AnnotationViewModel: ObservableObject {
         let savedEraserSize = UserDefaults.standard.double(forKey: "ss_eraserSize")
         if savedEraserSize > 0 { eraserSize = CGFloat(savedEraserSize) }
 
+        // ── Restore guidelines ──────────────────────────────────────────
+        showGuidelines = UserDefaults.standard.bool(forKey: "ss_showGuidelines")
+        if let raw  = UserDefaults.standard.string(forKey: "ss_guideSpacing"),
+           let spacing = GuideSpacing(rawValue: raw) {
+            guideSpacing = spacing
+        }
+
         // ── Restore tool settings, saved colors, and favorite sizes ─────
         restoreToolSettings()
         loadSavedColors()
         loadFavoriteSizes()
 
-        // ── Initialize with hand tool (pan/scroll mode by default) ───────
-        loadToolSettings(for: .hand)
+        // ── Restore last-used tool (default to hand if not saved) ───────
+        if let raw  = UserDefaults.standard.string(forKey: "ss_selectedTool"),
+           let tool = DrawingTool(rawValue: raw) {
+            selectedTool = tool
+            loadToolSettings(for: tool)
+        } else {
+            loadToolSettings(for: .hand)
+        }
 
         // ── Seed chaptersWithStrokes from existing drawing files on disk ──
         seedChaptersWithStrokes()
@@ -292,6 +305,21 @@ final class AnnotationViewModel: ObservableObject {
         $eraserSize
             .dropFirst()
             .sink { UserDefaults.standard.set(Double($0), forKey: "ss_eraserSize") }
+            .store(in: &cancellables)
+
+        $selectedTool
+            .dropFirst()
+            .sink { UserDefaults.standard.set($0.rawValue, forKey: "ss_selectedTool") }
+            .store(in: &cancellables)
+
+        $showGuidelines
+            .dropFirst()
+            .sink { UserDefaults.standard.set($0, forKey: "ss_showGuidelines") }
+            .store(in: &cancellables)
+
+        $guideSpacing
+            .dropFirst()
+            .sink { UserDefaults.standard.set($0.rawValue, forKey: "ss_guideSpacing") }
             .store(in: &cancellables)
     }
 

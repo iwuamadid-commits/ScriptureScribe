@@ -150,8 +150,24 @@ struct AnnotationCanvasView: UIViewRepresentable {
         }
 
         let coordinator = context.coordinator
-        vm.undoAction        = { [weak canvas] in canvas?.undoManager?.undo() }
-        vm.redoAction        = { [weak canvas] in canvas?.undoManager?.redo() }
+
+        // Temporarily enable interaction so the canvas joins the responder chain
+        // and exposes its undoManager. Then restore the correct state in updateUIView.
+        // Also briefly become first responder so PencilKit registers its undo manager.
+        canvas.isUserInteractionEnabled = true
+        vm.undoAction = { [weak canvas] in
+            // Briefly enable interaction to access the undo manager if in hand mode
+            let wasEnabled = canvas?.isUserInteractionEnabled ?? true
+            canvas?.isUserInteractionEnabled = true
+            canvas?.undoManager?.undo()
+            canvas?.isUserInteractionEnabled = wasEnabled
+        }
+        vm.redoAction = { [weak canvas] in
+            let wasEnabled = canvas?.isUserInteractionEnabled ?? true
+            canvas?.isUserInteractionEnabled = true
+            canvas?.undoManager?.redo()
+            canvas?.isUserInteractionEnabled = wasEnabled
+        }
         vm.clearCanvasAction = { [weak canvas, weak coordinator] in
             guard let canvas = canvas else { return }
             coordinator?.isRewriting = true
@@ -330,6 +346,17 @@ struct AnnotationCanvasView: UIViewRepresentable {
                 return
             }
 
+            if strokeAdded && vm.selectedTool == .highlighter {
+                // Always normalize the highlighter tip to perfectly vertical,
+                // then optionally straighten the stroke path.
+                if vm.highlighterStraightLines {
+                    straightenLastStroke(in: canvasView)
+                } else {
+                    normalizeHighlighterTip(in: canvasView)
+                }
+                return
+            }
+
             if strokeAdded && vm.highlighterStraightLines {
                 switch vm.selectedTool {
                 case .pen:
@@ -338,9 +365,6 @@ struct AnnotationCanvasView: UIViewRepresentable {
                        snapToShape(in: canvasView) {
                         return
                     }
-                case .highlighter:
-                    straightenLastStroke(in: canvasView)
-                    return
                 default: break
                 }
             }
@@ -401,6 +425,9 @@ struct AnnotationCanvasView: UIViewRepresentable {
 
         // MARK: - Straight-line snapping (highlighter)
 
+        /// Fixed azimuth for a perfectly vertical highlighter tip.
+        private let verticalTipAzimuth: CGFloat = .pi / 2
+
         private func straightenLastStroke(in canvasView: PKCanvasView) {
             let strokes = canvasView.drawing.strokes
             guard let last = strokes.last, last.path.count >= 2 else {
@@ -416,13 +443,48 @@ struct AnnotationCanvasView: UIViewRepresentable {
                                    height: (p0.size.height + p1.size.height) / 2),
                 opacity:    (p0.opacity  + p1.opacity)  / 2,
                 force:      (p0.force    + p1.force)    / 2,
-                azimuth:    (p0.azimuth  + p1.azimuth)  / 2,
+                azimuth:    verticalTipAzimuth,
                 altitude:   (p0.altitude + p1.altitude) / 2
             )
-            let path     = PKStrokePath(controlPoints: [p0, mid, p1],
+            let sp0 = PKStrokePoint(
+                location: p0.location, timeOffset: p0.timeOffset,
+                size: p0.size, opacity: p0.opacity, force: p0.force,
+                azimuth: verticalTipAzimuth, altitude: p0.altitude
+            )
+            let sp1 = PKStrokePoint(
+                location: p1.location, timeOffset: p1.timeOffset,
+                size: p1.size, opacity: p1.opacity, force: p1.force,
+                azimuth: verticalTipAzimuth, altitude: p1.altitude
+            )
+            let path     = PKStrokePath(controlPoints: [sp0, mid, sp1],
                                         creationDate: last.path.creationDate)
             let straight = PKStroke(ink: last.ink, path: path, transform: last.transform)
             rewrite(canvasView: canvasView, replacing: strokes.count - 1, with: straight)
+        }
+
+        /// Rewrites the last stroke with a fixed vertical azimuth on every point,
+        /// keeping the original path shape intact.
+        private func normalizeHighlighterTip(in canvasView: PKCanvasView) {
+            let strokes = canvasView.drawing.strokes
+            guard let last = strokes.last, last.path.count >= 2 else {
+                save(canvasView.drawing); return
+            }
+            let normalized = (0..<last.path.count).map { i -> PKStrokePoint in
+                let pt = last.path[i]
+                return PKStrokePoint(
+                    location:   pt.location,
+                    timeOffset: pt.timeOffset,
+                    size:       pt.size,
+                    opacity:    pt.opacity,
+                    force:      pt.force,
+                    azimuth:    verticalTipAzimuth,
+                    altitude:   pt.altitude
+                )
+            }
+            let path   = PKStrokePath(controlPoints: normalized,
+                                       creationDate: last.path.creationDate)
+            let stroke = PKStroke(ink: last.ink, path: path, transform: last.transform)
+            rewrite(canvasView: canvasView, replacing: strokes.count - 1, with: stroke)
         }
 
         // MARK: - Auto-shape recognition (pen)
@@ -587,7 +649,11 @@ struct AnnotationCanvasView: UIViewRepresentable {
             var strokes = canvasView.drawing.strokes
             guard index < strokes.count else { return }
             strokes[index] = stroke
+            // Undo PencilKit's original stroke registration first, then set the
+            // modified drawing.  This collapses the two actions (add + rewrite)
+            // into a single undoable step so one undo removes the whole stroke.
             isRewriting = true
+            canvasView.undoManager?.undo()
             canvasView.drawing = PKDrawing(strokes: strokes)
             isRewriting = false
             previousStrokeCount = canvasView.drawing.strokes.count

@@ -116,6 +116,13 @@ final class NotesViewModel: ObservableObject {
         }
     }
 
+    /// Updates the width of a note (called when the user resizes it).
+    func updateWidth(id: String, width: Double) {
+        guard let idx = notes.firstIndex(where: { $0.id == id }) else { return }
+        notes[idx].noteWidth = width
+        save()
+    }
+
     /// Permanently removes a note.
     func deleteNote(id: String, userId: String? = nil) {
         notes.removeAll { $0.id == id }

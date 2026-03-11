@@ -36,6 +36,12 @@ struct LassoOverlayView: View {
     @State private var isDragging = false
     @State private var lastDragTranslation: CGSize = .zero
 
+    // Snapshot drag: render strokes as image for lag-free movement
+    @State private var dragSnapshotImage: UIImage?
+    @State private var dragSnapshotBounds: CGRect = .zero
+    @State private var dragTotalDelta: CGSize = .zero
+    @State private var dragOriginalStrokes: [PKStroke] = []
+
     /// Tracks which corner is being dragged for resize.
     @GestureState private var resizeCorner: ResizeCornerDrag = .zero
 
@@ -80,6 +86,16 @@ struct LassoOverlayView: View {
             // Individual dashed outlines for each selected stroke (only when NOT dragging)
             if !isDragging {
                 strokeOutlines
+            }
+
+            // Snapshot image of selected strokes (shown during drag for smooth movement)
+            if isDragging, let snapshot = dragSnapshotImage {
+                Image(uiImage: snapshot)
+                    .position(
+                        x: dragSnapshotBounds.midX + dragTotalDelta.width,
+                        y: dragSnapshotBounds.midY + dragTotalDelta.height
+                    )
+                    .allowsHitTesting(false)
             }
 
             // Invisible drag surface
@@ -284,41 +300,79 @@ struct LassoOverlayView: View {
         }
     }
 
-    // MARK: - Group Drag Gesture (direct movement)
+    // MARK: - Group Drag Gesture (snapshot-based for smooth movement)
 
     private var groupDragGesture: some Gesture {
         DragGesture(minimumDistance: 1)
             .onChanged { value in
-                // First frame: capture state for undo
+                // First frame: snapshot strokes, hide originals, capture undo
                 if !isDragging {
                     isDragging = true
                     annotationVM.captureLassoDragUndo(chapterId: chapterId, notesVM: notesVM)
+
+                    // Snapshot selected strokes as an image for lag-free preview
+                    if let snap = annotationVM.snapshotSelectedStrokes() {
+                        dragSnapshotImage  = snap.image
+                        dragSnapshotBounds = snap.bounds
+
+                        // Capture original strokes before hiding them
+                        if let drawing = annotationVM.getDrawingAction?() {
+                            dragOriginalStrokes = annotationVM.lassoState.selectedStrokeIndices.compactMap {
+                                $0 < drawing.strokes.count ? drawing.strokes[$0] : nil
+                            }
+                        }
+                        annotationVM.hideSelectedStrokesFromCanvas()
+                    }
                 }
 
-                // Move everything incrementally (delta from last frame)
+                // Track total delta for the snapshot image position
+                dragTotalDelta = value.translation
+
+                // Move photos and notes incrementally (they're lightweight SwiftUI views)
                 let increment = CGSize(
                     width:  value.translation.width  - lastDragTranslation.width,
                     height: value.translation.height - lastDragTranslation.height
                 )
                 lastDragTranslation = value.translation
-                annotationVM.moveLassoSelection(
+                annotationVM.movePhotosAndNotes(
                     by:        increment,
                     chapterId: chapterId,
                     notesVM:   notesVM,
-                    areaSize:  areaSize,
-                    persist:   false
+                    areaSize:  areaSize
                 )
+
+                // Move the bounding box to track the drag
+                annotationVM.lassoState.boundingBox = annotationVM.lassoState.boundingBox
+                    .offsetBy(dx: increment.width, dy: increment.height)
             }
             .onEnded { _ in
-                // Persist all positions once
-                annotationVM.persistLassoPositions(chapterId: chapterId, notesVM: notesVM)
+                // Re-add strokes at final position
+                if !dragOriginalStrokes.isEmpty {
+                    annotationVM.restoreStrokesAfterDrag(
+                        originalStrokes: dragOriginalStrokes,
+                        delta: dragTotalDelta,
+                        chapterId: chapterId
+                    )
+                }
 
-                // Commit undo state for the drag operation
+                // Persist photo/note positions
+                if !annotationVM.lassoState.selectedPhotoIds.isEmpty {
+                    annotationVM.savePhotoAnnotations(for: chapterId)
+                }
+                if !annotationVM.lassoState.selectedNoteIds.isEmpty {
+                    notesVM.persistNotes()
+                }
+
+                // Commit undo state
                 annotationVM.commitLassoDragUndo()
 
                 // Reset drag state
-                isDragging = false
+                isDragging          = false
                 lastDragTranslation = .zero
+                dragSnapshotImage   = nil
+                dragSnapshotBounds  = .zero
+                dragTotalDelta      = .zero
+                dragOriginalStrokes = []
             }
     }
 }

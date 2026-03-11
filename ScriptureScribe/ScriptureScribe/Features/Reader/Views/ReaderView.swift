@@ -481,9 +481,12 @@ struct ReaderView: View {
             .simultaneousGesture(canSwipePages ? swipeGesture : nil)
     }
 
-    /// True when horizontal swipe-to-turn is allowed (not during any drawing tool or lasso).
+    /// True when horizontal swipe-to-turn is allowed.
+    /// Only enabled in hand mode — SwiftUI's DragGesture cannot distinguish finger
+    /// from pencil, so enabling swipe during any drawing tool causes the page to shift
+    /// while writing. Users change chapters via the chapter selector row instead.
     private var canSwipePages: Bool {
-        !(annotationVM.isDrawingTool || annotationVM.isLassoActive || annotationVM.selectedPhotoId != nil)
+        annotationVM.selectedTool == .hand
     }
 
     /// Peeking chapter number on the edge during a swipe drag (e.g. "14" on the right).
@@ -619,44 +622,9 @@ struct ReaderView: View {
                         .offset(x: marginOffset)
                         .allowsHitTesting(false)
 
-                        // ── Drawing canvas (spans the full page width) ─────
-                        AnnotationCanvasView(
-                            vm:               annotationVM,
-                            chapterId:        vm.selectedChapter?.id ?? "",
-                            chapterReference: vm.selectedChapter?.reference ?? "",
-                            contentHeight:    contentHeight,
-                            containerWidth:   geo.size.width
-                        )
-                        // Canvas is hit-testable whenever a drawing tool or lasso is active.
-                        // PassThroughPKCanvasView.hitTest handles finger vs pencil,
-                        // so finger long-press for bookmarks still reaches BibleTextView.
-                        .allowsHitTesting(annotationVM.isDrawingTool || annotationVM.isLassoActive)
-
-                        // ── Gold verse accent bar (above annotation canvas) ─
-                        // Renders above PencilKit strokes so it's visible even on
-                        // heavily annotated pages. Fades in/out with the gold flash.
-                        if let iy = navIndicatorY {
-                            Capsule()
-                                .fill(Color(red: 0.85, green: 0.60, blue: 0.10))
-                                .frame(width: 4, height: 36)
-                                .position(x: bibleOffset + 6, y: iy + 18)
-                                .opacity(navIndicatorOpacity)
-                                .allowsHitTesting(false)
-                        }
-
-                        // ── Photo annotations (above canvas so taps reach them) ──
+                        // ── Photo annotations (below canvas so strokes draw on top) ──
                         let splitPhotoId = vm.selectedChapter?.id ?? ""
                         GeometryReader { _ in
-                            // Invisible full-area tap target: deselects any selected photo
-                            Color.clear
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    withAnimation(.spring(duration: 0.2)) {
-                                        annotationVM.selectedPhotoId = nil
-                                    }
-                                }
-                                .allowsHitTesting(annotationVM.selectedPhotoId != nil)
-
                             ForEach(annotationVM.photoAnnotations[splitPhotoId] ?? []) { photo in
                                 PhotoAnnotationOverlay(
                                     photo:           photo,
@@ -673,11 +641,50 @@ struct ReaderView: View {
                             }
                         }
                         .frame(height: contentHeight)
-                        // Only intercept touches when NOT drawing and NOT lassoing
-                        .allowsHitTesting(
-                            (!annotationVM.isDrawingTool && !annotationVM.isLassoActive)
-                            || annotationVM.selectedPhotoId != nil
+                        // Finger touches pass through the canvas via
+                        // PassThroughPKCanvasView.hitTest, reaching photos below.
+
+                        // ── Drawing canvas (spans the full page width) ─────
+                        AnnotationCanvasView(
+                            vm:               annotationVM,
+                            chapterId:        vm.selectedChapter?.id ?? "",
+                            chapterReference: vm.selectedChapter?.reference ?? "",
+                            contentHeight:    contentHeight,
+                            containerWidth:   geo.size.width
                         )
+                        // Force SwiftUI to recreate the canvas when the chapter changes,
+                        // guaranteeing old strokes never leak onto a different page.
+                        .id(vm.selectedChapter?.id ?? "")
+                        // Canvas is hit-testable whenever a drawing tool or lasso is active.
+                        // PassThroughPKCanvasView.hitTest handles finger vs pencil,
+                        // so finger taps/drags still reach photos below for selection/move.
+                        .allowsHitTesting(annotationVM.isDrawingTool || annotationVM.isLassoActive)
+
+                        // ── Gold verse accent bar (above annotation canvas) ─
+                        // Renders above PencilKit strokes so it's visible even on
+                        // heavily annotated pages. Fades in/out with the gold flash.
+                        if let iy = navIndicatorY {
+                            Capsule()
+                                .fill(Color(red: 0.85, green: 0.60, blue: 0.10))
+                                .frame(width: 4, height: 36)
+                                .position(x: bibleOffset + 6, y: iy + 18)
+                                .opacity(navIndicatorOpacity)
+                                .allowsHitTesting(false)
+                        }
+
+                        // ── Tap-outside-to-deselect photo overlay ──
+                        // Only active when a photo is selected and not drawing,
+                        // so tapping empty space deselects and closes editing options.
+                        if annotationVM.selectedPhotoId != nil && !annotationVM.isDrawingTool && !annotationVM.isLassoActive {
+                            Color.clear
+                                .contentShape(Rectangle())
+                                .frame(height: contentHeight)
+                                .onTapGesture {
+                                    withAnimation(.spring(duration: 0.2)) {
+                                        annotationVM.selectedPhotoId = nil
+                                    }
+                                }
+                        }
 
                         // ── Note tiles (above canvas so taps reach them) ──
                         GeometryReader { g in
@@ -703,7 +710,10 @@ struct ReaderView: View {
                             }
                         }
                         .frame(height: contentHeight)
-                        .allowsHitTesting(!annotationVM.isDrawingTool && !annotationVM.isLassoActive)
+                        // Note tiles are always hittable so the user can drag them
+                        // with a finger regardless of the active annotation tool.
+                        // The Color.clear background already guards its own hit testing
+                        // so only the small tile surfaces intercept touches.
 
                         // ── Custom lasso selection overlay (only during active selection) ──
                         if annotationVM.lassoState.phase == .selected {
@@ -778,44 +788,9 @@ struct ReaderView: View {
                     // Allow verse long-press for bookmarks; disable only during drawing
                     .allowsHitTesting(!annotationVM.isDrawingTool)
 
-                    // Layer 2 — Drawing canvas
-                    AnnotationCanvasView(
-                        vm:               annotationVM,
-                        chapterId:        vm.selectedChapter?.id ?? "",
-                        chapterReference: vm.selectedChapter?.reference ?? "",
-                        contentHeight:    contentHeight,
-                        containerWidth:   geo.size.width
-                    )
-                    // Canvas is hit-testable whenever a drawing tool or lasso is active.
-                    // PassThroughPKCanvasView.hitTest handles finger vs pencil,
-                    // so finger long-press for bookmarks still reaches BibleTextView.
-                    .allowsHitTesting(annotationVM.isDrawingTool || annotationVM.isLassoActive)
-
-                    // Layer 2.5 — Gold verse accent bar (above annotation canvas)
-                    // Renders above PencilKit strokes so it's visible even on
-                    // heavily annotated pages. Fades in/out with the gold flash.
-                    if let iy = navIndicatorY {
-                        Capsule()
-                            .fill(Color(red: 0.85, green: 0.60, blue: 0.10))
-                            .frame(width: 4, height: 36)
-                            .position(x: 6, y: iy + 18)
-                            .opacity(navIndicatorOpacity)
-                            .allowsHitTesting(false)
-                    }
-
-                    // Layer 3 — Photo annotations (above canvas so taps reach them)
+                    // Layer 2 — Photo annotations (below canvas so strokes draw on top)
                     let photoChapterId = vm.selectedChapter?.id ?? ""
                     GeometryReader { _ in
-                        // Invisible full-area tap target: deselects any selected photo
-                        Color.clear
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                withAnimation(.spring(duration: 0.2)) {
-                                    annotationVM.selectedPhotoId = nil
-                                }
-                            }
-                            .allowsHitTesting(annotationVM.selectedPhotoId != nil)
-
                         ForEach(annotationVM.photoAnnotations[photoChapterId] ?? []) { photo in
                             PhotoAnnotationOverlay(
                                 photo:           photo,
@@ -832,11 +807,43 @@ struct ReaderView: View {
                         }
                     }
                     .frame(height: contentHeight)
-                    // Only intercept touches when NOT drawing and NOT lassoing
-                    .allowsHitTesting(
-                        (!annotationVM.isDrawingTool && !annotationVM.isLassoActive)
-                        || annotationVM.selectedPhotoId != nil
+                    // Finger touches pass through the canvas via
+                    // PassThroughPKCanvasView.hitTest, reaching photos below.
+
+                    // Layer 3 — Drawing canvas
+                    AnnotationCanvasView(
+                        vm:               annotationVM,
+                        chapterId:        vm.selectedChapter?.id ?? "",
+                        chapterReference: vm.selectedChapter?.reference ?? "",
+                        contentHeight:    contentHeight,
+                        containerWidth:   geo.size.width
                     )
+                    // Force SwiftUI to recreate the canvas when the chapter changes,
+                    // guaranteeing old strokes never leak onto a different page.
+                    .id(vm.selectedChapter?.id ?? "")
+                    .allowsHitTesting(annotationVM.isDrawingTool || annotationVM.isLassoActive)
+
+                    // Layer 3.5 — Gold verse accent bar
+                    if let iy = navIndicatorY {
+                        Capsule()
+                            .fill(Color(red: 0.85, green: 0.60, blue: 0.10))
+                            .frame(width: 4, height: 36)
+                            .position(x: 6, y: iy + 18)
+                            .opacity(navIndicatorOpacity)
+                            .allowsHitTesting(false)
+                    }
+
+                    // Layer 4 — Deselect overlay for photos (above canvas)
+                    if annotationVM.selectedPhotoId != nil && !annotationVM.isDrawingTool && !annotationVM.isLassoActive {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .frame(height: contentHeight)
+                            .onTapGesture {
+                                withAnimation(.spring(duration: 0.2)) {
+                                    annotationVM.selectedPhotoId = nil
+                                }
+                            }
+                    }
 
                     // Layer 4 — Draggable note tiles (above canvas so taps reach them)
                     GeometryReader { g in
@@ -862,7 +869,8 @@ struct ReaderView: View {
                         }
                     }
                     .frame(height: contentHeight)
-                    .allowsHitTesting(!annotationVM.isDrawingTool && !annotationVM.isLassoActive)
+                    // Note tiles are always hittable so the user can drag them
+                    // with a finger regardless of the active annotation tool.
 
                     // Layer 4.5 — Custom lasso selection overlay (only during active selection)
                     if annotationVM.lassoState.phase == .selected {
@@ -1232,13 +1240,11 @@ private struct PhotoAnnotationOverlay: View {
             }
         }
         .gesture(
-            DragGesture()
+            DragGesture(minimumDistance: 8)
                 .updating($moveDelta) { value, state, _ in
-                    guard isSelected else { return }
                     state = value.translation
                 }
                 .onEnded { value in
-                    guard isSelected else { return }
                     annotationVM.movePhotoAnnotation(
                         id: photo.id,
                         to: CGPoint(x: photo.position.x + value.translation.width,
