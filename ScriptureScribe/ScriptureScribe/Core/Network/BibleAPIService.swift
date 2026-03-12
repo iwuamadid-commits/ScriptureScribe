@@ -17,6 +17,10 @@ final class BibleAPIService {
     private var booksCache:    [String: [BibleBook]]    = [:]  // key = bibleId
     private var chaptersCache: [String: [BibleChapter]] = [:]  // key = "bibleId/bookId"
 
+    // MARK: - Offline Store
+
+    private let offlineStore = OfflineBibleStore()
+
     // MARK: - Fetch All Translations
 
     /// Returns the full list of Bible translations your API key has access to (1,500+).
@@ -43,6 +47,13 @@ final class BibleAPIService {
     func fetchBooks(bibleId: String) async throws -> [BibleBook] {
         if let cached = booksCache[bibleId] { return cached }
 
+        // Check offline store first (KJV/WEB/ASV)
+        if let config = OfflineTranslationConfig.info(forBibleId: bibleId),
+           let books = offlineStore.books(translationKey: config.key) {
+            booksCache[bibleId] = books
+            return books
+        }
+
         let url = try apiURL(path: "/bibles/\(bibleId)/books")
         let response: ListResponse<BibleBook> = try await fetch(url)
         booksCache[bibleId] = response.data
@@ -55,6 +66,13 @@ final class BibleAPIService {
     func fetchChapters(bibleId: String, bookId: String) async throws -> [BibleChapter] {
         let cacheKey = "\(bibleId)/\(bookId)"
         if let cached = chaptersCache[cacheKey] { return cached }
+
+        // Check offline store first (KJV/WEB/ASV)
+        if let config = OfflineTranslationConfig.info(forBibleId: bibleId),
+           let chapters = offlineStore.chapters(translationKey: config.key, bookId: bookId) {
+            chaptersCache[cacheKey] = chapters
+            return chapters
+        }
 
         let url = try apiURL(path: "/bibles/\(bibleId)/books/\(bookId)/chapters")
         let response: ListResponse<BibleChapter> = try await fetch(url)
@@ -70,6 +88,12 @@ final class BibleAPIService {
     /// Downloads and returns the full readable text for a single chapter.
     /// HTML is requested so that Words of Jesus (red letter) markup is preserved.
     func fetchChapterContent(bibleId: String, chapterId: String) async throws -> BibleChapterContent {
+        // Check offline store first (KJV/WEB/ASV)
+        if let config = OfflineTranslationConfig.info(forBibleId: bibleId),
+           let content = offlineStore.chapterContent(translationKey: config.key, chapterId: chapterId) {
+            return content
+        }
+
         var components = URLComponents(string: AppConfig.bibleAPIBaseURL + "/bibles/\(bibleId)/chapters/\(chapterId)")!
         components.queryItems = [
             URLQueryItem(name: "content-type",           value: "html"),  // HTML preserves red-letter spans

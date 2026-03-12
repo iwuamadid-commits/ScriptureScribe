@@ -734,6 +734,9 @@ final class AnnotationViewModel: ObservableObject {
     // MARK: - Photo Annotations
 
     /// A photo the user has placed on a chapter's canvas.
+    /// Shared image cache so photos aren't decoded from disk on every view update.
+    static let photoImageCache = NSCache<NSString, UIImage>()
+
     struct PhotoAnnotation: Identifiable {
         let id:            UUID
         var imageFileName: String   // filename only — image lives in the Documents folder
@@ -745,11 +748,17 @@ final class AnnotationViewModel: ObservableObject {
         var borderColorHex: String      // RGB hex string, e.g. "FFFFFF"
 
         var uiImage: UIImage? {
+            let key = imageFileName as NSString
+            if let cached = AnnotationViewModel.photoImageCache.object(forKey: key) {
+                return cached
+            }
             guard let url = FileManager.default
                 .urls(for: .documentDirectory, in: .userDomainMask).first?
                 .appendingPathComponent(imageFileName),
-                  let data = try? Data(contentsOf: url) else { return nil }
-            return UIImage(data: data)
+                  let data = try? Data(contentsOf: url),
+                  let img = UIImage(data: data) else { return nil }
+            AnnotationViewModel.photoImageCache.setObject(img, forKey: key)
+            return img
         }
     }
 
@@ -938,10 +947,14 @@ final class AnnotationViewModel: ObservableObject {
             try? data.write(to: docs.appendingPathComponent(newFilename), options: .atomic)
         }
 
-        // Remove old file
+        // Remove old file and invalidate its cache entry
+        Self.photoImageCache.removeObject(forKey: photo.imageFileName as NSString)
         try? FileManager.default.removeItem(
             at: docs.appendingPathComponent(photo.imageFileName)
         )
+
+        // Cache the new cropped image immediately
+        Self.photoImageCache.setObject(croppedImage, forKey: newFilename as NSString)
 
         // Preserve the current display width; adjust height for the new aspect ratio
         let aspect = croppedImage.size.width > 0

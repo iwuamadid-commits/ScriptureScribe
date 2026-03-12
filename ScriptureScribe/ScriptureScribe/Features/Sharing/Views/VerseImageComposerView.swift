@@ -35,7 +35,7 @@ struct VerseImageComposerView: View {
     // Rendered image cache
     @State private var renderedImage: UIImage?
 
-    private var needsWatermark: Bool { true } // TEMP: force watermark for testing — revert to: !subscriptionVM.isPremium
+    private var needsWatermark: Bool { !subscriptionVM.isPremium }
 
     var body: some View {
         NavigationStack {

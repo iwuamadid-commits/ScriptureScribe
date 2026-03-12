@@ -22,6 +22,7 @@ struct ScriptureScribeApp: App {
     @StateObject private var habitsVM          = HabitsViewModel()
     @StateObject private var subscriptionVM   = SubscriptionViewModel()
     @StateObject private var streakVM         = StreakViewModel()
+    @StateObject private var offlineBibleManager = OfflineBibleManager()
 
     init() {
         FirebaseApp.configure()
@@ -83,6 +84,7 @@ struct ScriptureScribeApp: App {
                 .environmentObject(habitsVM)
                 .environmentObject(subscriptionVM)
                 .environmentObject(streakVM)
+                .environmentObject(offlineBibleManager)
                 // Grant admins automatic premium access on launch and when they sign in
                 .onAppear {
                     subscriptionVM.configureForUser(authViewModel.currentUserID)

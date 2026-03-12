@@ -486,7 +486,7 @@ struct ReaderView: View {
     /// from pencil, so enabling swipe during any drawing tool causes the page to shift
     /// while writing. Users change chapters via the chapter selector row instead.
     private var canSwipePages: Bool {
-        annotationVM.selectedTool == .hand
+        annotationVM.selectedTool == .hand && annotationVM.selectedPhotoId == nil
     }
 
     /// Peeking chapter number on the edge during a swipe drag (e.g. "14" on the right).
@@ -623,9 +623,11 @@ struct ReaderView: View {
                         .allowsHitTesting(false)
 
                         // ── Photo annotations (below canvas so strokes draw on top) ──
+                        // Unselected photos stay below the canvas; the selected photo
+                        // is promoted above the canvas so fingers can always reach it.
                         let splitPhotoId = vm.selectedChapter?.id ?? ""
                         GeometryReader { _ in
-                            ForEach(annotationVM.photoAnnotations[splitPhotoId] ?? []) { photo in
+                            ForEach((annotationVM.photoAnnotations[splitPhotoId] ?? []).filter { $0.id != annotationVM.selectedPhotoId }) { photo in
                                 PhotoAnnotationOverlay(
                                     photo:           photo,
                                     chapterId:       splitPhotoId,
@@ -641,8 +643,6 @@ struct ReaderView: View {
                             }
                         }
                         .frame(height: contentHeight)
-                        // Finger touches pass through the canvas via
-                        // PassThroughPKCanvasView.hitTest, reaching photos below.
 
                         // ── Drawing canvas (spans the full page width) ─────
                         AnnotationCanvasView(
@@ -652,17 +652,10 @@ struct ReaderView: View {
                             contentHeight:    contentHeight,
                             containerWidth:   geo.size.width
                         )
-                        // Force SwiftUI to recreate the canvas when the chapter changes,
-                        // guaranteeing old strokes never leak onto a different page.
                         .id(vm.selectedChapter?.id ?? "")
-                        // Canvas is hit-testable whenever a drawing tool or lasso is active.
-                        // PassThroughPKCanvasView.hitTest handles finger vs pencil,
-                        // so finger taps/drags still reach photos below for selection/move.
                         .allowsHitTesting(annotationVM.isDrawingTool || annotationVM.isLassoActive)
 
                         // ── Gold verse accent bar (above annotation canvas) ─
-                        // Renders above PencilKit strokes so it's visible even on
-                        // heavily annotated pages. Fades in/out with the gold flash.
                         if let iy = navIndicatorY {
                             Capsule()
                                 .fill(Color(red: 0.85, green: 0.60, blue: 0.10))
@@ -672,18 +665,39 @@ struct ReaderView: View {
                                 .allowsHitTesting(false)
                         }
 
-                        // ── Tap-outside-to-deselect photo overlay ──
-                        // Only active when a photo is selected and not drawing,
-                        // so tapping empty space deselects and closes editing options.
-                        if annotationVM.selectedPhotoId != nil && !annotationVM.isDrawingTool && !annotationVM.isLassoActive {
-                            Color.clear
-                                .contentShape(Rectangle())
-                                .frame(height: contentHeight)
-                                .onTapGesture {
-                                    withAnimation(.spring(duration: 0.2)) {
-                                        annotationVM.selectedPhotoId = nil
-                                    }
+                        // ── Photo tap targets (above canvas so fingers can select in any mode) ──
+                        if !annotationVM.isLassoActive {
+                            GeometryReader { _ in
+                                ForEach(annotationVM.photoAnnotations[splitPhotoId] ?? []) { photo in
+                                    let pw = photo.size.width
+                                    let ph = photo.size.height
+                                    Color.clear
+                                        .contentShape(Rectangle())
+                                        .frame(width: pw, height: ph)
+                                        .rotationEffect(Angle(degrees: photo.rotation))
+                                        .position(x: photo.position.x + pw / 2, y: photo.position.y + ph / 2)
+                                        .onTapGesture {
+                                            withAnimation(.spring(duration: 0.2)) {
+                                                annotationVM.selectedPhotoId = annotationVM.selectedPhotoId == photo.id ? nil : photo.id
+                                            }
+                                        }
                                 }
+                            }
+                            .frame(height: contentHeight)
+                        }
+
+                        // ── Selected photo (above everything for easy finger/pencil drag) ──
+                        if let selectedId = annotationVM.selectedPhotoId,
+                           let photo = (annotationVM.photoAnnotations[splitPhotoId] ?? []).first(where: { $0.id == selectedId }) {
+                            GeometryReader { _ in
+                                PhotoAnnotationOverlay(
+                                    photo:           photo,
+                                    chapterId:       splitPhotoId,
+                                    isDrawingActive: annotationVM.isDrawingTool,
+                                    annotationVM:    annotationVM
+                                )
+                            }
+                            .frame(height: contentHeight)
                         }
 
                         // ── Note tiles (above canvas so taps reach them) ──
@@ -789,9 +803,10 @@ struct ReaderView: View {
                     .allowsHitTesting(!annotationVM.isDrawingTool)
 
                     // Layer 2 — Photo annotations (below canvas so strokes draw on top)
+                    // Unselected photos stay here; selected photo is promoted above canvas.
                     let photoChapterId = vm.selectedChapter?.id ?? ""
                     GeometryReader { _ in
-                        ForEach(annotationVM.photoAnnotations[photoChapterId] ?? []) { photo in
+                        ForEach((annotationVM.photoAnnotations[photoChapterId] ?? []).filter { $0.id != annotationVM.selectedPhotoId }) { photo in
                             PhotoAnnotationOverlay(
                                 photo:           photo,
                                 chapterId:       photoChapterId,
@@ -807,8 +822,6 @@ struct ReaderView: View {
                         }
                     }
                     .frame(height: contentHeight)
-                    // Finger touches pass through the canvas via
-                    // PassThroughPKCanvasView.hitTest, reaching photos below.
 
                     // Layer 3 — Drawing canvas
                     AnnotationCanvasView(
@@ -818,8 +831,6 @@ struct ReaderView: View {
                         contentHeight:    contentHeight,
                         containerWidth:   geo.size.width
                     )
-                    // Force SwiftUI to recreate the canvas when the chapter changes,
-                    // guaranteeing old strokes never leak onto a different page.
                     .id(vm.selectedChapter?.id ?? "")
                     .allowsHitTesting(annotationVM.isDrawingTool || annotationVM.isLassoActive)
 
@@ -833,16 +844,39 @@ struct ReaderView: View {
                             .allowsHitTesting(false)
                     }
 
-                    // Layer 4 — Deselect overlay for photos (above canvas)
-                    if annotationVM.selectedPhotoId != nil && !annotationVM.isDrawingTool && !annotationVM.isLassoActive {
-                        Color.clear
-                            .contentShape(Rectangle())
-                            .frame(height: contentHeight)
-                            .onTapGesture {
-                                withAnimation(.spring(duration: 0.2)) {
-                                    annotationVM.selectedPhotoId = nil
-                                }
+                    // Layer 4 — Photo tap targets (above canvas so fingers can select photos in any mode)
+                    if !annotationVM.isLassoActive {
+                        GeometryReader { _ in
+                            ForEach(annotationVM.photoAnnotations[photoChapterId] ?? []) { photo in
+                                let pw = photo.size.width
+                                let ph = photo.size.height
+                                Color.clear
+                                    .contentShape(Rectangle())
+                                    .frame(width: pw, height: ph)
+                                    .rotationEffect(Angle(degrees: photo.rotation))
+                                    .position(x: photo.position.x + pw / 2, y: photo.position.y + ph / 2)
+                                    .onTapGesture {
+                                        withAnimation(.spring(duration: 0.2)) {
+                                            annotationVM.selectedPhotoId = annotationVM.selectedPhotoId == photo.id ? nil : photo.id
+                                        }
+                                    }
                             }
+                        }
+                        .frame(height: contentHeight)
+                    }
+
+                    // Layer 5 — Selected photo (above everything for easy finger/pencil drag)
+                    if let selectedId = annotationVM.selectedPhotoId,
+                       let photo = (annotationVM.photoAnnotations[photoChapterId] ?? []).first(where: { $0.id == selectedId }) {
+                        GeometryReader { _ in
+                            PhotoAnnotationOverlay(
+                                photo:           photo,
+                                chapterId:       photoChapterId,
+                                isDrawingActive: annotationVM.isDrawingTool,
+                                annotationVM:    annotationVM
+                            )
+                        }
+                        .frame(height: contentHeight)
                     }
 
                     // Layer 4 — Draggable note tiles (above canvas so taps reach them)
@@ -1231,9 +1265,10 @@ private struct PhotoAnnotationOverlay: View {
         }
         .rotationEffect(Angle(degrees: photo.rotation))
         .position(
-            x: photo.position.x + w / 2 + moveDelta.width  + livePositionAdjust.width,
-            y: photo.position.y + h / 2 + moveDelta.height + livePositionAdjust.height
+            x: photo.position.x + w / 2 + livePositionAdjust.width,
+            y: photo.position.y + h / 2 + livePositionAdjust.height
         )
+        .offset(x: moveDelta.width, y: moveDelta.height)
         .onTapGesture {
             withAnimation(.spring(duration: 0.2)) {
                 annotationVM.selectedPhotoId = isSelected ? nil : photo.id

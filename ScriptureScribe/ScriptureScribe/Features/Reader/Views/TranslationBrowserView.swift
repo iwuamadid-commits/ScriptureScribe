@@ -18,6 +18,7 @@ struct TranslationBrowserView: View {
     @ObservedObject var vm: ReaderViewModel
     @EnvironmentObject var themeManager: ThemeManager
     @EnvironmentObject var subscriptionVM: SubscriptionViewModel
+    @EnvironmentObject var offlineBibleManager: OfflineBibleManager
     @Environment(\.dismiss) private var dismiss
 
     @State private var showPaywall = false
@@ -37,11 +38,16 @@ struct TranslationBrowserView: View {
                                 ForEach(vm.myVersions) { translation in
                                     let isFree   = PremiumLimits.freeBibleIds.contains(translation.id)
                                     let isLocked = !subscriptionVM.isPremium && !isFree
+                                    let offlineState = offlineBibleManager.state(forBibleId: translation.id)
                                     TranslationRow(
                                         translation:   translation,
                                         isSelected:    vm.selectedTranslation?.id == translation.id,
                                         isLocked:      isLocked,
-                                        isFreeVersion: !subscriptionVM.isPremium && isFree
+                                        isFreeVersion: !subscriptionVM.isPremium && isFree,
+                                        offlineState:  offlineState,
+                                        onDownload: {
+                                            Task { await offlineBibleManager.download(translationKey: OfflineTranslationConfig.info(forBibleId: translation.id)?.key ?? "") }
+                                        }
                                     )
                                     .contentShape(Rectangle())
                                     .onTapGesture {
@@ -56,6 +62,17 @@ struct TranslationBrowserView: View {
                                             vm.removeFromMyVersions(translation)
                                         } label: {
                                             Label("Remove", systemImage: "minus.circle")
+                                        }
+                                    }
+                                    .swipeActions(edge: .leading) {
+                                        if offlineBibleManager.isOfflineCapable(bibleId: translation.id),
+                                           case .downloaded = offlineState {
+                                            Button(role: .destructive) {
+                                                offlineBibleManager.delete(translationKey: OfflineTranslationConfig.info(forBibleId: translation.id)?.key ?? "")
+                                            } label: {
+                                                Label("Remove Download", systemImage: "trash")
+                                            }
+                                            .tint(.orange)
                                         }
                                     }
                                 }
@@ -95,6 +112,7 @@ private struct MoreVersionsView: View {
 
     @ObservedObject var vm: ReaderViewModel
     @ObservedObject var subscriptionVM: SubscriptionViewModel
+    @EnvironmentObject var offlineBibleManager: OfflineBibleManager
 
     @State private var searchText        = ""
     @State private var selectedLanguage: String? = nil
@@ -203,11 +221,16 @@ private struct MoreVersionsView: View {
     private func translationRow(_ translation: BibleTranslation) -> some View {
         let isFree   = PremiumLimits.freeBibleIds.contains(translation.id)
         let isLocked = !subscriptionVM.isPremium && !isFree
+        let offlineState = offlineBibleManager.state(forBibleId: translation.id)
         TranslationRow(
             translation:   translation,
             isSelected:    vm.selectedTranslation?.id == translation.id,
             isLocked:      isLocked,
-            isFreeVersion: !subscriptionVM.isPremium && isFree
+            isFreeVersion: !subscriptionVM.isPremium && isFree,
+            offlineState:  offlineState,
+            onDownload: {
+                Task { await offlineBibleManager.download(translationKey: OfflineTranslationConfig.info(forBibleId: translation.id)?.key ?? "") }
+            }
         )
         .contentShape(Rectangle())
         .onTapGesture {
@@ -314,6 +337,12 @@ private struct TranslationRow: View {
     let isSelected:    Bool
     var isLocked:      Bool = false
     var isFreeVersion: Bool = false  // true only for free-tier users on a free version
+    var offlineState:  OfflineDownloadState = .notDownloaded
+    var onDownload:    (() -> Void)? = nil
+
+    private var isOfflineCapable: Bool {
+        OfflineTranslationConfig.offlineBibleIds.contains(translation.id)
+    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -346,10 +375,21 @@ private struct TranslationRow: View {
                             .foregroundStyle(.green)
                             .clipShape(RoundedRectangle(cornerRadius: 4))
                     }
+                    // Show download size when downloaded
+                    if isOfflineCapable, case .downloaded(let size) = offlineState {
+                        Text(size)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
 
             Spacer()
+
+            // Offline download indicator (for KJV/WEB/ASV)
+            if isOfflineCapable {
+                offlineStatusView
+            }
 
             if isSelected {
                 Image(systemName: "checkmark")
@@ -360,6 +400,47 @@ private struct TranslationRow: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var offlineStatusView: some View {
+        switch offlineState {
+        case .notDownloaded:
+            Button {
+                onDownload?()
+            } label: {
+                Image(systemName: "arrow.down.circle")
+                    .font(.title3)
+                    .foregroundStyle(.blue)
+            }
+            .buttonStyle(.plain)
+
+        case .downloading(let progress):
+            ZStack {
+                Circle()
+                    .stroke(Color.blue.opacity(0.2), lineWidth: 2.5)
+                Circle()
+                    .trim(from: 0, to: progress)
+                    .stroke(Color.blue, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            }
+            .frame(width: 24, height: 24)
+
+        case .downloaded:
+            Image(systemName: "checkmark.circle.fill")
+                .font(.title3)
+                .foregroundStyle(.green)
+
+        case .failed:
+            Button {
+                onDownload?()
+            } label: {
+                Image(systemName: "exclamationmark.circle")
+                    .font(.title3)
+                    .foregroundStyle(.red)
+            }
+            .buttonStyle(.plain)
         }
     }
 }

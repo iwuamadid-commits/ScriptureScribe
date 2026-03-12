@@ -114,6 +114,7 @@ struct AnnotationCanvasView: UIViewRepresentable {
         canvas.autoShapeEnabled    = vm.highlighterStraightLines && vm.selectedTool == .pen
         canvas.backgroundColor = .clear
         canvas.isOpaque        = false
+        canvas.overrideUserInterfaceStyle = .light
         canvas.tool            = vm.pkTool
         canvas.drawingPolicy   = vm.allowFingerDrawing ? .anyInput : .pencilOnly
         canvas.isUserInteractionEnabled = vm.isDrawingTool || vm.isLassoActive
