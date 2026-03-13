@@ -45,6 +45,7 @@ struct AnnotationToolbarView: View {
             HStack(spacing: isCompact ? 4 : 8) {
                 ForEach(AnnotationViewModel.DrawingTool.allCases, id: \.self) { tool in
                     toolButton(for: tool)
+                        .coachMark("reader-lasso-button", active: tool == .lasso)
                 }
 
                 // Camera button — sits right next to the hand tool
@@ -96,6 +97,7 @@ struct AnnotationToolbarView: View {
             }
             .frame(maxWidth: .infinity)
             .scrollDisabled(draggedVisibleIndex != nil)
+            .coachMark("reader-color-swatches")
 
             // ── Right: Undo / Redo / Settings ───────────────────────────
             HStack(spacing: isCompact ? 4 : 8) {

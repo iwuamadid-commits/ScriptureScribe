@@ -41,6 +41,7 @@ struct BookSelectorRow: View {
                 }
                 .padding(.leading, 8)
                 .help(bookSortOrder == .canonical ? "Switch to A–Z order" : "Switch to Bible order")
+                .coachMark("reader-sort-button")
 
                 // Scrollable list of book names
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -62,6 +63,7 @@ struct BookSelectorRow: View {
                             // without bleeding into its neighbors.
                             .padding(.horizontal, isSelected ? 4 : 0)
                             .animation(.spring(response: 0.8, dampingFraction: 0.85), value: isSelected)
+                            .coachMark("reader-selected-book", active: isSelected)
                             .id(book.id)
                             .onTapGesture {
                                 if isSelected {

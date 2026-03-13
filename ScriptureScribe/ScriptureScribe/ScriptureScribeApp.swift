@@ -23,6 +23,7 @@ struct ScriptureScribeApp: App {
     @StateObject private var subscriptionVM   = SubscriptionViewModel()
     @StateObject private var streakVM         = StreakViewModel()
     @StateObject private var offlineBibleManager = OfflineBibleManager()
+    @StateObject private var walkthroughManager  = WalkthroughManager()
 
     init() {
         FirebaseApp.configure()
@@ -85,8 +86,10 @@ struct ScriptureScribeApp: App {
                 .environmentObject(subscriptionVM)
                 .environmentObject(streakVM)
                 .environmentObject(offlineBibleManager)
-                // Grant admins automatic premium access on launch and when they sign in
+                .environmentObject(walkthroughManager)
+                // Give the walkthrough manager access to tab navigation
                 .onAppear {
+                    walkthroughManager.appNav = appNav
                     subscriptionVM.configureForUser(authViewModel.currentUserID)
                 }
                 .onChange(of: authViewModel.currentUserID) { _, uid in

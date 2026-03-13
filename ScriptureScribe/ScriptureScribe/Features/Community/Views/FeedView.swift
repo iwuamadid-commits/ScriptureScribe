@@ -219,6 +219,10 @@ struct FeedView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 20))
                     }
                     .buttonStyle(.plain)
+                    .coachMark("community-insights-tab", active: tab == .reflections)
+                    .coachMark("community-gratitude-tab", active: tab == .gratitude)
+                    .coachMark("community-prayer-tab", active: tab == .prayer)
+                    .coachMark("community-daily-tab", active: tab == .daily)
                 }
             }
             .padding(.horizontal, 12)

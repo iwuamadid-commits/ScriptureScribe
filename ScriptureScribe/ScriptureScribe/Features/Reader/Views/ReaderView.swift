@@ -137,6 +137,7 @@ struct ReaderView: View {
                     Divider()
                     // Annotation toolbar (always visible, positioned under book/chapter selectors)
                     AnnotationToolbarView(vm: annotationVM)
+                        .coachMark("reader-annotation-toolbar")
                     Divider()
                 }
 
@@ -144,6 +145,7 @@ struct ReaderView: View {
                     themeManager.currentTheme.background.ignoresSafeArea()
 
                     if vm.isLoadingTranslations || vm.isLoadingBooks {
+
                         VStack(spacing: 16) {
                             ProgressView()
                             Text("Loading Bible…")
@@ -162,6 +164,7 @@ struct ReaderView: View {
                             case .splitView:  splitViewContent(content: content)
                             }
                         }
+                        .coachMark("reader-bible-text")
 
                     } else if vm.isLoadingContent {
                         // Only reached on the very first chapter load (no previous content).

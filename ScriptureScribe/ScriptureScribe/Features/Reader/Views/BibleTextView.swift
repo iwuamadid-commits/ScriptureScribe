@@ -101,6 +101,7 @@ struct BibleTextView: View {
                 .anchorPreference(key: FirstSelectedVerseAnchorKey.self, value: .bounds) {
                     firstSelectedIndex == index ? $0 : nil
                 }
+                .coachMark("reader-verse-row", active: verse.number == "1")
             }
 
             Divider()

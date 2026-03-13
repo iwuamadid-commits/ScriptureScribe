@@ -222,6 +222,7 @@ struct DailyView: View {
                                                value: sectionDisplacement(for: section))
                                     .animation(.spring(response: 0.3, dampingFraction: 0.8),
                                                value: draggedSectionID)
+                                    .coachMark("daily-section-card", active: section == editableSections.first)
                                     // Long press — scroll-friendly view modifier
                                     .onLongPressGesture(minimumDuration: 0.5, pressing: { pressing in
                                         if !pressing, draggedSectionID == section.rawValue,
