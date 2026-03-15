@@ -20,6 +20,7 @@ struct BookSelectorRow: View {
     let isLoadingBooks: Bool
     let vm:             ReaderViewModel             // plain ref for actions
     var onOpenBrowser: () -> Void
+    var showCoachMarks: Bool = true
     @EnvironmentObject var themeManager: ThemeManager
     @Environment(\.horizontalSizeClass) private var sizeClass
 
@@ -38,10 +39,10 @@ struct BookSelectorRow: View {
                         .font(isCompact ? .caption : .footnote)
                         .foregroundStyle(themeManager.currentTheme.primary)
                         .frame(width: isCompact ? 28 : 36, height: isCompact ? 28 : 36)
+                        .coachMark("reader-sort-button", active: showCoachMarks)
                 }
                 .padding(.leading, 8)
                 .help(bookSortOrder == .canonical ? "Switch to A–Z order" : "Switch to Bible order")
-                .coachMark("reader-sort-button")
 
                 // Scrollable list of book names
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -63,7 +64,7 @@ struct BookSelectorRow: View {
                             // without bleeding into its neighbors.
                             .padding(.horizontal, isSelected ? 4 : 0)
                             .animation(.spring(response: 0.8, dampingFraction: 0.85), value: isSelected)
-                            .coachMark("reader-selected-book", active: isSelected)
+                            .coachMark("reader-selected-book", active: isSelected && showCoachMarks)
                             .id(book.id)
                             .onTapGesture {
                                 if isSelected {

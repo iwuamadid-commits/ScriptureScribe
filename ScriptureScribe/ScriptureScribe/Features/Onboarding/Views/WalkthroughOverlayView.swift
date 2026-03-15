@@ -58,11 +58,21 @@ enum WalkthroughLayout {
     }
 
     static func tooltipY(step: WalkthroughStep, frame: CGRect, screenHeight: CGFloat) -> CGFloat {
+        let pad = step.spotlightPadding
+        let tooltipHalfHeight: CGFloat = 70 // approximate half-height of tooltip card
         let isAbove = step.tooltipEdge == .top
-        let raw = isAbove
-            ? frame.minY - step.spotlightPadding - 100
-            : frame.maxY + step.spotlightPadding + 100
-        return max(80, min(raw, screenHeight - 120))
+
+        if isAbove {
+            // Place tooltip center above the cutout top edge with enough clearance
+            let cutoutTop = frame.minY - pad
+            let raw = cutoutTop - tooltipHalfHeight - 12
+            return max(80, min(raw, screenHeight - 120))
+        } else {
+            // Place tooltip center below the cutout bottom edge with enough clearance
+            let cutoutBottom = frame.maxY + pad
+            let raw = cutoutBottom + tooltipHalfHeight + 12
+            return max(80, min(raw, screenHeight - 120))
+        }
     }
 
     static func clampX(_ x: CGFloat, screenWidth: CGFloat) -> CGFloat {
@@ -89,27 +99,23 @@ struct WalkthroughDimOverlay: View {
                 if step.isCompletion {
                     Color.black.opacity(0.65)
                 } else {
-                    let hasSpotlight = !step.isTabBarTarget
-                    let frame = hasSpotlight
-                        ? WalkthroughLayout.targetFrame(
-                            for: step, manager: manager,
-                            screenSize: size, safeAreaTop: top, safeAreaBottom: bottom
-                        )
-                        : .zero
-                    let tipX = hasSpotlight ? WalkthroughLayout.clampX(frame.midX, screenWidth: size.width) : size.width / 2
-                    let tipY = hasSpotlight ? WalkthroughLayout.tooltipY(step: step, frame: frame, screenHeight: size.height) : size.height / 2
+                    let frame = WalkthroughLayout.targetFrame(
+                        for: step, manager: manager,
+                        screenSize: size, safeAreaTop: top, safeAreaBottom: bottom
+                    )
+                    // Tab bar steps: spotlight the tab button but keep tooltip centered
+                    let tipX = step.isTabBarTarget ? size.width / 2 : WalkthroughLayout.clampX(frame.midX, screenWidth: size.width)
+                    let tipY = step.isTabBarTarget ? size.height / 2 : WalkthroughLayout.tooltipY(step: step, frame: frame, screenHeight: size.height)
 
                     // Dim + spotlight cutout in a compositing group so
                     // .destinationOut punches through the dim correctly.
                     ZStack {
                         Color.black.opacity(0.65)
 
-                        if hasSpotlight {
-                            SpotlightCutout(
-                                cutout: cutoutRect(step: step, frame: frame),
-                                cornerRadius: step.spotlightCornerRadius
-                            )
-                        }
+                        SpotlightCutout(
+                            cutout: cutoutRect(step: step, frame: frame),
+                            cornerRadius: step.spotlightCornerRadius
+                        )
                     }
                     .compositingGroup()
 
@@ -214,16 +220,23 @@ struct WalkthroughControlsOverlay: View {
             let size = geo.size
             let top = geo.safeAreaInsets.top
             let bottom = geo.safeAreaInsets.bottom
+
+            // Full-screen touch blocker — prevents any interaction with the
+            // app beneath the walkthrough. Only the controls above receive taps.
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture { }
+
             if let step = manager.currentStep {
                 if step.isCompletion {
                     completionCard()
                 } else {
-                    let frame = step.isTabBarTarget ? nil : WalkthroughLayout.targetFrame(
+                    let frame = WalkthroughLayout.targetFrame(
                         for: step, manager: manager,
                         screenSize: size, safeAreaTop: top, safeAreaBottom: bottom
                     )
-                    let tipX = step.isTabBarTarget ? size.width / 2 : WalkthroughLayout.clampX(frame!.midX, screenWidth: size.width)
-                    let tipY = step.isTabBarTarget ? size.height / 2 : WalkthroughLayout.tooltipY(step: step, frame: frame!, screenHeight: size.height)
+                    let tipX = step.isTabBarTarget ? size.width / 2 : WalkthroughLayout.clampX(frame.midX, screenWidth: size.width)
+                    let tipY = step.isTabBarTarget ? size.height / 2 : WalkthroughLayout.tooltipY(step: step, frame: frame, screenHeight: size.height)
 
                     // Back + Next buttons — matches tooltip position and transitions.
                     controlStrip(tipX: tipX, tipY: tipY, maxW: min(size.width - 40, 360), step: step)

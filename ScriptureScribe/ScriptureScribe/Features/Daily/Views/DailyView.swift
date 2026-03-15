@@ -63,6 +63,7 @@ struct DailyView: View {
     @EnvironmentObject var authVM:         AuthViewModel
     @EnvironmentObject var savedVM:        SavedDevotionalsViewModel
     @EnvironmentObject var subscriptionVM: SubscriptionViewModel
+    @EnvironmentObject var walkthroughManager: WalkthroughManager
 
     @State private var showCalendar = false
     @State private var showAuth     = false
@@ -161,6 +162,7 @@ struct DailyView: View {
                         errorView(message: message)
 
                     } else if let entry = vm.entry {
+                        ScrollViewReader { scrollProxy in
                         ScrollView {
                             VStack(alignment: .leading, spacing: 0) {
 
@@ -222,6 +224,7 @@ struct DailyView: View {
                                                value: sectionDisplacement(for: section))
                                     .animation(.spring(response: 0.3, dampingFraction: 0.8),
                                                value: draggedSectionID)
+                                    .id("daily-\(section.rawValue)")
                                     .coachMark("daily-section-card", active: section == editableSections.first)
                                     // Long press — scroll-friendly view modifier
                                     .onLongPressGesture(minimumDuration: 0.5, pressing: { pressing in
@@ -270,6 +273,24 @@ struct DailyView: View {
                             }
                         }
                         .scrollDisabled(draggedSectionID != nil)
+                        // Scroll to the relevant section when walkthrough step changes
+                        .onChange(of: walkthroughManager.currentStepIndex) { _, _ in
+                            guard let step = walkthroughManager.currentStep else { return }
+                            let sectionMap: [String: String] = [
+                                "daily-verse-section": "daily-verse",
+                                "daily-affirmation-section": "daily-affirmation",
+                                "daily-prayer-section": "daily-prayer",
+                                "daily-devotion-section": "daily-devotion",
+                                "daily-reflection-section": "daily-reflection",
+                                "daily-section-card": "daily-verse"
+                            ]
+                            if let scrollID = sectionMap[step.id] {
+                                withAnimation(.easeInOut(duration: 0.3)) {
+                                    scrollProxy.scrollTo(scrollID, anchor: .top)
+                                }
+                            }
+                        }
+                        } // closes ScrollViewReader
                     }
                 }   // closes ZStack (content area)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -343,6 +364,7 @@ struct DailyView: View {
         switch section {
         case .verse:
             verseSection(entry: entry)
+                .coachMark("daily-verse-section")
         case .affirmation:
             if !entry.affirmation.isEmpty {
                 affirmationSection(entry: entry)
@@ -393,6 +415,7 @@ struct DailyView: View {
             saveType: "affirmation",
             entry:    entry
         )
+        .coachMark("daily-affirmation-section")
         .contentShape(Rectangle())
         .onTapGesture(count: 2) {
             guard let uid = authVM.currentUserID else {
@@ -439,6 +462,7 @@ struct DailyView: View {
             saveType: "prayer",
             entry:    entry
         )
+        .coachMark("daily-prayer-section")
         .contentShape(Rectangle())
         .onTapGesture(count: 2) {
             guard let uid = authVM.currentUserID else {
@@ -485,6 +509,7 @@ struct DailyView: View {
             saveType: "devotional",
             entry:    entry
         )
+        .coachMark("daily-devotion-section")
         .contentShape(Rectangle())
         .onTapGesture(count: 2) {
             guard let uid = authVM.currentUserID else {
@@ -525,6 +550,7 @@ struct DailyView: View {
     @ViewBuilder
     private func reflectionSection(entry: DailyEntry) -> some View {
         reflectionCard(entry: entry)
+            .coachMark("daily-reflection-section")
             .padding(.horizontal, 20)
             .padding(.top, 16)
     }

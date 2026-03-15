@@ -19,6 +19,7 @@ struct ChapterSelectorRow: View {
     let annotatedChapterIds:  Set<String>   // chapters that have a dot indicator
     let vm:                   ReaderViewModel   // plain ref for tap callbacks
     var onOpenBrowser: () -> Void
+    var showCoachMarks: Bool = true
     @EnvironmentObject var themeManager: ThemeManager
     @Environment(\.horizontalSizeClass) private var sizeClass
 
@@ -41,6 +42,7 @@ struct ChapterSelectorRow: View {
                         // without bleeding into its neighbors.
                         .padding(.horizontal, isSelected ? 3 : 0)
                         .animation(.spring(response: 0.8, dampingFraction: 0.85), value: isSelected)
+                        .coachMark("reader-chapter-row", active: isSelected && showCoachMarks)
                         .id(chapter.id)
                         .onTapGesture {
                             if isSelected {

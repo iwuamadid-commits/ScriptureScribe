@@ -29,6 +29,7 @@ struct WalkthroughStep {
     let toolbarEdge: ToolbarEdge?        // .leading or .trailing
     let isInteractive: Bool              // true -> user can interact with the spotlighted element
     let isCompletion: Bool               // true -> centered card, no spotlight
+    var communitySubTab: Int?            // if set, switch community sub-tab via pendingCommunityTab
 }
 
 extension WalkthroughStep {
@@ -36,7 +37,8 @@ extension WalkthroughStep {
     static func content(
         id: String, tab: Int, message: String,
         edge: TooltipEdge = .bottom,
-        padding: CGFloat = 12, radius: CGFloat = 12
+        padding: CGFloat = 12, radius: CGFloat = 12,
+        communitySubTab: Int? = nil
     ) -> WalkthroughStep {
         WalkthroughStep(
             id: id, targetTab: tab, switchToTab: nil,
@@ -44,7 +46,8 @@ extension WalkthroughStep {
             spotlightPadding: padding, spotlightCornerRadius: radius,
             isTabBarTarget: false, tabBarSlot: nil,
             isToolbarTarget: false, toolbarEdge: nil,
-            isInteractive: false, isCompletion: false
+            isInteractive: false, isCompletion: false,
+            communitySubTab: communitySubTab
         )
     }
 
@@ -60,7 +63,8 @@ extension WalkthroughStep {
             spotlightPadding: padding, spotlightCornerRadius: radius,
             isTabBarTarget: false, tabBarSlot: nil,
             isToolbarTarget: false, toolbarEdge: nil,
-            isInteractive: true, isCompletion: false
+            isInteractive: true, isCompletion: false,
+            communitySubTab: nil
         )
     }
 
@@ -77,7 +81,8 @@ extension WalkthroughStep {
             spotlightPadding: padding, spotlightCornerRadius: radius,
             isTabBarTarget: false, tabBarSlot: nil,
             isToolbarTarget: true, toolbarEdge: edge,
-            isInteractive: false, isCompletion: false
+            isInteractive: false, isCompletion: false,
+            communitySubTab: nil
         )
     }
 
@@ -91,7 +96,8 @@ extension WalkthroughStep {
             spotlightPadding: 4, spotlightCornerRadius: 16,
             isTabBarTarget: true, tabBarSlot: slot,
             isToolbarTarget: false, toolbarEdge: nil,
-            isInteractive: false, isCompletion: false
+            isInteractive: false, isCompletion: false,
+            communitySubTab: nil
         )
     }
 
@@ -103,7 +109,8 @@ extension WalkthroughStep {
             spotlightPadding: 0, spotlightCornerRadius: 0,
             isTabBarTarget: false, tabBarSlot: nil,
             isToolbarTarget: false, toolbarEdge: nil,
-            isInteractive: false, isCompletion: true
+            isInteractive: false, isCompletion: true,
+            communitySubTab: nil
         )
     }
 }
@@ -128,22 +135,22 @@ final class WalkthroughManager: ObservableObject {
     // MARK: Step list
 
     let steps: [WalkthroughStep] = [
-        // Reader tab — feature-specific spotlights
-        .interactive(id: "reader-verse-row", tab: 0,
-                     message: "Press and hold any verse to bookmark it or start a selection.",
-                     padding: 8, radius: 12),
-
-        .interactive(id: "reader-selected-book", tab: 0,
-                     message: "Tap the selected book again to browse all books.",
-                     padding: 6, radius: 20),
+        // Reader tab — navigation first, then reading, then tools
+        .content(id: "reader-selected-book", tab: 0,
+                 message: "This is the book you're reading. Tap it to browse all books.",
+                 padding: 6, radius: 20),
 
         .content(id: "reader-sort-button", tab: 0,
-                 message: "Switch between Bible order and A–Z with this button.",
+                 message: "Switch between Bible order and A to Z.",
                  padding: 8, radius: 16),
 
-        .interactive(id: "reader-bible-text", tab: 0,
-                     message: "Double-tap anywhere on the page to create a typed note.",
-                     padding: 8, radius: 16),
+        .content(id: "reader-chapter-row", tab: 0,
+                 message: "Scroll through chapters here. Tap any number to jump to it.",
+                 padding: 6, radius: 20),
+
+        .content(id: "reader-verse-row", tab: 0,
+                 message: "Press and hold any verse to bookmark it or start a selection.",
+                 padding: 8, radius: 12),
 
         .content(id: "reader-annotation-toolbar", tab: 0,
                  message: "Draw, highlight, erase, and lasso to select and move your annotations.",
@@ -153,13 +160,37 @@ final class WalkthroughManager: ObservableObject {
                  message: "Tap '+' to save new colors. Tap a swatch to select, or long-press to rearrange.",
                  edge: .bottom, padding: 6, radius: 12),
 
+        .content(id: "reader-bible-text", tab: 0,
+                 message: "Double-tap anywhere on the page to create a typed note.",
+                 edge: .top, padding: 8, radius: 16),
+
         // Daily tab
         .tabSwitch(slot: 1, switchTo: 1,
                    message: "Let's explore the Daily tab."),
 
-        .interactive(id: "daily-section-card", tab: 1,
-                     message: "Press and hold any section to rearrange your Daily page.",
-                     padding: 8, radius: 16),
+        .content(id: "daily-verse-section", tab: 1,
+                 message: "Your Verse of the Day. You can tap it to open it in the reader.",
+                 padding: 8, radius: 16),
+
+        .content(id: "daily-affirmation-section", tab: 1,
+                 message: "A personalized affirmation inspired by today's verse.",
+                 padding: 8, radius: 16),
+
+        .content(id: "daily-prayer-section", tab: 1,
+                 message: "A guided prayer to help you reflect on the verse.",
+                 padding: 8, radius: 16),
+
+        .content(id: "daily-devotion-section", tab: 1,
+                 message: "A short devotion exploring the meaning behind the verse.",
+                 padding: 8, radius: 16),
+
+        .content(id: "daily-reflection-section", tab: 1,
+                 message: "Journal your thoughts with a guided reflection prompt.",
+                 padding: 8, radius: 16),
+
+        .content(id: "daily-section-card", tab: 1,
+                 message: "You can press and hold any section to rearrange your Daily page.",
+                 padding: 8, radius: 16),
 
         // Habits tab
         .tabSwitch(slot: 2, switchTo: 2,
@@ -176,30 +207,30 @@ final class WalkthroughManager: ObservableObject {
         // Walk through each community sub-tab individually
         .content(id: "community-insights-tab", tab: 3,
                  message: "Share what God is teaching you through Scripture in the Insights section.",
-                 padding: 6, radius: 20),
+                 padding: 6, radius: 20, communitySubTab: 0),
 
         .content(id: "community-gratitude-tab", tab: 3,
                  message: "Post what you're thankful for in Gratitude, with optional photos.",
-                 padding: 6, radius: 20),
+                 padding: 6, radius: 20, communitySubTab: 1),
 
         .content(id: "community-prayer-tab", tab: 3,
                  message: "Share prayer requests and support others in the Prayer section.",
-                 padding: 6, radius: 20),
+                 padding: 6, radius: 20, communitySubTab: 2),
 
         .content(id: "community-daily-tab", tab: 3,
                  message: "Answer the daily question and see how others responded.",
-                 padding: 6, radius: 20),
+                 padding: 6, radius: 20, communitySubTab: 3),
 
         .content(id: "community-compose-button", tab: 3,
                  message: "Tap the pencil icon to post to the current section.",
-                 edge: .bottom, padding: 10, radius: 22),
+                 edge: .bottom, padding: 10, radius: 22, communitySubTab: 0),
 
         // Library tab
         .tabSwitch(slot: 4, switchTo: 4,
                    message: "Finally, let's check your Library."),
 
         .content(id: "saved-sort-button", tab: 4,
-                 message: "Sort your bookmark collections by 'Last Added' or 'A–Z'.",
+                 message: "Sort your collections by 'Last Added' or 'A to Z', and tap + to create a new collection.",
                  edge: .bottom, padding: 10, radius: 22),
 
         // Done
@@ -260,6 +291,9 @@ final class WalkthroughManager: ObservableObject {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
                 self?.currentStepIndex = nextIndex
                 self?.appNav?.selectedTab = switchTo
+                if let subTab = nextStep.communitySubTab {
+                    self?.appNav?.pendingCommunityTab = subTab
+                }
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { [weak self] in
                 withAnimation(Self.stepAnimation) {
@@ -267,6 +301,9 @@ final class WalkthroughManager: ObservableObject {
                 }
             }
         } else {
+            if let subTab = nextStep.communitySubTab {
+                appNav?.pendingCommunityTab = subTab
+            }
             withAnimation(Self.stepAnimation) {
                 currentStepIndex = nextIndex
             }
@@ -292,6 +329,9 @@ final class WalkthroughManager: ObservableObject {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
                 self?.currentStepIndex = prevIndex
                 self?.appNav?.selectedTab = tab
+                if let subTab = prevStep.communitySubTab {
+                    self?.appNav?.pendingCommunityTab = subTab
+                }
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { [weak self] in
                 withAnimation(Self.stepAnimation) {
@@ -299,6 +339,9 @@ final class WalkthroughManager: ObservableObject {
                 }
             }
         } else {
+            if let subTab = prevStep.communitySubTab {
+                appNav?.pendingCommunityTab = subTab
+            }
             withAnimation(Self.stepAnimation) {
                 currentStepIndex = prevIndex
             }
@@ -327,46 +370,64 @@ final class WalkthroughManager: ObservableObject {
 
     // MARK: - Tab Bar Frame Calculation
 
-    /// Computes the spotlight frame for a tab bar item slot.
-    /// iPad: compact top tab bar (labels sit in the status bar / navigation chrome).
-    /// iPhone: standard bottom tab bar.
+    /// Tab label text for each slot index — must match ContentView's .tabItem labels.
+    private static let tabLabels = ["Reader", "Daily", "Habits", "Community", "Library", "Profile"]
+
+    /// Finds the actual tab bar button frame by searching for the UILabel with
+    /// matching text in the UIKit view hierarchy. Works on both iPhone (bottom
+    /// tab bar) and iPad (compact top tab bar) across all device sizes.
     func tabBarFrame(slot: Int, screenSize: CGSize, safeAreaTop: CGFloat, safeAreaBottom: CGFloat) -> CGRect {
+        guard slot < Self.tabLabels.count,
+              let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let window = scene.windows.first else {
+            return fallbackTabBarFrame(slot: slot, screenSize: screenSize, safeAreaTop: safeAreaTop, safeAreaBottom: safeAreaBottom)
+        }
+
+        let targetText = Self.tabLabels[slot]
+
+        // Find the UILabel whose text matches the tab name
+        if let label = Self.findLabel(withText: targetText, in: window) {
+            // Walk up to the tappable button container (usually 1-2 levels up)
+            let button = label.superview?.superview ?? label.superview ?? label
+            let frame = button.convert(button.bounds, to: window)
+            // Sanity check — frame should be in the top or bottom portion of the screen
+            if frame.midY < screenSize.height * 0.15 || frame.midY > screenSize.height * 0.85 {
+                return frame
+            }
+        }
+
+        return fallbackTabBarFrame(slot: slot, screenSize: screenSize, safeAreaTop: safeAreaTop, safeAreaBottom: safeAreaBottom)
+    }
+
+    private static func findLabel(withText text: String, in view: UIView) -> UILabel? {
+        if let label = view as? UILabel, label.text == text {
+            return label
+        }
+        for sub in view.subviews {
+            if let found = findLabel(withText: text, in: sub) {
+                return found
+            }
+        }
+        return nil
+    }
+
+    private func fallbackTabBarFrame(slot: Int, screenSize: CGSize, safeAreaTop: CGFloat, safeAreaBottom: CGFloat) -> CGRect {
+        // Even distribution fallback — only used if UIKit introspection fails
         let tabCount: CGFloat = 6
         let isIPad = UIDevice.current.userInterfaceIdiom == .pad
-
         if isIPad {
-            // iPad: the compact top tab bar renders tab labels in the navigation
-            // chrome area at the very top of the screen. Positions are measured
-            // as percentages of screen width so they scale across iPad sizes.
-            // Each slot's X center as a fraction of screen width (calibrated from
-            // iPad Pro 12.9" landscape — approximate, varies slightly with label width).
-            let slotFractions: [CGFloat] = [0.21, 0.248, 0.284, 0.332, 0.382, 0.425]
-            let fraction = slot < slotFractions.count ? slotFractions[slot] : 0.5
-            let centerX = screenSize.width * fraction
-            // Tab labels sit at the vertical midpoint of the top chrome area
             let centerY: CGFloat = safeAreaTop > 40 ? safeAreaTop / 2 : 25
-            let spotW: CGFloat = 70
-            let spotH: CGFloat = 36
-            return CGRect(
-                x: centerX - spotW / 2,
-                y: centerY - spotH / 2,
-                width: spotW,
-                height: spotH
-            )
+            let totalWidth: CGFloat = 500
+            let slotWidth = totalWidth / tabCount
+            let startX = (screenSize.width - totalWidth) / 2
+            let centerX = startX + (CGFloat(slot) + 0.5) * slotWidth
+            return CGRect(x: centerX - 40, y: centerY - 18, width: 80, height: 36)
         } else {
-            // iPhone: standard bottom tab bar
             let slotWidth = screenSize.width / tabCount
             let tabBarHeight: CGFloat = 49
             let centerX = (CGFloat(slot) + 0.5) * slotWidth
             let centerY = screenSize.height - safeAreaBottom - tabBarHeight / 2
-            let spotW: CGFloat = slotWidth * 0.8
-            let spotH: CGFloat = tabBarHeight - 4
-            return CGRect(
-                x: centerX - spotW / 2,
-                y: centerY - spotH / 2,
-                width: spotW,
-                height: spotH
-            )
+            return CGRect(x: centerX - slotWidth * 0.4, y: centerY - 22.5, width: slotWidth * 0.8, height: 45)
         }
     }
 

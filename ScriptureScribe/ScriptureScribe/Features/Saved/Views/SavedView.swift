@@ -106,12 +106,12 @@ struct SavedView: View {
                             } label: {
                                 Image(systemName: "arrow.up.arrow.down")
                             }
-                            .coachMark("saved-sort-button")
 
                             Button { showManageGroups = true } label: {
                                 Image(systemName: "plus")
                             }
                         }
+                        .coachMark("saved-sort-button")
                     }
                 }
             }
