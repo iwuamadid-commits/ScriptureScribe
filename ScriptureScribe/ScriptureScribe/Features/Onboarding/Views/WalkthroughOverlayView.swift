@@ -53,8 +53,14 @@ enum WalkthroughLayout {
         if step.isToolbarTarget, let edge = step.toolbarEdge {
             return manager.toolbarButtonFrame(edge: edge, screenSize: screenSize, safeAreaTop: safeAreaTop)
         }
-        return manager.anchorFrames[step.id]
-            ?? CGRect(x: screenSize.width / 2, y: screenSize.height / 2, width: 100, height: 50)
+        // Coach marks report in "walkthrough" coordinate space (TabView,
+        // safe-area-inset origin) but overlays use .ignoresSafeArea() (window
+        // origin). Offset Y by safeAreaTop to compensate.
+        if var frame = manager.anchorFrames[step.id] {
+            frame.origin.y += safeAreaTop
+            return frame
+        }
+        return CGRect(x: screenSize.width / 2, y: screenSize.height / 2, width: 100, height: 50)
     }
 
     static func tooltipY(step: WalkthroughStep, frame: CGRect, screenHeight: CGFloat) -> CGFloat {
