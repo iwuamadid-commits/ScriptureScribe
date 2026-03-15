@@ -94,14 +94,14 @@ struct BibleTextView: View {
                                 selectedIndices.insert(index)
                             }
                         }
-                    }
+                    },
+                    isCoachMarkTarget: verse.number == "1"
                 )
                 // Report this row's bounds if it's the topmost selected verse.
                 // overlayPreferenceValue uses this to anchor the bubble popup.
                 .anchorPreference(key: FirstSelectedVerseAnchorKey.self, value: .bounds) {
                     firstSelectedIndex == index ? $0 : nil
                 }
-                .coachMark("reader-verse-row", active: verse.number == "1")
             }
 
             Divider()
@@ -323,6 +323,7 @@ private struct VerseRow: View {
     /// Toggles this verse in/out of the selection. Called on tap (in selection mode) or
     /// when the user picks "Select Verse" from the context menu (to start a selection).
     let onToggleSelection: () -> Void
+    var isCoachMarkTarget: Bool = false
 
     var body: some View {
         if number == "§" {
@@ -423,6 +424,7 @@ private struct VerseRow: View {
                 .font(font)
                 .lineSpacing(spacing)
                 .multilineTextAlignment(alignment)
+                .coachMark("reader-verse-row", active: isCoachMarkTarget)
                 .frame(maxWidth: .infinity, alignment: frameAlignment(for: alignment))
                 .overlay(
                     // AttributedString colors override foregroundStyle, so use plain
@@ -442,6 +444,7 @@ private struct VerseRow: View {
                 .foregroundStyle(theme.text)
                 .lineSpacing(spacing)
                 .multilineTextAlignment(alignment)
+                .coachMark("reader-verse-row", active: isCoachMarkTarget)
                 .frame(maxWidth: .infinity, alignment: frameAlignment(for: alignment))
                 .overlay(
                     Text(text)

@@ -117,6 +117,8 @@ final class WalkthroughManager: ObservableObject {
     @Published var isActive: Bool = false
     @Published var currentStepIndex: Int = 0
     @Published var anchorFrames: [String: CGRect] = [:]
+    /// True while switching tabs — hides overlays so the old step doesn't linger.
+    @Published var isTransitioning: Bool = false
 
     // MARK: Navigation hook
 
@@ -173,19 +175,19 @@ final class WalkthroughManager: ObservableObject {
 
         // Walk through each community sub-tab individually
         .content(id: "community-insights-tab", tab: 3,
-                 message: "Insights — share what God is teaching you through Scripture.",
+                 message: "Share what God is teaching you through Scripture in the Insights section.",
                  padding: 6, radius: 20),
 
         .content(id: "community-gratitude-tab", tab: 3,
-                 message: "Gratitude — post what you're thankful for, with optional photos.",
+                 message: "Post what you're thankful for in Gratitude, with optional photos.",
                  padding: 6, radius: 20),
 
         .content(id: "community-prayer-tab", tab: 3,
-                 message: "Prayer — share prayer requests and support others.",
+                 message: "Share prayer requests and support others in the Prayer section.",
                  padding: 6, radius: 20),
 
         .content(id: "community-daily-tab", tab: 3,
-                 message: "Daily — answer the daily question and see others' responses.",
+                 message: "Answer the daily question and see how others responded.",
                  padding: 6, radius: 20),
 
         .content(id: "community-compose-button", tab: 3,
@@ -205,7 +207,7 @@ final class WalkthroughManager: ObservableObject {
     ]
 
     var currentStep: WalkthroughStep? {
-        guard isActive, steps.indices.contains(currentStepIndex) else { return nil }
+        guard isActive, !isTransitioning, steps.indices.contains(currentStepIndex) else { return nil }
         return steps[currentStepIndex]
     }
 
@@ -213,11 +215,36 @@ final class WalkthroughManager: ObservableObject {
 
     // MARK: Actions
 
+    /// Starts the walkthrough once the reader content is loaded.
+    /// Polls for the first step's coach mark frame before showing the overlay.
     func start() {
         currentStepIndex = 0
         appNav?.selectedTab = 0
-        isActive = true
+        waitForReaderThenActivate()
     }
+
+    private func waitForReaderThenActivate() {
+        // The coach mark frame for the first verse is reported only after
+        // the Bible text loads. Poll briefly until it appears.
+        if anchorFrames["reader-verse-row"] != nil {
+            // Reader content is loaded. The reader's own fade-in takes
+            // ~0.35s delay + 0.3s easeIn. Wait for that to finish, then
+            // fade in the walkthrough overlay so it layers on smoothly.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { [weak self] in
+                withAnimation(.easeOut(duration: 0.3)) {
+                    self?.isActive = true
+                }
+            }
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                self?.waitForReaderThenActivate()
+            }
+        }
+    }
+
+    /// Shared animation curve used for every step transition.
+    /// Smooth spring with no bounce for a premium glide feel.
+    static let stepAnimation: Animation = .spring(duration: 0.45, bounce: 0)
 
     func next() {
         let nextIndex = currentStepIndex + 1
@@ -225,17 +252,22 @@ final class WalkthroughManager: ObservableObject {
 
         let nextStep = steps[nextIndex]
 
-        // If the next step requires a tab switch, do it with a delay
         if let switchTo = nextStep.switchToTab {
-            appNav?.selectedTab = switchTo
-            // Give SwiftUI time to lay out the new tab and report frames
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    self?.currentStepIndex = nextIndex
+            // Hide old step immediately, switch tab, then animate in the new step.
+            withAnimation(.easeIn(duration: 0.15)) {
+                isTransitioning = true
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                self?.currentStepIndex = nextIndex
+                self?.appNav?.selectedTab = switchTo
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { [weak self] in
+                withAnimation(Self.stepAnimation) {
+                    self?.isTransitioning = false
                 }
             }
         } else {
-            withAnimation(.easeInOut(duration: 0.3)) {
+            withAnimation(Self.stepAnimation) {
                 currentStepIndex = nextIndex
             }
         }
@@ -246,18 +278,28 @@ final class WalkthroughManager: ObservableObject {
         guard prevIndex >= 0 else { return }
 
         let prevStep = steps[prevIndex]
+        let currentStep = steps[currentStepIndex]
 
-        // Switch to the previous step's tab if needed
-        let targetTab = prevStep.switchToTab ?? (prevStep.targetTab >= 0 ? prevStep.targetTab : nil)
-        if let tab = targetTab {
-            appNav?.selectedTab = tab
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    self?.currentStepIndex = prevIndex
+        // Figure out which tab the previous step lives on.
+        let prevTab = prevStep.targetTab >= 0 ? prevStep.targetTab : nil
+        let needsTabSwitch = prevTab != nil && prevTab != (currentStep.targetTab >= 0 ? currentStep.targetTab : nil)
+
+        if needsTabSwitch, let tab = prevTab {
+            // Hide old step immediately, switch tab, then animate in the previous step.
+            withAnimation(.easeIn(duration: 0.15)) {
+                isTransitioning = true
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                self?.currentStepIndex = prevIndex
+                self?.appNav?.selectedTab = tab
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { [weak self] in
+                withAnimation(Self.stepAnimation) {
+                    self?.isTransitioning = false
                 }
             }
         } else {
-            withAnimation(.easeInOut(duration: 0.3)) {
+            withAnimation(Self.stepAnimation) {
                 currentStepIndex = prevIndex
             }
         }
@@ -268,12 +310,19 @@ final class WalkthroughManager: ObservableObject {
     }
 
     func complete() {
-        withAnimation(.easeOut(duration: 0.25)) {
-            isActive = false
+        // Fade out the completion card first
+        withAnimation(.easeOut(duration: 0.3)) {
+            isTransitioning = true
         }
-        currentStepIndex = 0
-        // Navigate back to the Reader tab
-        appNav?.selectedTab = 0
+        // After the card fades, switch to the reader tab and dismiss
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
+            self?.appNav?.selectedTab = 0
+            withAnimation(.easeOut(duration: 0.4)) {
+                self?.isActive = false
+            }
+            self?.currentStepIndex = 0
+            self?.isTransitioning = false
+        }
     }
 
     // MARK: - Tab Bar Frame Calculation

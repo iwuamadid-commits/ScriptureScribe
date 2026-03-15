@@ -17,6 +17,24 @@
 
 import SwiftUI
 
+// MARK: - Spotlight Cutout View
+
+/// Punches a clear rounded-rect hole through the dim overlay.
+/// Position and size animate smoothly between regular steps.
+/// Fades in/out when appearing or disappearing (tab-switch transitions).
+struct SpotlightCutout: View {
+    let cutout: CGRect
+    let cornerRadius: CGFloat
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: cornerRadius)
+            .frame(width: cutout.width, height: cutout.height)
+            .position(x: cutout.midX, y: cutout.midY)
+            .blendMode(.destinationOut)
+            .transition(.opacity)
+    }
+}
+
 // MARK: - Shared Helpers
 
 /// Shared logic used by both the dim and controls overlays.
@@ -70,29 +88,40 @@ struct WalkthroughDimOverlay: View {
             if let step = manager.currentStep {
                 if step.isCompletion {
                     Color.black.opacity(0.65)
-                } else if step.isTabBarTarget {
-                    // Tab bar steps: dim the screen without a spotlight cutout
-                    // (iPad renders tabs at the top using private views we can't
-                    // reliably locate). The tab switch itself is the visual cue.
-                    Color.black.opacity(0.65)
-
-                    // Centered tooltip
-                    tooltipVisual(step: step, tipX: size.width / 2, tipY: size.height / 2, maxW: min(size.width - 40, 360))
-                        .animation(.easeInOut(duration: 0.35), value: manager.currentStepIndex)
                 } else {
-                    let frame = WalkthroughLayout.targetFrame(
-                        for: step, manager: manager,
-                        screenSize: size, safeAreaTop: top, safeAreaBottom: bottom
-                    )
-                    let tipY = WalkthroughLayout.tooltipY(step: step, frame: frame, screenHeight: size.height)
-                    let tipX = WalkthroughLayout.clampX(frame.midX, screenWidth: size.width)
+                    let hasSpotlight = !step.isTabBarTarget
+                    let frame = hasSpotlight
+                        ? WalkthroughLayout.targetFrame(
+                            for: step, manager: manager,
+                            screenSize: size, safeAreaTop: top, safeAreaBottom: bottom
+                        )
+                        : .zero
+                    let tipX = hasSpotlight ? WalkthroughLayout.clampX(frame.midX, screenWidth: size.width) : size.width / 2
+                    let tipY = hasSpotlight ? WalkthroughLayout.tooltipY(step: step, frame: frame, screenHeight: size.height) : size.height / 2
 
-                    // Dim + spotlight cutout
-                    spotlight(step: step, frame: frame)
+                    // Dim + spotlight cutout in a compositing group so
+                    // .destinationOut punches through the dim correctly.
+                    ZStack {
+                        Color.black.opacity(0.65)
 
-                    // Tooltip visual (text + badge + step counter, NO buttons)
+                        if hasSpotlight {
+                            SpotlightCutout(
+                                cutout: cutoutRect(step: step, frame: frame),
+                                cornerRadius: step.spotlightCornerRadius
+                            )
+                        }
+                    }
+                    .compositingGroup()
+
+                    // Tooltip visual — each step gets its own identity so
+                    // SwiftUI fades it in at the destination instead of
+                    // gliding the box while the text changes mid-flight.
                     tooltipVisual(step: step, tipX: tipX, tipY: tipY, maxW: min(size.width - 40, 360))
-                        .animation(.easeInOut(duration: 0.35), value: manager.currentStepIndex)
+                        .id(manager.currentStepIndex)
+                        .transition(.asymmetric(
+                            insertion: .opacity.animation(.easeOut(duration: 0.3).delay(0.1)),
+                            removal:   .opacity.animation(.easeIn(duration: 0.15))
+                        ))
                 }
             }
         }
@@ -102,23 +131,14 @@ struct WalkthroughDimOverlay: View {
 
     // MARK: Spotlight
 
-    private func spotlight(step: WalkthroughStep, frame: CGRect) -> some View {
+    private func cutoutRect(step: WalkthroughStep, frame: CGRect) -> CGRect {
         let pad = step.spotlightPadding
-        let r = step.spotlightCornerRadius
-        let cutout = CGRect(
+        return CGRect(
             x: frame.midX - (frame.width + pad * 2) / 2,
             y: frame.midY - (frame.height + pad * 2) / 2,
             width: frame.width + pad * 2,
             height: frame.height + pad * 2
         )
-        return Canvas { ctx, canvasSize in
-            ctx.fill(
-                Path(CGRect(origin: .zero, size: canvasSize)),
-                with: .color(.black.opacity(0.65))
-            )
-            ctx.blendMode = .clear
-            ctx.fill(Path(roundedRect: cutout, cornerRadius: r), with: .color(.white))
-        }
     }
 
     // MARK: Tooltip Visual
@@ -144,17 +164,15 @@ struct WalkthroughDimOverlay: View {
                 .background(Color(theme.primary).opacity(0.12), in: Capsule())
             }
 
-            // Bottom row: step counter + placeholder for Next button (keeps sizing consistent)
+            // Bottom row: < counter >
             HStack {
-                if manager.currentStepIndex > 0 {
-                    // Invisible placeholder for Back chevron — keeps layout
-                    // consistent with the controls overlay's real button.
-                    // The actual visible chevron is in the controls layer.
-                    Image(systemName: "chevron.left")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.clear)
-                        .frame(width: 32, height: 32)
-                }
+                // Back arrow placeholder (invisible — real button is in controls layer)
+                Image(systemName: "chevron.left")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(manager.currentStepIndex > 0 ? Color(theme.textSecondary) : .clear)
+                    .frame(width: 32, height: 32)
+
+                Spacer()
 
                 Text("\(manager.currentStepIndex + 1) of \(manager.totalSteps - 1)")
                     .font(.caption)
@@ -162,16 +180,11 @@ struct WalkthroughDimOverlay: View {
 
                 Spacer()
 
-                // Visual-only Next pill (the real button is in the controls layer)
-                Text("Next")
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
+                // Next arrow (visual only — real button is in controls layer)
+                Image(systemName: "chevron.right")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 8)
-                    .background(Color(theme.primary))
-                    .clipShape(Capsule())
+                    .foregroundStyle(Color(theme.primary))
+                    .frame(width: 32, height: 32)
             }
         }
         .padding(16)
@@ -212,10 +225,13 @@ struct WalkthroughControlsOverlay: View {
                     let tipX = step.isTabBarTarget ? size.width / 2 : WalkthroughLayout.clampX(frame!.midX, screenWidth: size.width)
                     let tipY = step.isTabBarTarget ? size.height / 2 : WalkthroughLayout.tooltipY(step: step, frame: frame!, screenHeight: size.height)
 
-                    // Back + Next buttons — invisible background, positioned to overlap
-                    // the bottom row of the tooltip visual.
+                    // Back + Next buttons — matches tooltip position and transitions.
                     controlStrip(tipX: tipX, tipY: tipY, maxW: min(size.width - 40, 360), step: step)
-                        .animation(.easeInOut(duration: 0.35), value: manager.currentStepIndex)
+                        .id(manager.currentStepIndex)
+                        .transition(.asymmetric(
+                            insertion: .opacity.animation(.easeOut(duration: 0.3).delay(0.1)),
+                            removal:   .opacity.animation(.easeIn(duration: 0.15))
+                        ))
 
                     // Skip button — bottom-right corner
                     Button("Skip") { manager.skip() }
@@ -267,30 +283,32 @@ struct WalkthroughControlsOverlay: View {
 
             // Real buttons (not hidden)
             HStack {
-                if manager.currentStepIndex > 0 {
-                    Button(action: { manager.previous() }) {
-                        Image(systemName: "chevron.left")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Color(theme.textSecondary))
-                            .frame(width: 32, height: 32)
-                            .contentShape(Rectangle())
-                    }
+                Button(action: { manager.previous() }) {
+                    Image(systemName: "chevron.left")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.clear) // invisible — visual layer shows this
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
                 }
+                .opacity(manager.currentStepIndex > 0 ? 1 : 0)
+                .disabled(manager.currentStepIndex == 0)
 
+                Spacer()
+
+                // Invisible counter placeholder — keeps layout matching visual layer
                 Text("\(manager.currentStepIndex + 1) of \(manager.totalSteps - 1)")
                     .font(.caption)
-                    .foregroundStyle(.clear) // invisible — visual layer shows this
+                    .foregroundStyle(.clear)
                     .allowsHitTesting(false)
 
                 Spacer()
 
                 Button(action: { manager.next() }) {
-                    Text("Next")
+                    Image(systemName: "chevron.right")
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.clear) // invisible — visual layer shows the pill
-                        .padding(.horizontal, 24)
-                        .padding(.vertical, 8)
-                        .contentShape(Capsule())
+                        .foregroundStyle(.clear) // invisible — visual layer shows this
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
                 }
             }
         }

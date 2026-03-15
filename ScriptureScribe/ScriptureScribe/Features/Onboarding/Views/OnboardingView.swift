@@ -37,7 +37,7 @@ private let slides: [OnboardingSlide] = [
     OnboardingSlide(
         symbol: "sun.max.fill", useLogo: false,
         headline: "Daily Devotional",
-        description: "Start each day with a verse, prayer, affirmation, and guided reflection — all prepared for you."
+        description: "Start each day with a verse, prayer, affirmation, and guided reflection, all prepared for you."
     ),
     OnboardingSlide(
         symbol: "checkmark.circle.fill", useLogo: false,
