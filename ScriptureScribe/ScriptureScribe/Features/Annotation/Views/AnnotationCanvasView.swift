@@ -121,16 +121,17 @@ struct AnnotationCanvasView: UIViewRepresentable {
         canvas.delegate        = context.coordinator
         applyFingerPolicy(to: canvas)
 
-        // On iPhone, disable PKCanvasView's own scrolling and zoom so it doesn't
-        // conflict with the parent ZoomScrollView. Without this, finger strokes
-        // appear offset and at the wrong scale during drawing, snapping into place
-        // only after the touch ends.
-        if UIDevice.current.userInterfaceIdiom == .phone {
-            canvas.isScrollEnabled  = false
-            canvas.minimumZoomScale = 1.0
-            canvas.maximumZoomScale = 1.0
-            canvas.bouncesZoom      = false
-        }
+        // Disable PKCanvasView's own scrolling and zoom so it doesn't
+        // conflict with the parent ZoomScrollView. Without this, the canvas
+        // maintains its own scroll offset and zoom level, which causes:
+        //   - Finger strokes appearing offset and at the wrong scale (iPhone)
+        //   - Loaded drawings from previous sessions becoming un-erasable because
+        //     the eraser operates in the canvas's content coordinate space, which
+        //     diverges from the visual position when the canvas has its own scroll state
+        canvas.isScrollEnabled  = false
+        canvas.minimumZoomScale = 1.0
+        canvas.maximumZoomScale = 1.0
+        canvas.bouncesZoom      = false
 
         // Apple Pencil double-tap → toggle eraser
         let pencilInteraction = UIPencilInteraction()
@@ -148,6 +149,22 @@ struct AnnotationCanvasView: UIViewRepresentable {
             canvas.drawing = saved
             context.coordinator.isRewriting = false
             context.coordinator.previousStrokeCount = saved.strokes.count
+
+            // Force PKCanvasView to rebuild its internal stroke hit-test index.
+            // Without this, the eraser tool cannot find strokes that were loaded
+            // programmatically (i.e. from a previous session's saved drawing).
+            // Clear the undo manager after re-setting so that the "set drawing"
+            // action isn't on the undo stack — otherwise pressing undo would
+            // remove ALL loaded strokes in one step instead of one at a time.
+            let coord = context.coordinator
+            DispatchQueue.main.async { [weak canvas] in
+                guard let canvas = canvas else { return }
+                coord.isRewriting = true
+                let d = canvas.drawing
+                canvas.drawing = d
+                coord.isRewriting = false
+                canvas.undoManager?.removeAllActions()
+            }
         }
 
         let coordinator = context.coordinator
@@ -222,6 +239,23 @@ struct AnnotationCanvasView: UIViewRepresentable {
             context.coordinator.isRewriting = false
             context.coordinator.previousStrokeCount = newDrawing.strokes.count
 
+            // Force PKCanvasView to rebuild its internal stroke hit-test index
+            // so the eraser can find strokes loaded from a previous session.
+            // Clear the undo manager afterward so the "load drawing" action
+            // can't be undone (which would bulk-remove all loaded strokes).
+            if !newDrawing.strokes.isEmpty {
+                let coord = context.coordinator
+                DispatchQueue.main.async {
+                    coord.isRewriting = true
+                    let d = canvas.drawing
+                    canvas.drawing = d
+                    coord.isRewriting = false
+                    canvas.undoManager?.removeAllActions()
+                }
+            } else {
+                canvas.undoManager?.removeAllActions()
+            }
+
             // Clear lasso undo/redo stacks so operations from the old chapter
             // cannot be restored on the new page.
             vm.clearUndoStacks()
@@ -253,12 +287,10 @@ struct AnnotationCanvasView: UIViewRepresentable {
         canvas.isUserInteractionEnabled = vm.isDrawingTool || vm.isLassoActive
         applyFingerPolicy(to: canvas)
 
-        // Keep PKCanvasView's own scrolling disabled on iPhone (reinforced every update)
-        if UIDevice.current.userInterfaceIdiom == .phone {
-            canvas.isScrollEnabled  = false
-            canvas.minimumZoomScale = 1.0
-            canvas.maximumZoomScale = 1.0
-        }
+        // Keep PKCanvasView's own scrolling disabled (reinforced every update)
+        canvas.isScrollEnabled  = false
+        canvas.minimumZoomScale = 1.0
+        canvas.maximumZoomScale = 1.0
     }
 
     // MARK: - Finger policy helper
@@ -274,6 +306,14 @@ struct AnnotationCanvasView: UIViewRepresentable {
         for recognizer in canvas.gestureRecognizers ?? [] {
             recognizer.allowedTouchTypes = allowed
         }
+    }
+
+    static func dismantleUIView(_ canvas: PassThroughPKCanvasView, coordinator: Coordinator) {
+        // When .id() changes, SwiftUI destroys the canvas. Save the current
+        // drawing so strokes drawn since the last auto-save are not lost.
+        guard !coordinator.currentChapterId.isEmpty,
+              !canvas.drawing.strokes.isEmpty else { return }
+        coordinator.vm.saveDrawing(canvas.drawing, for: coordinator.currentChapterId)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(vm: vm) }
@@ -651,11 +691,13 @@ struct AnnotationCanvasView: UIViewRepresentable {
             guard index < strokes.count else { return }
             strokes[index] = stroke
             // Undo PencilKit's original stroke registration first, then set the
-            // modified drawing.  This collapses the two actions (add + rewrite)
-            // into a single undoable step so one undo removes the whole stroke.
+            // modified drawing.  Group both operations so one undo removes just
+            // this stroke — not the entire drawing.
             isRewriting = true
+            canvasView.undoManager?.beginUndoGrouping()
             canvasView.undoManager?.undo()
             canvasView.drawing = PKDrawing(strokes: strokes)
+            canvasView.undoManager?.endUndoGrouping()
             isRewriting = false
             previousStrokeCount = canvasView.drawing.strokes.count
             save(canvasView.drawing)

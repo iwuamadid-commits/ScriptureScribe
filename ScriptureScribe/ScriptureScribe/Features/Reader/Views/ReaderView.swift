@@ -654,6 +654,7 @@ struct ReaderView: View {
                             contentHeight:    contentHeight,
                             containerWidth:   geo.size.width
                         )
+                        .frame(height: contentHeight)
                         .id(vm.selectedChapter?.id ?? "")
                         .allowsHitTesting(annotationVM.isDrawingTool || annotationVM.isLassoActive)
 
@@ -670,6 +671,16 @@ struct ReaderView: View {
                         // ── Photo tap targets (above canvas so fingers can select in any mode) ──
                         if !annotationVM.isLassoActive {
                             GeometryReader { _ in
+                                // Tap outside any photo → deselect the selected photo
+                                Color.clear
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        withAnimation(.spring(duration: 0.2)) {
+                                            annotationVM.selectedPhotoId = nil
+                                        }
+                                    }
+                                    .allowsHitTesting(annotationVM.selectedPhotoId != nil)
+
                                 ForEach(annotationVM.photoAnnotations[splitPhotoId] ?? []) { photo in
                                     let pw = photo.size.width
                                     let ph = photo.size.height
@@ -833,6 +844,7 @@ struct ReaderView: View {
                         contentHeight:    contentHeight,
                         containerWidth:   geo.size.width
                     )
+                    .frame(height: contentHeight)
                     .id(vm.selectedChapter?.id ?? "")
                     .allowsHitTesting(annotationVM.isDrawingTool || annotationVM.isLassoActive)
 
@@ -849,6 +861,16 @@ struct ReaderView: View {
                     // Layer 4 — Photo tap targets (above canvas so fingers can select photos in any mode)
                     if !annotationVM.isLassoActive {
                         GeometryReader { _ in
+                            // Tap outside any photo → deselect the selected photo
+                            Color.clear
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    withAnimation(.spring(duration: 0.2)) {
+                                        annotationVM.selectedPhotoId = nil
+                                    }
+                                }
+                                .allowsHitTesting(annotationVM.selectedPhotoId != nil)
+
                             ForEach(annotationVM.photoAnnotations[photoChapterId] ?? []) { photo in
                                 let pw = photo.size.width
                                 let ph = photo.size.height
