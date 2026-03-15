@@ -144,16 +144,12 @@ final class WalkthroughManager: ObservableObject {
                      padding: 8, radius: 16),
 
         .content(id: "reader-annotation-toolbar", tab: 0,
-                 message: "Use these tools to draw, highlight, and erase on the page.",
-                 edge: .top, padding: 6, radius: 16),
-
-        .content(id: "reader-lasso-button", tab: 0,
-                 message: "The lasso tool lets you select and move drawings, change colors, or delete.",
-                 edge: .top, padding: 6, radius: 16),
+                 message: "Draw, highlight, erase, and lasso to select and move your annotations.",
+                 edge: .bottom, padding: 6, radius: 16),
 
         .content(id: "reader-color-swatches", tab: 0,
                  message: "Tap '+' to save new colors. Tap a swatch to select, or long-press to rearrange.",
-                 edge: .top, padding: 6, radius: 12),
+                 edge: .bottom, padding: 6, radius: 12),
 
         // Daily tab
         .tabSwitch(slot: 1, switchTo: 1,
@@ -167,8 +163,9 @@ final class WalkthroughManager: ObservableObject {
         .tabSwitch(slot: 2, switchTo: 2,
                    message: "Now let's check out Habits."),
 
-        .toolbar(id: "habits-add-button", tab: 2,
-                 message: "Tap '+' to create a custom habit or choose from suggestions."),
+        .content(id: "habits-add-button", tab: 2,
+                 message: "Tap '+' to create a custom habit or choose from suggestions.",
+                 edge: .bottom, padding: 10, radius: 22),
 
         // Community tab
         .tabSwitch(slot: 3, switchTo: 3,
@@ -191,16 +188,17 @@ final class WalkthroughManager: ObservableObject {
                  message: "Daily — answer the daily question and see others' responses.",
                  padding: 6, radius: 20),
 
-        .toolbar(id: "community-compose-button", tab: 3,
+        .content(id: "community-compose-button", tab: 3,
                  message: "Tap the pencil icon to post to the current section.",
-                 tooltipEdge: .bottom),
+                 edge: .bottom, padding: 10, radius: 22),
 
         // Library tab
         .tabSwitch(slot: 4, switchTo: 4,
                    message: "Finally, let's check your Library."),
 
-        .toolbar(id: "saved-sort-button", tab: 4,
-                 message: "Sort your bookmark collections by 'Last Added' or 'A–Z'."),
+        .content(id: "saved-sort-button", tab: 4,
+                 message: "Sort your bookmark collections by 'Last Added' or 'A–Z'.",
+                 edge: .bottom, padding: 10, radius: 22),
 
         // Done
         .completion,
@@ -281,21 +279,24 @@ final class WalkthroughManager: ObservableObject {
     // MARK: - Tab Bar Frame Calculation
 
     /// Computes the spotlight frame for a tab bar item slot.
-    /// On iPad the tab bar renders at the top (inline with navigation chrome).
-    /// On iPhone it renders at the bottom.
+    /// iPad: compact top tab bar (labels sit in the status bar / navigation chrome).
+    /// iPhone: standard bottom tab bar.
     func tabBarFrame(slot: Int, screenSize: CGSize, safeAreaTop: CGFloat, safeAreaBottom: CGFloat) -> CGRect {
         let tabCount: CGFloat = 6
         let isIPad = UIDevice.current.userInterfaceIdiom == .pad
 
         if isIPad {
-            // iPad: tabs are centered text labels at the top of the screen.
-            // They sit inside the navigation bar area, roughly at safeAreaTop + 18.
-            let tabBarWidth = min(screenSize.width * 0.6, 600)  // tabs are centered, not full-width
-            let startX = (screenSize.width - tabBarWidth) / 2
-            let slotWidth = tabBarWidth / tabCount
-            let centerX = startX + (CGFloat(slot) + 0.5) * slotWidth
-            let centerY = safeAreaTop + 18
-            let spotW: CGFloat = slotWidth * 0.85
+            // iPad: the compact top tab bar renders tab labels in the navigation
+            // chrome area at the very top of the screen. Positions are measured
+            // as percentages of screen width so they scale across iPad sizes.
+            // Each slot's X center as a fraction of screen width (calibrated from
+            // iPad Pro 12.9" landscape — approximate, varies slightly with label width).
+            let slotFractions: [CGFloat] = [0.21, 0.248, 0.284, 0.332, 0.382, 0.425]
+            let fraction = slot < slotFractions.count ? slotFractions[slot] : 0.5
+            let centerX = screenSize.width * fraction
+            // Tab labels sit at the vertical midpoint of the top chrome area
+            let centerY: CGFloat = safeAreaTop > 40 ? safeAreaTop / 2 : 25
+            let spotW: CGFloat = 70
             let spotH: CGFloat = 36
             return CGRect(
                 x: centerX - spotW / 2,

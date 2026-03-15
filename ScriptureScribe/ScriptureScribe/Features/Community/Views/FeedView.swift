@@ -105,6 +105,7 @@ struct FeedView: View {
                     }
                     // Daily tab has no compose button — the "Share your answer" button
                     // lives inside DailyQuestionView itself.
+                    .coachMark("community-compose-button")
                     .opacity(selectedTab == .daily ? 0 : 1)
                     .disabled(selectedTab == .daily)
                 }

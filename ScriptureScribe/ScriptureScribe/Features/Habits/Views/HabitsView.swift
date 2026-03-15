@@ -129,6 +129,7 @@ struct HabitsView: View {
                         Image(systemName: "plus.circle.fill")
                             .foregroundStyle(themeManager.currentTheme.primary)
                     }
+                    .coachMark("habits-add-button")
                 }
             }
             .sheet(isPresented: $showPaywall) {

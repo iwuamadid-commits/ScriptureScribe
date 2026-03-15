@@ -69,7 +69,16 @@ struct WalkthroughDimOverlay: View {
             let bottom = geo.safeAreaInsets.bottom
             if let step = manager.currentStep {
                 if step.isCompletion {
-                    completionCard(size: size)
+                    Color.black.opacity(0.65)
+                } else if step.isTabBarTarget {
+                    // Tab bar steps: dim the screen without a spotlight cutout
+                    // (iPad renders tabs at the top using private views we can't
+                    // reliably locate). The tab switch itself is the visual cue.
+                    Color.black.opacity(0.65)
+
+                    // Centered tooltip
+                    tooltipVisual(step: step, tipX: size.width / 2, tipY: size.height / 2, maxW: min(size.width - 40, 360))
+                        .animation(.easeInOut(duration: 0.35), value: manager.currentStepIndex)
                 } else {
                     let frame = WalkthroughLayout.targetFrame(
                         for: step, manager: manager,
@@ -138,10 +147,12 @@ struct WalkthroughDimOverlay: View {
             // Bottom row: step counter + placeholder for Next button (keeps sizing consistent)
             HStack {
                 if manager.currentStepIndex > 0 {
-                    // Placeholder for Back chevron
+                    // Invisible placeholder for Back chevron — keeps layout
+                    // consistent with the controls overlay's real button.
+                    // The actual visible chevron is in the controls layer.
                     Image(systemName: "chevron.left")
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Color(theme.textSecondary))
+                        .foregroundStyle(.clear)
                         .frame(width: 32, height: 32)
                 }
 
@@ -153,6 +164,8 @@ struct WalkthroughDimOverlay: View {
 
                 // Visual-only Next pill (the real button is in the controls layer)
                 Text("Next")
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 24)
@@ -172,51 +185,6 @@ struct WalkthroughDimOverlay: View {
         .position(x: tipX, y: tipY)
     }
 
-    // MARK: Completion Card
-
-    @ViewBuilder
-    private func completionCard(size: CGSize) -> some View {
-        Color.black.opacity(0.65)
-            .allowsHitTesting(true) // block taps on completion screen
-
-        VStack(spacing: 20) {
-            ZStack {
-                Circle()
-                    .fill(Color(theme.primary).opacity(0.12))
-                    .frame(width: 100, height: 100)
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 50))
-                    .foregroundStyle(Color(theme.primary))
-            }
-
-            Text("You're All Set!")
-                .font(.title.bold())
-                .foregroundStyle(Color(theme.text))
-
-            Text("Enjoy Scripture Scribe.")
-                .font(.body)
-                .foregroundStyle(Color(theme.textSecondary))
-
-            Button(action: { manager.complete() }) {
-                Text("Start Reading")
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 40)
-                    .padding(.vertical, 14)
-                    .background(Color(theme.primary))
-                    .clipShape(Capsule())
-            }
-            .padding(.top, 8)
-        }
-        .padding(32)
-        .frame(maxWidth: 360)
-        .background(
-            RoundedRectangle(cornerRadius: 24)
-                .fill(Color(theme.surface))
-                .shadow(color: .black.opacity(0.3), radius: 16, y: 6)
-        )
-        .allowsHitTesting(true) // completion card IS interactive
-    }
 }
 
 // MARK: - Layer 2: Controls Only (Back, Next, Skip buttons)
@@ -233,29 +201,33 @@ struct WalkthroughControlsOverlay: View {
             let size = geo.size
             let top = geo.safeAreaInsets.top
             let bottom = geo.safeAreaInsets.bottom
-            if let step = manager.currentStep, !step.isCompletion {
-                let frame = WalkthroughLayout.targetFrame(
-                    for: step, manager: manager,
-                    screenSize: size, safeAreaTop: top, safeAreaBottom: bottom
-                )
-                let tipY = WalkthroughLayout.tooltipY(step: step, frame: frame, screenHeight: size.height)
-                let tipX = WalkthroughLayout.clampX(frame.midX, screenWidth: size.width)
-
-                // Back + Next buttons — invisible background, positioned to overlap
-                // the bottom row of the tooltip visual.
-                controlStrip(tipX: tipX, tipY: tipY, maxW: min(size.width - 40, 360), step: step)
-                    .animation(.easeInOut(duration: 0.35), value: manager.currentStepIndex)
-
-                // Skip button — bottom-right corner
-                Button("Skip") { manager.skip() }
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white.opacity(0.85))
-                    .padding(12)
-                    .contentShape(Rectangle())
-                    .position(
-                        x: size.width - 50,
-                        y: size.height - bottom - 36
+            if let step = manager.currentStep {
+                if step.isCompletion {
+                    completionCard()
+                } else {
+                    let frame = step.isTabBarTarget ? nil : WalkthroughLayout.targetFrame(
+                        for: step, manager: manager,
+                        screenSize: size, safeAreaTop: top, safeAreaBottom: bottom
                     )
+                    let tipX = step.isTabBarTarget ? size.width / 2 : WalkthroughLayout.clampX(frame!.midX, screenWidth: size.width)
+                    let tipY = step.isTabBarTarget ? size.height / 2 : WalkthroughLayout.tooltipY(step: step, frame: frame!, screenHeight: size.height)
+
+                    // Back + Next buttons — invisible background, positioned to overlap
+                    // the bottom row of the tooltip visual.
+                    controlStrip(tipX: tipX, tipY: tipY, maxW: min(size.width - 40, 360), step: step)
+                        .animation(.easeInOut(duration: 0.35), value: manager.currentStepIndex)
+
+                    // Skip button — bottom-right corner
+                    Button("Skip") { manager.skip() }
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .padding(12)
+                        .contentShape(Rectangle())
+                        .position(
+                            x: size.width - 50,
+                            y: size.height - bottom - 36
+                        )
+                }
             }
         }
         .ignoresSafeArea()
@@ -326,5 +298,48 @@ struct WalkthroughControlsOverlay: View {
         .frame(maxWidth: maxW)
         .fixedSize()
         .position(x: tipX, y: tipY)
+    }
+
+    // MARK: Completion Card
+
+    @ViewBuilder
+    private func completionCard() -> some View {
+        VStack(spacing: 20) {
+            ZStack {
+                Circle()
+                    .fill(Color(theme.primary).opacity(0.12))
+                    .frame(width: 100, height: 100)
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 50))
+                    .foregroundStyle(Color(theme.primary))
+            }
+
+            Text("You're All Set!")
+                .font(.title.bold())
+                .foregroundStyle(Color(theme.text))
+
+            Text("Enjoy Scripture Scribe.")
+                .font(.body)
+                .foregroundStyle(Color(theme.textSecondary))
+
+            Button(action: { manager.complete() }) {
+                Text("Start Reading")
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 40)
+                    .padding(.vertical, 14)
+                    .background(Color(theme.primary))
+                    .clipShape(Capsule())
+            }
+            .padding(.top, 8)
+        }
+        .padding(32)
+        .frame(maxWidth: 360)
+        .background(
+            RoundedRectangle(cornerRadius: 24)
+                .fill(Color(theme.surface))
+                .shadow(color: .black.opacity(0.3), radius: 16, y: 6)
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

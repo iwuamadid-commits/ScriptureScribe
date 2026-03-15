@@ -137,7 +137,6 @@ struct ReaderView: View {
                     Divider()
                     // Annotation toolbar (always visible, positioned under book/chapter selectors)
                     AnnotationToolbarView(vm: annotationVM)
-                        .coachMark("reader-annotation-toolbar")
                     Divider()
                 }
 
