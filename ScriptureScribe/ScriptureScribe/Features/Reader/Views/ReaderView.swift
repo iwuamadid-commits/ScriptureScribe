@@ -998,6 +998,7 @@ struct ReaderView: View {
                         .font(.caption2)
                 }
                 .foregroundStyle(themeManager.currentTheme.primary)
+                .coachMark("reader-version-button")
             }
         }
 

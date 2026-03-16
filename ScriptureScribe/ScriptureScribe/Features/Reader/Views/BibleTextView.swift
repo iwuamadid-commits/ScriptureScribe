@@ -348,6 +348,8 @@ private struct VerseRow: View {
                 // Verse text — use AttributedString for red letters when available
                 verseContent
             }
+            .coachMark("reader-verse-row", active: isCoachMarkTarget)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, isSelected ? 28 : 20)
             .padding(.trailing, 20)
             .padding(.vertical, 4)
@@ -424,8 +426,6 @@ private struct VerseRow: View {
                 .font(font)
                 .lineSpacing(spacing)
                 .multilineTextAlignment(alignment)
-                .coachMark("reader-verse-row", active: isCoachMarkTarget)
-                .frame(maxWidth: .infinity, alignment: frameAlignment(for: alignment))
                 .overlay(
                     // AttributedString colors override foregroundStyle, so use plain
                     // Text(text) here — the flash is solid gold regardless of red letters.
@@ -434,7 +434,6 @@ private struct VerseRow: View {
                         .foregroundStyle(navHighlightColor)
                         .lineSpacing(spacing)
                         .multilineTextAlignment(alignment)
-                        .frame(maxWidth: .infinity, alignment: frameAlignment(for: alignment))
                         .opacity(navFlashOpacity)
                 )
         } else {
@@ -444,15 +443,12 @@ private struct VerseRow: View {
                 .foregroundStyle(theme.text)
                 .lineSpacing(spacing)
                 .multilineTextAlignment(alignment)
-                .coachMark("reader-verse-row", active: isCoachMarkTarget)
-                .frame(maxWidth: .infinity, alignment: frameAlignment(for: alignment))
                 .overlay(
                     Text(text)
                         .font(font)
                         .foregroundStyle(navHighlightColor)
                         .lineSpacing(spacing)
                         .multilineTextAlignment(alignment)
-                        .frame(maxWidth: .infinity, alignment: frameAlignment(for: alignment))
                         .opacity(navFlashOpacity)
                 )
         }

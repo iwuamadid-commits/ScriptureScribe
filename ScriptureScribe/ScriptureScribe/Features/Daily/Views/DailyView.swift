@@ -225,7 +225,6 @@ struct DailyView: View {
                                     .animation(.spring(response: 0.3, dampingFraction: 0.8),
                                                value: draggedSectionID)
                                     .id("daily-\(section.rawValue)")
-                                    .coachMark("daily-section-card", active: section == editableSections.first)
                                     // Long press — scroll-friendly view modifier
                                     .onLongPressGesture(minimumDuration: 0.5, pressing: { pressing in
                                         if !pressing, draggedSectionID == section.rawValue,
@@ -275,19 +274,12 @@ struct DailyView: View {
                         .scrollDisabled(draggedSectionID != nil)
                         // Scroll to the relevant section when walkthrough step changes
                         .onChange(of: walkthroughManager.currentStepIndex) { _, _ in
-                            guard let step = walkthroughManager.currentStep else { return }
-                            let sectionMap: [String: String] = [
-                                "daily-verse-section": "daily-verse",
-                                "daily-affirmation-section": "daily-affirmation",
-                                "daily-prayer-section": "daily-prayer",
-                                "daily-devotion-section": "daily-devotion",
-                                "daily-reflection-section": "daily-reflection",
-                                "daily-section-card": "daily-verse"
-                            ]
-                            if let scrollID = sectionMap[step.id] {
-                                withAnimation(.easeInOut(duration: 0.3)) {
-                                    scrollProxy.scrollTo(scrollID, anchor: .top)
-                                }
+                            scrollToWalkthroughSection(proxy: scrollProxy)
+                        }
+                        // Also scroll after a tab-switch transition completes (e.g. going back)
+                        .onChange(of: walkthroughManager.isTransitioning) { _, transitioning in
+                            if !transitioning {
+                                scrollToWalkthroughSection(proxy: scrollProxy)
                             }
                         }
                         } // closes ScrollViewReader
@@ -359,12 +351,27 @@ struct DailyView: View {
 
     // MARK: - Section Router
 
+    private func scrollToWalkthroughSection(proxy: ScrollViewProxy) {
+        guard let step = walkthroughManager.currentStep else { return }
+        let sectionMap: [String: String] = [
+            "daily-verse-section": "daily-verse",
+            "daily-affirmation-section": "daily-affirmation",
+            "daily-prayer-section": "daily-prayer",
+            "daily-devotion-section": "daily-devotion",
+            "daily-reflection-section": "daily-reflection"
+        ]
+        if let scrollID = sectionMap[step.id] {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                proxy.scrollTo(scrollID, anchor: .top)
+            }
+        }
+    }
+
     @ViewBuilder
     private func sectionView(for section: DailySection, entry: DailyEntry) -> some View {
         switch section {
         case .verse:
             verseSection(entry: entry)
-                .coachMark("daily-verse-section")
         case .affirmation:
             if !entry.affirmation.isEmpty {
                 affirmationSection(entry: entry)
@@ -382,26 +389,28 @@ struct DailyView: View {
 
     @ViewBuilder
     private func verseSection(entry: DailyEntry) -> some View {
-        verseCard(entry: entry)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                guard draggedSectionID == nil else { return }
-                navigateToVerse(entry: entry)
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 16)
+        VStack(spacing: 0) {
+            verseCard(entry: entry)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    guard draggedSectionID == nil else { return }
+                    navigateToVerse(entry: entry)
+                }
 
-        HStack(spacing: 4) {
-            Image(systemName: "book.pages")
-                .font(.caption2)
-            Text("Tap to read in your Bible")
-                .font(.caption)
-            Image(systemName: "chevron.right")
-                .font(.caption2)
+            HStack(spacing: 4) {
+                Image(systemName: "book.pages")
+                    .font(.caption2)
+                Text("Tap to read in your Bible")
+                    .font(.caption)
+                Image(systemName: "chevron.right")
+                    .font(.caption2)
+            }
+            .foregroundStyle(themeManager.currentTheme.textSecondary)
+            .padding(.top, 6)
         }
-        .foregroundStyle(themeManager.currentTheme.textSecondary)
-        .padding(.horizontal, 24)
-        .padding(.top, 6)
+        .coachMark("daily-verse-section")
+        .padding(.horizontal, 20)
+        .padding(.top, 16)
     }
 
     // MARK: - Affirmation Section

@@ -36,13 +36,13 @@ struct ChapterSelectorRow: View {
                             isSelected:    isSelected,
                             hasAnnotation: annotatedChapterIds.contains(chapter.id),
                             theme:         themeManager.currentTheme,
-                            isCompact:     isCompact
+                            isCompact:     isCompact,
+                            coachMarkID:   isSelected && showCoachMarks ? "reader-chapter-row" : nil
                         )
                         // Extra horizontal layout space lets the scaled chip expand
                         // without bleeding into its neighbors.
                         .padding(.horizontal, isSelected ? 3 : 0)
                         .animation(.spring(response: 0.8, dampingFraction: 0.85), value: isSelected)
-                        .coachMark("reader-chapter-row", active: isSelected && showCoachMarks)
                         .id(chapter.id)
                         .onTapGesture {
                             if isSelected {
@@ -85,6 +85,7 @@ private struct ChapterChip: View {
     let hasAnnotation: Bool
     let theme:         any AppTheme
     var isCompact:     Bool = false
+    var coachMarkID:   String? = nil
 
     var body: some View {
         VStack(spacing: isCompact ? 1 : 2) {
@@ -106,6 +107,7 @@ private struct ChapterChip: View {
                             .opacity(isSelected ? 1 : 0)
                     }
                 }
+                .coachMark(coachMarkID ?? "", active: coachMarkID != nil)
 
             // Annotation dot indicator
             Circle()

@@ -97,47 +97,50 @@ struct WalkthroughDimOverlay: View {
     private var theme: any AppTheme { themeManager.currentTheme }
 
     var body: some View {
-        GeometryReader { geo in
-            let size = geo.size
-            let top = geo.safeAreaInsets.top
-            let bottom = geo.safeAreaInsets.bottom
-            if let step = manager.currentStep {
-                if step.isCompletion {
-                    Color.black.opacity(0.65)
-                } else {
-                    let frame = WalkthroughLayout.targetFrame(
-                        for: step, manager: manager,
-                        screenSize: size, safeAreaTop: top, safeAreaBottom: bottom
-                    )
-                    // Tab bar steps: spotlight the tab button but keep tooltip centered
-                    let tipX = step.isTabBarTarget ? size.width / 2 : WalkthroughLayout.clampX(frame.midX, screenWidth: size.width)
-                    let tipY = step.isTabBarTarget ? size.height / 2 : WalkthroughLayout.tooltipY(step: step, frame: frame, screenHeight: size.height)
-
-                    // Dim + spotlight cutout in a compositing group so
-                    // .destinationOut punches through the dim correctly.
-                    ZStack {
-                        Color.black.opacity(0.65)
-
-                        SpotlightCutout(
-                            cutout: cutoutRect(step: step, frame: frame),
-                            cornerRadius: step.spotlightCornerRadius
+        ZStack {
+            // Spotlight steps layer — visible when not on welcome card
+            GeometryReader { geo in
+                let size = geo.size
+                let top = geo.safeAreaInsets.top
+                let bottom = geo.safeAreaInsets.bottom
+                if let step = manager.currentStep {
+                    if step.isCompletion {
+                        Color.black.opacity(0.45)
+                    } else {
+                        let frame = WalkthroughLayout.targetFrame(
+                            for: step, manager: manager,
+                            screenSize: size, safeAreaTop: top, safeAreaBottom: bottom
                         )
-                    }
-                    .compositingGroup()
+                        let tipX = step.isTabBarTarget ? size.width / 2 : WalkthroughLayout.clampX(frame.midX, screenWidth: size.width)
+                        let tipY = step.isTabBarTarget ? size.height / 2 : WalkthroughLayout.tooltipY(step: step, frame: frame, screenHeight: size.height)
 
-                    // Tooltip visual — each step gets its own identity so
-                    // SwiftUI fades it in at the destination instead of
-                    // gliding the box while the text changes mid-flight.
-                    tooltipVisual(step: step, tipX: tipX, tipY: tipY, maxW: min(size.width - 40, 360))
-                        .id(manager.currentStepIndex)
-                        .transition(.asymmetric(
-                            insertion: .opacity.animation(.easeOut(duration: 0.3).delay(0.1)),
-                            removal:   .opacity.animation(.easeIn(duration: 0.15))
-                        ))
+                        ZStack {
+                            Color.black.opacity(0.45)
+
+                            SpotlightCutout(
+                                cutout: cutoutRect(step: step, frame: frame),
+                                cornerRadius: step.spotlightCornerRadius
+                            )
+                        }
+                        .compositingGroup()
+
+                        tooltipVisual(step: step, tipX: tipX, tipY: tipY, maxW: min(size.width - 40, 360))
+                            .id(manager.currentStepIndex)
+                            .transition(.asymmetric(
+                                insertion: .opacity.animation(.easeOut(duration: 0.3).delay(0.1)),
+                                removal:   .opacity.animation(.easeIn(duration: 0.15))
+                            ))
+                    }
                 }
             }
+            .ignoresSafeArea()
+
+            // White fade — sits on top of everything during transition
+            Color.white
+                .ignoresSafeArea()
+                .opacity(manager.showWhiteFade ? 1 : 0)
+                .animation(manager.showWhiteFade ? nil : .easeOut(duration: 1.0), value: manager.showWhiteFade)
         }
-        .ignoresSafeArea()
         .allowsHitTesting(false) // ALL touches pass through this layer
     }
 
@@ -222,50 +225,84 @@ struct WalkthroughControlsOverlay: View {
     private var theme: any AppTheme { themeManager.currentTheme }
 
     var body: some View {
-        GeometryReader { geo in
-            let size = geo.size
-            let top = geo.safeAreaInsets.top
-            let bottom = geo.safeAreaInsets.bottom
+        ZStack {
+            GeometryReader { geo in
+                let size = geo.size
+                let top = geo.safeAreaInsets.top
+                let bottom = geo.safeAreaInsets.bottom
 
-            // Full-screen touch blocker — prevents any interaction with the
-            // app beneath the walkthrough. Only the controls above receive taps.
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture { }
+                // Full-screen touch blocker
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { }
 
-            if let step = manager.currentStep {
-                if step.isCompletion {
-                    completionCard()
-                } else {
-                    let frame = WalkthroughLayout.targetFrame(
-                        for: step, manager: manager,
-                        screenSize: size, safeAreaTop: top, safeAreaBottom: bottom
-                    )
-                    let tipX = step.isTabBarTarget ? size.width / 2 : WalkthroughLayout.clampX(frame.midX, screenWidth: size.width)
-                    let tipY = step.isTabBarTarget ? size.height / 2 : WalkthroughLayout.tooltipY(step: step, frame: frame, screenHeight: size.height)
-
-                    // Back + Next buttons — matches tooltip position and transitions.
-                    controlStrip(tipX: tipX, tipY: tipY, maxW: min(size.width - 40, 360), step: step)
-                        .id(manager.currentStepIndex)
-                        .transition(.asymmetric(
-                            insertion: .opacity.animation(.easeOut(duration: 0.3).delay(0.1)),
-                            removal:   .opacity.animation(.easeIn(duration: 0.15))
-                        ))
-
-                    // Skip button — bottom-right corner
-                    Button("Skip") { manager.skip() }
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.white.opacity(0.85))
-                        .padding(12)
-                        .contentShape(Rectangle())
-                        .position(
-                            x: size.width - 50,
-                            y: size.height - bottom - 36
+                // Spotlight step controls
+                if let step = manager.currentStep {
+                    if step.isCompletion {
+                        completionCard()
+                    } else {
+                        let frame = WalkthroughLayout.targetFrame(
+                            for: step, manager: manager,
+                            screenSize: size, safeAreaTop: top, safeAreaBottom: bottom
                         )
+                        let tipX = step.isTabBarTarget ? size.width / 2 : WalkthroughLayout.clampX(frame.midX, screenWidth: size.width)
+                        let tipY = step.isTabBarTarget ? size.height / 2 : WalkthroughLayout.tooltipY(step: step, frame: frame, screenHeight: size.height)
+
+                        controlStrip(tipX: tipX, tipY: tipY, maxW: min(size.width - 40, 360), step: step)
+                            .id(manager.currentStepIndex)
+                            .transition(.asymmetric(
+                                insertion: .opacity.animation(.easeOut(duration: 0.3).delay(0.1)),
+                                removal:   .opacity.animation(.easeIn(duration: 0.15))
+                            ))
+
+                        Button("Skip") { manager.skip() }
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(Color(theme.textSecondary))
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(.ultraThinMaterial, in: Capsule())
+                            .contentShape(Rectangle())
+                            .position(
+                                x: size.width - 55,
+                                y: size.height - bottom - 36
+                            )
+                    }
+                }
+
+                // TODO: Remove — debug step slider for fast navigation
+                if !manager.showWelcomeCard {
+                    VStack(spacing: 6) {
+                        Text("Step \(manager.currentStepIndex + 1) / \(manager.totalSteps)")
+                            .font(.footnote.bold().monospacedDigit())
+                            .foregroundStyle(Color(theme.text))
+                        Slider(
+                            value: Binding(
+                                get: { Double(manager.currentStepIndex) },
+                                set: { manager.jumpTo(step: Int($0)) }
+                            ),
+                            in: 0...Double(manager.totalSteps - 1),
+                            step: 1
+                        )
+                        .tint(Color(theme.primary))
+                        .scaleEffect(y: 1.3)
+                    }
+                    .padding(10)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                    .frame(width: 280)
+                    .position(
+                        x: 160,
+                        y: size.height - bottom - 60
+                    )
                 }
             }
+            .ignoresSafeArea()
+
+            // Welcome card — separate layer, uses opacity for smooth fade
+            welcomeCard()
+                .opacity(manager.showWelcomeCard ? 1 : 0)
+                .animation(.easeInOut(duration: 0.8), value: manager.showWelcomeCard)
+                .allowsHitTesting(manager.showWelcomeCard)
         }
-        .ignoresSafeArea()
     }
 
     /// Renders just the Back and Next buttons, sized and positioned to match
@@ -335,6 +372,62 @@ struct WalkthroughControlsOverlay: View {
         .frame(maxWidth: maxW)
         .fixedSize()
         .position(x: tipX, y: tipY)
+    }
+
+    // MARK: Completion Card
+
+    // MARK: Welcome Card
+
+    @ViewBuilder
+    private func welcomeCard() -> some View {
+        Color(theme.background)
+            .ignoresSafeArea()
+            .overlay {
+                VStack(spacing: 24) {
+                    Spacer()
+
+                    ZStack {
+                        Circle()
+                            .fill(Color(theme.primary).opacity(0.12))
+                            .frame(width: 120, height: 120)
+                        Image(systemName: "book.circle.fill")
+                            .font(.system(size: 60))
+                            .foregroundStyle(Color(theme.primary))
+                    }
+
+                    Text("Welcome to\nScripture Scribe!")
+                        .font(.largeTitle.bold())
+                        .foregroundStyle(Color(theme.text))
+                        .multilineTextAlignment(.center)
+
+                    Text("Let us show you around so you can\nget the most out of the app.")
+                        .font(.body)
+                        .foregroundStyle(Color(theme.textSecondary))
+                        .multilineTextAlignment(.center)
+
+                    Spacer()
+
+                    VStack(spacing: 14) {
+                        Button(action: { manager.beginTour() }) {
+                            Text("Let's Take a Tour")
+                                .font(.headline)
+                                .foregroundStyle(.white)
+                                .frame(maxWidth: 300)
+                                .padding(.vertical, 16)
+                                .background(Color(theme.primary))
+                                .clipShape(Capsule())
+                        }
+
+                        Button(action: { manager.skipTour() }) {
+                            Text("Skip")
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(Color(theme.textSecondary))
+                        }
+                    }
+                    .padding(.bottom, 50)
+                }
+                .padding(.horizontal, 32)
+            }
     }
 
     // MARK: Completion Card

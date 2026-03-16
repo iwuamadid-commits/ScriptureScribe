@@ -30,6 +30,7 @@ struct WalkthroughStep {
     let isInteractive: Bool              // true -> user can interact with the spotlighted element
     let isCompletion: Bool               // true -> centered card, no spotlight
     var communitySubTab: Int?            // if set, switch community sub-tab via pendingCommunityTab
+    var savedSubTab: Int?                // if set, switch library sub-tab via pendingSavedTab
 }
 
 extension WalkthroughStep {
@@ -38,7 +39,8 @@ extension WalkthroughStep {
         id: String, tab: Int, message: String,
         edge: TooltipEdge = .bottom,
         padding: CGFloat = 12, radius: CGFloat = 12,
-        communitySubTab: Int? = nil
+        communitySubTab: Int? = nil,
+        savedSubTab: Int? = nil
     ) -> WalkthroughStep {
         WalkthroughStep(
             id: id, targetTab: tab, switchToTab: nil,
@@ -47,7 +49,8 @@ extension WalkthroughStep {
             isTabBarTarget: false, tabBarSlot: nil,
             isToolbarTarget: false, toolbarEdge: nil,
             isInteractive: false, isCompletion: false,
-            communitySubTab: communitySubTab
+            communitySubTab: communitySubTab,
+            savedSubTab: savedSubTab
         )
     }
 
@@ -64,7 +67,7 @@ extension WalkthroughStep {
             isTabBarTarget: false, tabBarSlot: nil,
             isToolbarTarget: false, toolbarEdge: nil,
             isInteractive: true, isCompletion: false,
-            communitySubTab: nil
+            communitySubTab: nil, savedSubTab: nil
         )
     }
 
@@ -82,7 +85,7 @@ extension WalkthroughStep {
             isTabBarTarget: false, tabBarSlot: nil,
             isToolbarTarget: true, toolbarEdge: edge,
             isInteractive: false, isCompletion: false,
-            communitySubTab: nil
+            communitySubTab: nil, savedSubTab: nil
         )
     }
 
@@ -97,7 +100,7 @@ extension WalkthroughStep {
             isTabBarTarget: true, tabBarSlot: slot,
             isToolbarTarget: false, toolbarEdge: nil,
             isInteractive: false, isCompletion: false,
-            communitySubTab: nil
+            communitySubTab: nil, savedSubTab: nil
         )
     }
 
@@ -110,7 +113,7 @@ extension WalkthroughStep {
             isTabBarTarget: false, tabBarSlot: nil,
             isToolbarTarget: false, toolbarEdge: nil,
             isInteractive: false, isCompletion: true,
-            communitySubTab: nil
+            communitySubTab: nil, savedSubTab: nil
         )
     }
 }
@@ -122,6 +125,8 @@ final class WalkthroughManager: ObservableObject {
     // MARK: Published state
 
     @Published var isActive: Bool = false
+    @Published var showWelcomeCard: Bool = false
+    @Published var showWhiteFade: Bool = false
     @Published var currentStepIndex: Int = 0
     @Published var anchorFrames: [String: CGRect] = [:]
     /// True while switching tabs — hides overlays so the old step doesn't linger.
@@ -135,22 +140,26 @@ final class WalkthroughManager: ObservableObject {
     // MARK: Step list
 
     let steps: [WalkthroughStep] = [
-        // Reader tab — navigation first, then reading, then tools
+        // Reader tab — introduction, then navigation, then reading, then tools
+        .content(id: "reader-bible-text", tab: 0,
+                 message: "This is your Reader, where you'll read, annotate, and study Scripture.",
+                 edge: .top, padding: 8, radius: 16),
+
+        .content(id: "reader-version-button", tab: 0,
+                 message: "Tap here to switch Bible translations like KJV, NIV, ESV, and more.",
+                 edge: .bottom, padding: 10, radius: 14),
+
         .content(id: "reader-selected-book", tab: 0,
                  message: "This is the book you're reading. Tap it to browse all books.",
-                 padding: 6, radius: 20),
+                 padding: 6, radius: 10),
 
         .content(id: "reader-sort-button", tab: 0,
                  message: "Switch between Bible order and A to Z.",
-                 padding: 8, radius: 16),
+                 padding: 8, radius: 8),
 
         .content(id: "reader-chapter-row", tab: 0,
                  message: "Scroll through chapters here. Tap any number to jump to it.",
-                 padding: 6, radius: 20),
-
-        .content(id: "reader-verse-row", tab: 0,
-                 message: "Press and hold any verse to bookmark it or start a selection.",
-                 padding: 8, radius: 12),
+                 padding: 6, radius: 10),
 
         .content(id: "reader-annotation-toolbar", tab: 0,
                  message: "Draw, highlight, erase, and lasso to select and move your annotations.",
@@ -159,6 +168,10 @@ final class WalkthroughManager: ObservableObject {
         .content(id: "reader-color-swatches", tab: 0,
                  message: "Tap '+' to save new colors. Tap a swatch to select, or long-press to rearrange.",
                  edge: .bottom, padding: 6, radius: 12),
+
+        .content(id: "reader-verse-row", tab: 0,
+                 message: "Press and hold any verse to bookmark it or start a selection.",
+                 padding: 8, radius: 12),
 
         .content(id: "reader-bible-text", tab: 0,
                  message: "Double-tap anywhere on the page to create a typed note.",
@@ -186,19 +199,19 @@ final class WalkthroughManager: ObservableObject {
 
         .content(id: "daily-reflection-section", tab: 1,
                  message: "Journal your thoughts with a guided reflection prompt.",
-                 padding: 8, radius: 16),
-
-        .content(id: "daily-section-card", tab: 1,
-                 message: "You can press and hold any section to rearrange your Daily page.",
-                 padding: 8, radius: 16),
+                 edge: .top, padding: 8, radius: 16),
 
         // Habits tab
         .tabSwitch(slot: 2, switchTo: 2,
                    message: "Now let's check out Habits."),
 
+        .content(id: "habits-card", tab: 2,
+                 message: "Tap a habit to mark it complete. Track your progress each day.",
+                 padding: 8, radius: 18),
+
         .content(id: "habits-add-button", tab: 2,
                  message: "Tap '+' to create a custom habit or choose from suggestions.",
-                 edge: .bottom, padding: 10, radius: 22),
+                 edge: .bottom, padding: 14, radius: 50),
 
         // Community tab
         .tabSwitch(slot: 3, switchTo: 3,
@@ -223,22 +236,34 @@ final class WalkthroughManager: ObservableObject {
 
         .content(id: "community-compose-button", tab: 3,
                  message: "Tap the pencil icon to post to the current section.",
-                 edge: .bottom, padding: 10, radius: 22, communitySubTab: 0),
+                 edge: .bottom, padding: 8, radius: 50, communitySubTab: 0),
 
         // Library tab
         .tabSwitch(slot: 4, switchTo: 4,
                    message: "Finally, let's check your Library."),
 
-        .content(id: "saved-sort-button", tab: 4,
-                 message: "Sort your collections by 'Last Added' or 'A to Z', and tap + to create a new collection.",
-                 edge: .bottom, padding: 10, radius: 22),
+        .content(id: "saved-bookmarks-tab", tab: 4,
+                 message: "Your bookmarked verses are organized into collections here.",
+                 padding: 6, radius: 4, savedSubTab: 0),
+
+        .content(id: "saved-prayers-tab", tab: 4,
+                 message: "Prayers you save from the Daily tab appear here.",
+                 padding: 6, radius: 4, savedSubTab: 1),
+
+        .content(id: "saved-devotionals-tab", tab: 4,
+                 message: "Saved devotionals are stored here for easy access.",
+                 padding: 6, radius: 4, savedSubTab: 2),
+
+        .content(id: "saved-affirmations-tab", tab: 4,
+                 message: "Your saved affirmations live here.",
+                 padding: 6, radius: 4, savedSubTab: 3),
 
         // Done
         .completion,
     ]
 
     var currentStep: WalkthroughStep? {
-        guard isActive, !isTransitioning, steps.indices.contains(currentStepIndex) else { return nil }
+        guard isActive, !showWelcomeCard, !isTransitioning, steps.indices.contains(currentStepIndex) else { return nil }
         return steps[currentStepIndex]
     }
 
@@ -251,21 +276,49 @@ final class WalkthroughManager: ObservableObject {
     func start() {
         currentStepIndex = 0
         appNav?.selectedTab = 0
-        waitForReaderThenActivate()
+        showWelcomeCard = true
+        isActive = true
+    }
+
+    /// Called when the user taps "Let's take a tour" on the welcome card.
+    func beginTour() {
+        isTransitioning = true
+
+        // Phase 1: Show white immediately (behind the welcome card)
+        showWhiteFade = true
+
+        // Phase 2: Fade out the welcome card — white is already behind it
+        withAnimation(.easeIn(duration: 0.8)) {
+            showWelcomeCard = false
+        }
+
+        // Phase 3: Hold on white, then fade it out to reveal the reader
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { [weak self] in
+            withAnimation(.easeOut(duration: 1.0)) {
+                self?.showWhiteFade = false
+            }
+        }
+
+        // Phase 4: Fade in the first spotlight step
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.8) { [weak self] in
+            withAnimation(.easeOut(duration: 0.8)) {
+                self?.isTransitioning = false
+            }
+        }
+    }
+
+    /// Called when the user taps "Skip" on the welcome card.
+    func skipTour() {
+        showWelcomeCard = false
+        complete()
     }
 
     private func waitForReaderThenActivate() {
         // The coach mark frame for the first verse is reported only after
         // the Bible text loads. Poll briefly until it appears.
         if anchorFrames["reader-verse-row"] != nil {
-            // Reader content is loaded. The reader's own fade-in takes
-            // ~0.35s delay + 0.3s easeIn. Wait for that to finish, then
-            // fade in the walkthrough overlay so it layers on smoothly.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { [weak self] in
-                withAnimation(.easeOut(duration: 0.3)) {
-                    self?.isActive = true
-                }
-            }
+            // Reader content is loaded — ready to begin spotlight steps.
+            return
         } else {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
                 self?.waitForReaderThenActivate()
@@ -294,6 +347,9 @@ final class WalkthroughManager: ObservableObject {
                 if let subTab = nextStep.communitySubTab {
                     self?.appNav?.pendingCommunityTab = subTab
                 }
+                if let subTab = nextStep.savedSubTab {
+                    self?.appNav?.pendingSavedTab = subTab
+                }
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { [weak self] in
                 withAnimation(Self.stepAnimation) {
@@ -303,6 +359,9 @@ final class WalkthroughManager: ObservableObject {
         } else {
             if let subTab = nextStep.communitySubTab {
                 appNav?.pendingCommunityTab = subTab
+            }
+            if let subTab = nextStep.savedSubTab {
+                appNav?.pendingSavedTab = subTab
             }
             withAnimation(Self.stepAnimation) {
                 currentStepIndex = nextIndex
@@ -332,6 +391,9 @@ final class WalkthroughManager: ObservableObject {
                 if let subTab = prevStep.communitySubTab {
                     self?.appNav?.pendingCommunityTab = subTab
                 }
+                if let subTab = prevStep.savedSubTab {
+                    self?.appNav?.pendingSavedTab = subTab
+                }
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { [weak self] in
                 withAnimation(Self.stepAnimation) {
@@ -342,14 +404,48 @@ final class WalkthroughManager: ObservableObject {
             if let subTab = prevStep.communitySubTab {
                 appNav?.pendingCommunityTab = subTab
             }
+            if let subTab = prevStep.savedSubTab {
+                appNav?.pendingSavedTab = subTab
+            }
             withAnimation(Self.stepAnimation) {
                 currentStepIndex = prevIndex
             }
         }
     }
 
+    /// TODO: Remove — debug-only jump for fast step navigation during design.
+    func jumpTo(step index: Int) {
+        let clamped = min(max(index, 0), steps.count - 1)
+        guard clamped != currentStepIndex else { return }
+
+        let targetStep = steps[clamped]
+        let targetTab = targetStep.switchToTab ?? (targetStep.targetTab >= 0 ? targetStep.targetTab : nil)
+
+        // Switch tab if needed
+        if let tab = targetTab, tab != appNav?.selectedTab {
+            appNav?.selectedTab = tab
+        }
+        if let subTab = targetStep.communitySubTab {
+            appNav?.pendingCommunityTab = subTab
+        }
+        if let subTab = targetStep.savedSubTab {
+            appNav?.pendingSavedTab = subTab
+        }
+
+        withAnimation(Self.stepAnimation) {
+            currentStepIndex = clamped
+        }
+    }
+
     func skip() {
-        complete()
+        // Jump to the completion card instead of dismissing immediately
+        if let completionIndex = steps.lastIndex(where: { $0.isCompletion }) {
+            withAnimation(Self.stepAnimation) {
+                currentStepIndex = completionIndex
+            }
+        } else {
+            complete()
+        }
     }
 
     func complete() {

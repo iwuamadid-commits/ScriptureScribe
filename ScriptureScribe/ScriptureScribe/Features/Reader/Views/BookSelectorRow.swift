@@ -58,13 +58,13 @@ struct BookSelectorRow: View {
                                 book:       book,
                                 isSelected: isSelected,
                                 theme:      themeManager.currentTheme,
-                                isCompact:  isCompact
+                                isCompact:  isCompact,
+                                coachMarkID: isSelected && showCoachMarks ? "reader-selected-book" : nil
                             )
                             // Extra horizontal layout space lets the scaled chip expand
                             // without bleeding into its neighbors.
                             .padding(.horizontal, isSelected ? 4 : 0)
                             .animation(.spring(response: 0.8, dampingFraction: 0.85), value: isSelected)
-                            .coachMark("reader-selected-book", active: isSelected && showCoachMarks)
                             .id(book.id)
                             .onTapGesture {
                                 if isSelected {
@@ -148,6 +148,7 @@ private struct BookChip: View {
     let isSelected: Bool
     let theme:      any AppTheme
     var isCompact:  Bool = false
+    var coachMarkID: String? = nil
 
     var body: some View {
         Text(book.name)
@@ -168,6 +169,7 @@ private struct BookChip: View {
                         .opacity(isSelected ? 1 : 0)
                 }
             }
+            .coachMark(coachMarkID ?? "", active: coachMarkID != nil)
             .scaleEffect(isSelected ? 1.12 : 1.0)
             .animation(.spring(response: 0.8, dampingFraction: 0.85), value: isSelected)
     }

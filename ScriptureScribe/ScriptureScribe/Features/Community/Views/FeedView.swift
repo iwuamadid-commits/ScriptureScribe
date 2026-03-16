@@ -101,11 +101,9 @@ struct FeedView: View {
                             .font(.system(size: 20))
                             .foregroundStyle(themeManager.currentTheme.primary)
                             .frame(minWidth: 44, minHeight: 44)
+                            .coachMark("community-compose-button")
                             .contentShape(Rectangle())
                     }
-                    // Daily tab has no compose button — the "Share your answer" button
-                    // lives inside DailyQuestionView itself.
-                    .coachMark("community-compose-button")
                     .opacity(selectedTab == .daily ? 0 : 1)
                     .disabled(selectedTab == .daily)
                 }
@@ -218,12 +216,12 @@ struct FeedView: View {
                                     : Color.clear
                             )
                             .clipShape(RoundedRectangle(cornerRadius: 20))
+                            .coachMark("community-insights-tab", active: tab == .reflections)
+                            .coachMark("community-gratitude-tab", active: tab == .gratitude)
+                            .coachMark("community-prayer-tab", active: tab == .prayer)
+                            .coachMark("community-daily-tab", active: tab == .daily)
                     }
                     .buttonStyle(.plain)
-                    .coachMark("community-insights-tab", active: tab == .reflections)
-                    .coachMark("community-gratitude-tab", active: tab == .gratitude)
-                    .coachMark("community-prayer-tab", active: tab == .prayer)
-                    .coachMark("community-daily-tab", active: tab == .daily)
                 }
             }
             .padding(.horizontal, 12)

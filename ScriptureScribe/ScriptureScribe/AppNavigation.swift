@@ -22,5 +22,6 @@ final class AppNavigation: ObservableObject {
     @Published var pendingVerseEndNumber: String?   = nil   // End of verse range (legacy); nil for single verse
     @Published var pendingVerseNumbers:   [String]? = nil   // Individual verse numbers to highlight (e.g. ["1","3","5"])
     @Published var pendingCommunityTab:   Int?    = nil   // Community sub-tab to open (3 = Daily Question)
+    @Published var pendingSavedTab:       Int?    = nil   // Library sub-tab to open (0=Bookmarks 1=Prayers 2=Devotionals 3=Affirmations)
     @Published var pendingDailyDate:      String? = nil   // "YYYY-MM-DD" — Daily tab loads this date when set
 }

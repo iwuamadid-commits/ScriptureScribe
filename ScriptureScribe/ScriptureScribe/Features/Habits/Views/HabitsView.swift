@@ -128,8 +128,8 @@ struct HabitsView: View {
                     } label: {
                         Image(systemName: "plus.circle.fill")
                             .foregroundStyle(themeManager.currentTheme.primary)
+                            .coachMark("habits-add-button")
                     }
-                    .coachMark("habits-add-button")
                 }
             }
             .sheet(isPresented: $showPaywall) {
@@ -193,6 +193,7 @@ struct HabitsView: View {
                     let isDragged = draggedHabitID == habit.id
 
                     habitCard(habit)
+                        .coachMark("habits-card", active: habit == habitsVM.habitsForSelectedDate.first)
                         // Insertion indicator line
                         .overlay(alignment: .top) {
                             if !isDragged, draggedHabitID != nil,

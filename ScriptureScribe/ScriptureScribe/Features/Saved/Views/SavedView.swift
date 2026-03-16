@@ -142,6 +142,18 @@ struct SavedView: View {
                 await savedVM.load(userId: uid)
             }
         }
+        .onAppear {
+            if let tab = appNav.pendingSavedTab,
+               let savedTab = SavedTab(rawValue: tab) {
+                selectedTab = savedTab
+                appNav.pendingSavedTab = nil
+            }
+        }
+        .onChange(of: appNav.pendingSavedTab) { _, tab in
+            guard let tab, let savedTab = SavedTab(rawValue: tab) else { return }
+            withAnimation { selectedTab = savedTab }
+            appNav.pendingSavedTab = nil
+        }
     }
 
     // MARK: - Sub-tab Strip
@@ -160,6 +172,10 @@ struct SavedView: View {
                                     ? themeManager.currentTheme.primary
                                     : themeManager.currentTheme.textSecondary
                             )
+                            .coachMark("saved-bookmarks-tab", active: tab == .bookmarks)
+                            .coachMark("saved-prayers-tab", active: tab == .prayers)
+                            .coachMark("saved-devotionals-tab", active: tab == .devotionals)
+                            .coachMark("saved-affirmations-tab", active: tab == .affirmations)
                         Rectangle()
                             .fill(selectedTab == tab ? themeManager.currentTheme.primary : Color.clear)
                             .frame(height: 2)

@@ -37,13 +37,14 @@ final class SubscriptionViewModel: ObservableObject {
     }
 
     init() {
+        // In DEBUG: premium is OFF by default.
+        // Check the "-isPremiumCached YES" box in the scheme to enable it.
+        // In RELEASE: restores cached status from UserDefaults.
         #if DEBUG
-        isPremium = true
-        return
-        #endif
-
-        // Restore cached premium status immediately (offline support)
         isPremium = UserDefaults.standard.bool(forKey: premiumKey)
+        #else
+        isPremium = UserDefaults.standard.bool(forKey: premiumKey)
+        #endif
 
         // Start listening for transaction updates
         transactionListener = listenForTransactions()
