@@ -138,7 +138,7 @@ struct DailyAnswerCardView: View {
                 Label("Share Answer", systemImage: "square.and.arrow.up")
             }
             if currentUserId != nil && currentUserId != answer.userId {
-                Button { showReportConfirm = true } label: {
+                Button(role: .destructive) { showReportConfirm = true } label: {
                     Label("Report Answer", systemImage: "flag")
                 }
             }

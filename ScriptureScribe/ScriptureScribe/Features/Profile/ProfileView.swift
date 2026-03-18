@@ -243,7 +243,7 @@ struct ProfileView: View {
                             .alert("Sign Out", isPresented: $showSignOutConfirmation) {
                                 Button("Cancel", role: .cancel) { }
                                 Button("Sign Out", role: .destructive) {
-                                    authVM.signOut()
+                                    Task { await authVM.signOut() }
                                 }
                             } message: {
                                 Text("Are you sure you want to sign out?")
@@ -289,8 +289,10 @@ struct ProfileView: View {
                             }
                             .alert("Sign In Required", isPresented: $authVM.needsReAuth) {
                                 Button("OK") {
-                                    authVM.signOut()
-                                    showAuth = true
+                                    Task {
+                                        await authVM.signOut()
+                                        showAuth = true
+                                    }
                                 }
                             } message: {
                                 Text("For security, please sign in again and then try deleting your account.")
@@ -407,26 +409,31 @@ struct ProfileView: View {
                 switch phase {
                 case .success(let image):
                     image.resizable().scaledToFill()
-                default:
-                    // While loading or on error, fall back to the letter
-                    Text(user.displayName.prefix(1).uppercased())
-                        .font(.system(size: size * 0.4, weight: .semibold))
-                        .foregroundStyle(themeManager.currentTheme.primary)
+                case .empty:
+                    ProgressView()
+                case .failure:
+                    initialCircle(for: user, size: size)
+                @unknown default:
+                    initialCircle(for: user, size: size)
                 }
             }
             .frame(width: size, height: size)
             .clipShape(Circle())
             .overlay(Circle().stroke(themeManager.currentTheme.border, lineWidth: 1))
         } else {
-            Circle()
-                .fill(themeManager.currentTheme.primary.opacity(0.2))
-                .frame(width: size, height: size)
-                .overlay(
-                    Text(user.displayName.prefix(1).uppercased())
-                        .font(.system(size: size * 0.4, weight: .semibold))
-                        .foregroundStyle(themeManager.currentTheme.primary)
-                )
+            initialCircle(for: user, size: size)
         }
+    }
+
+    private func initialCircle(for user: AppUser, size: CGFloat) -> some View {
+        Circle()
+            .fill(themeManager.currentTheme.primary.opacity(0.2))
+            .frame(width: size, height: size)
+            .overlay(
+                Text(user.displayName.prefix(1).uppercased())
+                    .font(.system(size: size * 0.4, weight: .semibold))
+                    .foregroundStyle(themeManager.currentTheme.primary)
+            )
     }
 }
 

@@ -107,6 +107,7 @@ private struct ChapterChip: View {
                             .opacity(isSelected ? 1 : 0)
                     }
                 }
+
                 .coachMark(coachMarkID ?? "", active: coachMarkID != nil)
 
             // Annotation dot indicator

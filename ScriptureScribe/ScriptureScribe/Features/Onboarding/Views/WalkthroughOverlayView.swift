@@ -417,12 +417,14 @@ struct WalkthroughControlsOverlay: View {
                                 .background(Color(theme.primary))
                                 .clipShape(Capsule())
                         }
+                        .buttonStyle(.plain)
 
                         Button(action: { manager.skipTour() }) {
                             Text("Skip")
                                 .font(.subheadline.weight(.medium))
                                 .foregroundStyle(Color(theme.textSecondary))
                         }
+                        .buttonStyle(.plain)
                     }
                     .padding(.bottom, 50)
                 }

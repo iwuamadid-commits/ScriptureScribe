@@ -19,6 +19,7 @@ struct ContentView: View {
     @EnvironmentObject var habitsVM:            HabitsViewModel
     @EnvironmentObject var streakVM:            StreakViewModel
     @EnvironmentObject var walkthroughManager:  WalkthroughManager
+    @EnvironmentObject var preferencesManager:  PreferencesManager
 
     @AppStorage("hasSeenOnboarding")       private var hasSeenOnboarding = false
     @AppStorage("hasCompletedWalkthrough") private var hasCompletedWalkthrough = false
@@ -64,40 +65,51 @@ struct ContentView: View {
                 .toolbarBackground(.visible, for: .tabBar)
                 // Drives status bar, title, and system icon rendering across all child views
                 .preferredColorScheme(preferredColorScheme)
-                // When the user signs in, sync local data to Firestore
+                // Handle sign-in (sync from cloud) and sign-out (clear in-memory data)
                 .onChange(of: authVM.isSignedIn) { _, signedIn in
-                    guard signedIn, let userId = authVM.currentUserID else { return }
-                    Task {
-                        await bookmarksVM.syncOnSignIn(userId: userId)
-                        await notesVM.syncOnSignIn(userId: userId)
-                        await savedDevotionalsVM.load(userId: userId)
-                        await habitsVM.syncOnSignIn(userId: userId)
+                    if signedIn, let userId = authVM.currentUserID {
+                        Task {
+                            // Restore user preferences first so theme/font apply before content loads
+                            await preferencesManager.fetchAndApply(userId: userId)
+                            // Re-read theme from UserDefaults after cloud prefs are applied
+                            themeManager.reloadTheme()
+                            streakVM.updateStreak()
+                            // Sync content from Firestore
+                            await bookmarksVM.syncOnSignIn(userId: userId)
+                            await notesVM.syncOnSignIn(userId: userId)
+                            await savedDevotionalsVM.load(userId: userId)
+                            await habitsVM.syncOnSignIn(userId: userId)
+                        }
+                    } else {
+                        // Clear in-memory state so the UI reflects a clean slate
+                        bookmarksVM.bookmarks = []
+                        bookmarksVM.groups    = []
+                        notesVM.notes         = []
+                        notesVM.editingNote   = nil
+                        notesVM.expandedNoteId = nil
+                        habitsVM.habits       = []
+                        habitsVM.logs         = []
+                        savedDevotionalsVM.prayers      = []
+                        savedDevotionalsVM.devotionals  = []
+                        savedDevotionalsVM.affirmations = []
+                        streakVM.currentStreak = 0
+                        streakVM.longestStreak = 0
+                        // Reset theme to default (UserDefaults already cleared)
+                        themeManager.reloadTheme()
+                        // Notify AnnotationVM to reset layout/tools to defaults
+                        NotificationCenter.default.post(name: .preferencesDidSync, object: nil)
+                        // Reset to Reader tab
+                        appNav.selectedTab = 0
                     }
                 }
                 // Guard against edge case where app returns from background on a new calendar day
                 .onAppear {
                     streakVM.updateStreak()
-                    // TODO: Remove after testing — auto-starts walkthrough
-                    if !walkthroughManager.isActive {
-                        hasCompletedWalkthrough = false
+                    // First launch: go straight to the walkthrough welcome card
+                    if !hasCompletedWalkthrough && !walkthroughManager.isActive {
+                        hasSeenOnboarding = true
                         walkthroughManager.start()
                     }
-                }
-                // First-launch onboarding slides — shown once, then never again.
-                .fullScreenCover(isPresented: Binding(
-                    get: { !hasSeenOnboarding },
-                    set: { if !$0 { hasSeenOnboarding = true } }
-                )) {
-                    OnboardingView {
-                        hasSeenOnboarding = true
-                        // After dismissing the slides, start the interactive walkthrough
-                        if !hasCompletedWalkthrough {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                                walkthroughManager.start()
-                            }
-                        }
-                    }
-                    .environmentObject(themeManager)
                 }
                 // Named coordinate space for coach mark frame reporting
                 .coordinateSpace(name: "walkthrough")
@@ -135,4 +147,5 @@ struct ContentView: View {
         .environmentObject(HabitsViewModel())
         .environmentObject(StreakViewModel())
         .environmentObject(WalkthroughManager())
+        .environmentObject(PreferencesManager())
 }

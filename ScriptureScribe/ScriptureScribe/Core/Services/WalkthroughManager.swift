@@ -328,7 +328,7 @@ final class WalkthroughManager: ObservableObject {
 
     /// Shared animation curve used for every step transition.
     /// Smooth spring with no bounce for a premium glide feel.
-    static let stepAnimation: Animation = .spring(duration: 0.45, bounce: 0)
+    static let stepAnimation: Animation = .spring(duration: 0.7, bounce: 0)
 
     func next() {
         let nextIndex = currentStepIndex + 1

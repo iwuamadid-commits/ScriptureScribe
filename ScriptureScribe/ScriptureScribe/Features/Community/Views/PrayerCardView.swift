@@ -156,7 +156,7 @@ struct PrayerCardView: View {
                 Label("Share Request", systemImage: "square.and.arrow.up")
             }
             if currentUser != nil && currentUser?.id != request.userId {
-                Button { showReportConfirm = true } label: {
+                Button(role: .destructive) { showReportConfirm = true } label: {
                     Label("Report Request", systemImage: "flag")
                 }
             }

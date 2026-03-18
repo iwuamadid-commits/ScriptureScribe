@@ -152,6 +152,11 @@ final class ThemeManager: ObservableObject {
         currentTheme = theme
     }
 
+    /// Re-reads the theme from UserDefaults. Call after cloud preferences are applied.
+    func reloadTheme() {
+        currentTheme = theme(named: selectedThemeName)
+    }
+
     private func theme(named name: String) -> any AppTheme {
         ThemeManager.allThemes.first { $0.name == name } ?? IvoryTheme()
     }

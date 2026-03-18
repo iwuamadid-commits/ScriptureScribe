@@ -146,7 +146,8 @@ final class AuthService {
                 id:          user.uid,
                 displayName: displayName,
                 email:       user.email ?? "",
-                createdAt:   (doc.data()?["createdAt"] as? Timestamp)?.dateValue() ?? Date()
+                createdAt:   (doc.data()?["createdAt"] as? Timestamp)?.dateValue() ?? Date(),
+                photoURL:    doc.data()?["photoURL"] as? String
             )
         }
 

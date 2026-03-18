@@ -182,7 +182,7 @@ struct PostCardView: View {
                 Label("Share Post", systemImage: "square.and.arrow.up")
             }
             if currentUserId != nil && currentUserId != post.userId {
-                Button { showReportConfirm = true } label: {
+                Button(role: .destructive) { showReportConfirm = true } label: {
                     Label("Report Post", systemImage: "flag")
                 }
             }

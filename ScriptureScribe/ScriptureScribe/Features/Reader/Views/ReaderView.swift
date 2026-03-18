@@ -539,8 +539,7 @@ struct ReaderView: View {
                     bookSortOrder:  vm.bookSortOrder,
                     isLoadingBooks: vm.isLoadingBooks,
                     vm:             vm,
-                    onOpenBrowser:  { browserScrollTarget = .book; showBookBrowser = true },
-                    showCoachMarks: false
+                    onOpenBrowser:  { browserScrollTarget = .book; showBookBrowser = true }
                 )
                 Divider()
                 ChapterSelectorRow(
@@ -548,8 +547,7 @@ struct ReaderView: View {
                     selectedChapterId:   vm.selectedChapter?.id,
                     annotatedChapterIds: annotatedChapterIds,
                     vm:                  vm,
-                    onOpenBrowser:       { browserScrollTarget = .chapter; showBookBrowser = true },
-                    showCoachMarks:      false
+                    onOpenBrowser:       { browserScrollTarget = .chapter; showBookBrowser = true }
                 )
                 Divider()
                 // Annotation toolbar (always visible, positioned under book/chapter selectors)

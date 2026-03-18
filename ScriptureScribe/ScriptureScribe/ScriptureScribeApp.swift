@@ -24,6 +24,8 @@ struct ScriptureScribeApp: App {
     @StateObject private var streakVM         = StreakViewModel()
     @StateObject private var offlineBibleManager = OfflineBibleManager()
     @StateObject private var walkthroughManager  = WalkthroughManager()
+    @StateObject private var preferencesManager  = PreferencesManager()
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         FirebaseApp.configure()
@@ -76,34 +78,41 @@ struct ScriptureScribeApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .environmentObject(themeManager)
-                .environmentObject(authViewModel)
-                .environmentObject(appNav)
-                .environmentObject(bookmarksVM)
-                .environmentObject(notesVM)
-                .environmentObject(savedDevotionalsVM)
-                .environmentObject(habitsVM)
-                .environmentObject(subscriptionVM)
-                .environmentObject(streakVM)
-                .environmentObject(offlineBibleManager)
-                .environmentObject(walkthroughManager)
-                // Give the walkthrough manager access to tab navigation
-                .onAppear {
-                    walkthroughManager.appNav = appNav
-                    subscriptionVM.configureForUser(authViewModel.currentUserID)
+            .environmentObject(themeManager)
+            .environmentObject(authViewModel)
+            .environmentObject(appNav)
+            .environmentObject(bookmarksVM)
+            .environmentObject(notesVM)
+            .environmentObject(savedDevotionalsVM)
+            .environmentObject(habitsVM)
+            .environmentObject(subscriptionVM)
+            .environmentObject(streakVM)
+            .environmentObject(offlineBibleManager)
+            .environmentObject(walkthroughManager)
+            .environmentObject(preferencesManager)
+            // Give the walkthrough manager access to tab navigation
+            .onAppear {
+                walkthroughManager.appNav = appNav
+                subscriptionVM.configureForUser(authViewModel.currentUserID)
+            }
+            .onChange(of: authViewModel.currentUserID) { _, uid in
+                subscriptionVM.configureForUser(uid)
+            }
+            // Save preferences to Firestore when app goes to background
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .background, let userId = authViewModel.currentUserID {
+                    Task { await preferencesManager.save(userId: userId) }
                 }
-                .onChange(of: authViewModel.currentUserID) { _, uid in
-                    subscriptionVM.configureForUser(uid)
+            }
+            // Required for Google Sign-In: handles the redirect after the user picks their account
+            .onOpenURL { url in
+                // Scripture Scribe deep links: scripturescribe://type/id
+                if url.scheme == "scripturescribe" {
+                    handleDeepLink(url)
+                } else {
+                    GIDSignIn.sharedInstance.handle(url)
                 }
-                // Required for Google Sign-In: handles the redirect after the user picks their account
-                .onOpenURL { url in
-                    // Scripture Scribe deep links: scripturescribe://type/id
-                    if url.scheme == "scripturescribe" {
-                        handleDeepLink(url)
-                    } else {
-                        GIDSignIn.sharedInstance.handle(url)
-                    }
-                }
+            }
         }
     }
 }

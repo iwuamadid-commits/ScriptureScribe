@@ -45,7 +45,6 @@ final class AuthViewModel: ObservableObject {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 if let firebaseUser {
-                    self.isSignedIn = true
                     if self.currentUser == nil {
                         // Load from Firestore; fall back to building from Firebase Auth data
                         var user = (try? await self.firestoreService.fetchUser(userId: firebaseUser.uid))
@@ -65,6 +64,9 @@ final class AuthViewModel: ObservableObject {
                         }
                         self.currentUser = user
                     }
+                    // Set isSignedIn AFTER currentUser so that observers
+                    // (e.g. ContentView's onChange) see both values populated.
+                    self.isSignedIn = true
                 } else {
                     self.isSignedIn  = false
                     self.currentUser = nil
@@ -175,9 +177,22 @@ final class AuthViewModel: ObservableObject {
 
     // MARK: - Sign Out
 
-    func signOut() {
+    /// Saves preferences to Firestore, then signs out and clears local data.
+    func signOut() async {
+        guard let userId = currentUserID else {
+            performSignOut()
+            return
+        }
+        // Save current preferences to cloud before clearing local data
+        let prefManager = PreferencesManager()
+        await prefManager.save(userId: userId)
+        performSignOut()
+    }
+
+    private func performSignOut() {
         do {
             try authService.signOut()
+            clearLocalData()
             currentUser = nil
             isSignedIn  = false
         } catch {
@@ -216,19 +231,66 @@ final class AuthViewModel: ObservableObject {
         }
     }
 
-    /// Clears all locally persisted user data from UserDefaults.
+    /// Clears all locally persisted user data: UserDefaults keys, annotation
+    /// drawing files, and photo annotation files so sign-out yields a fresh state.
     private func clearLocalData() {
-        let keys = [
-            "bookmarks_data", "bookmarkGroups_data",
-            "notes_data",
-            "habits_data", "habitLogs_data",
-            "streak_currentCount", "streak_longestCount", "streak_lastDate", "streak_history",
-            "selectedTheme", "selectedTranslation", "myVersionIds",
-            "savedAnnotationColors",
-            "hasCompletedOnboarding", "hasCompletedWalkthrough",
+        // ── 1. UserDefaults keys (correct names matching what the app actually writes) ──
+
+        let keys: [String] = [
+            // Bookmarks & notes
+            "scripture_scribe_bookmarks",
+            "scripture_scribe_bookmark_groups",
+            "scripture_scribe_notes",
+            // Habits
+            "scripture_scribe_habits",
+            "scripture_scribe_habit_logs",
+            // Streaks
+            "streak_currentCount", "streak_longestCount",
+            "streak_lastOpenedDate", "streak_openedDatesJSON",
+            // Theme & translation
+            "selectedTheme", "myVersionIds",
+            // Saved annotation colors
+            "ss_savedAnnotationColors", "ss_savedAnnotationColors_v2",
+            // Annotation tool preferences
+            "ss_layoutMode", "ss_eraserType", "ss_eraserSize",
+            "ss_selectedTool", "ss_showGuidelines", "ss_guideSpacing",
+            "ss_toolSettings", "ss_penFavSizes", "ss_hlFavSizes", "ss_eraserFavSizes",
+            // Annotation toggles
+            "isLeftHanded", "allowFingerDrawing", "useDoubleTapForNote",
+            // Reading preferences
+            "fontSize", "lineSpacing", "fontChoice", "showRedLetters", "textAlignment",
+            // Last reading position
+            "lastBibleId", "lastBookId", "lastChapterId",
+            // Audio
+            "preferredVoiceIdentifier",
+            // Daily section order
+            "dailySectionOrder",
+            // Onboarding / walkthrough
+            "hasSeenOnboarding", "hasCompletedWalkthrough",
         ]
         for key in keys {
             UserDefaults.standard.removeObject(forKey: key)
+        }
+
+        // ── 2. Clear per-chapter photo metadata (ss_photos_*) ──
+
+        let allDefaults = UserDefaults.standard.dictionaryRepresentation()
+        for key in allDefaults.keys where key.hasPrefix("ss_photos_") {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+
+        // ── 3. Delete annotation drawing files (.pkdrawing) and photo files (.jpg) ──
+
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+        if let docs,
+           let files = try? FileManager.default.contentsOfDirectory(
+               at: docs, includingPropertiesForKeys: nil, options: .skipsHiddenFiles) {
+            for url in files {
+                let name = url.lastPathComponent
+                if name.hasSuffix(".pkdrawing") || name.hasPrefix("photo_") {
+                    try? FileManager.default.removeItem(at: url)
+                }
+            }
         }
     }
 }

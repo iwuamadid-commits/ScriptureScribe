@@ -321,6 +321,57 @@ final class AnnotationViewModel: ObservableObject {
             .dropFirst()
             .sink { UserDefaults.standard.set($0.rawValue, forKey: "ss_guideSpacing") }
             .store(in: &cancellables)
+
+        // Reload when cloud preferences are synced on sign-in
+        NotificationCenter.default.publisher(for: .preferencesDidSync)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.reloadPreferences() }
+            .store(in: &cancellables)
+    }
+
+    // MARK: - Reload from UserDefaults (after cloud preferences sync)
+
+    /// Re-reads all persisted preferences from UserDefaults.
+    /// Called via NotificationCenter after PreferencesManager applies cloud prefs.
+    func reloadPreferences() {
+        let defaults = UserDefaults.standard
+
+        if let raw = defaults.string(forKey: "ss_layoutMode"),
+           let mode = LayoutMode(rawValue: raw) {
+            layoutMode = mode
+        } else {
+            layoutMode = .fullWidth
+        }
+
+        if let raw = defaults.string(forKey: "ss_eraserType"),
+           let type = EraserType(rawValue: raw) {
+            eraserType = type
+        } else {
+            eraserType = .wholeLine
+        }
+
+        let savedEraserSize = defaults.double(forKey: "ss_eraserSize")
+        eraserSize = savedEraserSize > 0 ? CGFloat(savedEraserSize) : 10
+
+        showGuidelines = defaults.bool(forKey: "ss_showGuidelines")
+        if let raw = defaults.string(forKey: "ss_guideSpacing"),
+           let spacing = GuideSpacing(rawValue: raw) {
+            guideSpacing = spacing
+        }
+
+        if let raw = defaults.string(forKey: "ss_selectedTool"),
+           let tool = DrawingTool(rawValue: raw) {
+            selectedTool = tool
+            loadToolSettings(for: tool)
+        } else {
+            selectedTool = .hand
+            loadToolSettings(for: .hand)
+        }
+
+        restoreToolSettings()
+        loadSavedColors()
+        loadFavoriteSizes()
+        seedChaptersWithStrokes()
     }
 
     // MARK: - Canvas Callbacks (set by AnnotationCanvasView)
