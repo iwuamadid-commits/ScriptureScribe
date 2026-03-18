@@ -107,7 +107,8 @@ users/{uid}/
   ├── notes/{noteId} → { bibleId, bookId, chapterId, verseId, text, xFraction, yFraction, width, height, color, createdAt }
   ├── habits/{habitId} → { name, goal, frequency, timeRange, taskDays[], createdAt }
   ├── habitLogs/{logId} → { habitId, date, value }
-  └── savedItems/{itemId} → { type, date, title, content, verseReference, createdAt }
+  ├── savedItems/{itemId} → { type, date, title, content, verseReference, createdAt }
+  └── preferences/settings → { selectedTheme, fontSize, lineSpacing, fontChoice, ss_layoutMode, ss_savedAnnotationColors_v2, streak data, ... }
 
 posts/{postId} → { authorId, authorName, text, imageURL, verseReference, likedBy[], commentCount, reportedBy[] }
 comments/{commentId} → { postId, authorId, authorName, text, createdAt }
@@ -167,6 +168,15 @@ All defined via `AppTheme` protocol; `ThemeManager` persists selection via `@App
 |---|---|---|
 | **Profile** | Basic UI | Settings page exists; could be expanded with more user stats |
 | **Lasso Color Picker** | Broken | `LassoOverlayView.swift` — sheet may not open, `recolorLassoSelection` needs debugging |
+| **Preferences Sync** | In Progress | `PreferencesManager` syncs UserDefaults ↔ Firestore per-account. Theme/layout restore inconsistent on repeated sign-out/sign-in cycles. Need to wire `scheduleSave()` into all preference-changing UI. |
+
+### App Store Compliance (DONE)
+| Feature | Status |
+|---|---|
+| **Account Deletion** | Done — `AuthService.deleteAccount()`, ProfileView button with re-auth handling |
+| **Privacy Policy / ToS** | Done — Links in ProfileView + AuthView, hosted on Notion |
+| **Content Reporting** | Done — `reportedBy[]` on all community models, context menu report buttons, client-side filtering |
+| **Privacy Manifest** | Done — `PrivacyInfo.xcprivacy` with UserDefaults API declaration |
 
 ---
 
@@ -231,8 +241,8 @@ if !subscriptionVM.isPremium && count >= PremiumLimits.maxFree* {
 
 ## Remaining Work (Pre-App Store)
 
-1. **Fix lasso color picker** — debug sheet presentation and color application
-2. **Sign in with Apple** — required by App Store (currently only Google Sign-In)
+1. **Fix preferences sync consistency** — wire `scheduleSave()` into all preference-changing UI (theme picker, reading settings, annotation toolbar), debug theme restore timing
+2. **Fix lasso color picker** — debug sheet presentation and color application
 3. **Push notifications** — Firebase Cloud Messaging for daily reminders
 4. **Accessibility audit** — VoiceOver labels on all interactive elements
 5. **App Store assets** — icons, screenshots, metadata
