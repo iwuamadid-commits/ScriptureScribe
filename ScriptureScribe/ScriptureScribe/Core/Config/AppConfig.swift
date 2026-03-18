@@ -53,6 +53,6 @@ enum AppConfig {
 
     // MARK: - Legal
 
-    static let privacyPolicyURL  = URL(string: "https://scripture-scribe.app/privacy")!
-    static let termsOfServiceURL = URL(string: "https://scripture-scribe.app/terms")!
+    static let privacyPolicyURL  = URL(string: "https://motley-crayon-960.notion.site/Privacy-Policy-3279dcc4e61c80cf967bf7806fa30c61")!
+    static let termsOfServiceURL = URL(string: "https://motley-crayon-960.notion.site/Terms-of-Service-3279dcc4e61c800487f2ef1846f980bf")!
 }
