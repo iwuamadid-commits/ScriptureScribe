@@ -18,6 +18,7 @@ struct Comment: Codable, Identifiable {
     var likeCount:       Int
     var parentCommentId: String?  // nil = top-level; set = reply to another comment
     var createdAt:       Date
+    var reportedBy:      [String]
 
     init(
         id:              String = UUID().uuidString,
@@ -28,7 +29,8 @@ struct Comment: Codable, Identifiable {
         text:            String,
         likeCount:       Int = 0,
         parentCommentId: String? = nil,
-        createdAt:       Date = Date()
+        createdAt:       Date = Date(),
+        reportedBy:      [String] = []
     ) {
         self.id              = id
         self.postId          = postId
@@ -39,5 +41,20 @@ struct Comment: Codable, Identifiable {
         self.likeCount       = likeCount
         self.parentCommentId = parentCommentId
         self.createdAt       = createdAt
+        self.reportedBy      = reportedBy
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id              = try c.decode(String.self, forKey: .id)
+        postId          = try c.decode(String.self, forKey: .postId)
+        userId          = try c.decode(String.self, forKey: .userId)
+        displayName     = try c.decode(String.self, forKey: .displayName)
+        photoURL        = try c.decodeIfPresent(String.self, forKey: .photoURL)
+        text            = try c.decode(String.self, forKey: .text)
+        likeCount       = try c.decode(Int.self, forKey: .likeCount)
+        parentCommentId = try c.decodeIfPresent(String.self, forKey: .parentCommentId)
+        createdAt       = try c.decode(Date.self, forKey: .createdAt)
+        reportedBy      = try c.decodeIfPresent([String].self, forKey: .reportedBy) ?? []
     }
 }

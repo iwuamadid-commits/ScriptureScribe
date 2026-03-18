@@ -156,16 +156,46 @@ final class AuthService {
         return appUser
     }
 
+    // MARK: - Delete Account
+
+    /// Deletes all user data from Firestore, Firebase Storage, and Firebase Auth.
+    /// Throws AuthErrorCode.requiresRecentLogin if the user needs to re-authenticate first.
+    func deleteAccount(userId: String) async throws {
+        let firestoreService = FirestoreService()
+
+        // 1. Delete all Firestore user data (subcollections + user doc)
+        try await firestoreService.deleteAllUserData(userId: userId)
+
+        // 2. Delete Firebase Storage files (profile photo + annotations)
+        let storage = Storage.storage().reference()
+        // Profile photo
+        let profileRef = storage.child("profilePhotos/\(userId).jpg")
+        try? await profileRef.delete()
+        // Annotations folder: list and delete all
+        let annotationsRef = storage.child("annotations/\(userId)")
+        if let listResult = try? await annotationsRef.listAll() {
+            for item in listResult.items {
+                try? await item.delete()
+            }
+        }
+
+        // 3. Delete the Firebase Auth account (may throw requiresRecentLogin)
+        guard let user = Auth.auth().currentUser else { return }
+        try await user.delete()
+    }
+
     // MARK: - Errors
 
     enum AuthError: LocalizedError {
         case missingNonce
         case invalidToken
+        case requiresReSignIn
 
         var errorDescription: String? {
             switch self {
-            case .missingNonce: return "Sign-in nonce is missing. Please try again."
-            case .invalidToken: return "Could not read the Apple ID token. Please try again."
+            case .missingNonce:     return "Sign-in nonce is missing. Please try again."
+            case .invalidToken:     return "Could not read the Apple ID token. Please try again."
+            case .requiresReSignIn: return "For security, please sign in again before deleting your account."
             }
         }
     }

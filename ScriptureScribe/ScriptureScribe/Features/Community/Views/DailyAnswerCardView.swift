@@ -17,9 +17,11 @@ struct DailyAnswerCardView: View {
     let onEdit:        () -> Void
     let onComment:     () -> Void
     let onDelete:      () -> Void
+    let onReport:      () -> Void
 
     @EnvironmentObject var themeManager: ThemeManager
-    @State private var showDeleteConfirm = false
+    @State private var showDeleteConfirm  = false
+    @State private var showReportConfirm  = false
     @State private var showHeartAnimation = false
 
     private var shareText: String {
@@ -135,6 +137,11 @@ struct DailyAnswerCardView: View {
             ShareLink(item: shareText) {
                 Label("Share Answer", systemImage: "square.and.arrow.up")
             }
+            if currentUserId != nil && currentUserId != answer.userId {
+                Button { showReportConfirm = true } label: {
+                    Label("Report Answer", systemImage: "flag")
+                }
+            }
             if currentUserId == answer.userId || AdminManager.isAdmin(currentUserId) {
                 Button { onEdit() } label: {
                     Label("Edit Answer", systemImage: "pencil")
@@ -153,6 +160,16 @@ struct DailyAnswerCardView: View {
         ) {
             Button("Delete", role: .destructive) { onDelete() }
             Button("Cancel", role: .cancel) {}
+        }
+        .confirmationDialog(
+            "Report this answer?",
+            isPresented: $showReportConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Report", role: .destructive) { onReport() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This answer will be reviewed by our team and hidden from your feed.")
         }
     }
 }

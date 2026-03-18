@@ -17,10 +17,12 @@ struct PrayerCardView: View {
     let onEdit:       () -> Void
     let onComment:    () -> Void
     let onDelete:     () -> Void
+    let onReport:     () -> Void
 
     @EnvironmentObject var themeManager: ThemeManager
-    @State private var showDeleteConfirm = false
-    @State private var showPrayAnimation = false
+    @State private var showDeleteConfirm  = false
+    @State private var showReportConfirm  = false
+    @State private var showPrayAnimation  = false
 
     private var shareText: String {
         let link = "scripturescribe://prayer/\(request.id)"
@@ -153,6 +155,11 @@ struct PrayerCardView: View {
             ShareLink(item: shareText) {
                 Label("Share Request", systemImage: "square.and.arrow.up")
             }
+            if currentUser != nil && currentUser?.id != request.userId {
+                Button { showReportConfirm = true } label: {
+                    Label("Report Request", systemImage: "flag")
+                }
+            }
             if currentUser?.id == request.userId || AdminManager.isAdmin(currentUser?.id) {
                 Button { onEdit() } label: {
                     Label("Edit Request", systemImage: "pencil")
@@ -171,6 +178,16 @@ struct PrayerCardView: View {
         ) {
             Button("Delete", role: .destructive) { onDelete() }
             Button("Cancel", role: .cancel) {}
+        }
+        .confirmationDialog(
+            "Report this prayer request?",
+            isPresented: $showReportConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Report", role: .destructive) { onReport() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This request will be reviewed by our team and hidden from your feed.")
         }
     }
 }

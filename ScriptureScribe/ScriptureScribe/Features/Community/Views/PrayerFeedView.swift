@@ -91,7 +91,12 @@ struct PrayerFeedView: View {
                                 },
                                 onEdit:    { editingRequest = request },
                                 onComment: { selectedRequest = request },
-                                onDelete:  { Task { await vm.deleteRequest(request) } }
+                                onDelete:  { Task { await vm.deleteRequest(request) } },
+                                onReport:  {
+                                    if let uid = authVM.currentUserID {
+                                        Task { await vm.reportRequest(id: request.id, userId: uid) }
+                                    }
+                                }
                             )
                             .transition(.opacity)
                         }
@@ -127,7 +132,8 @@ struct PrayerFeedView: View {
                             onPray:      { },
                             onEdit:      { },
                             onComment:   { },
-                            onDelete:    { }
+                            onDelete:    { },
+                            onReport:    { }
                         )
                         .allowsHitTesting(false)
                         .padding(.horizontal, 16)

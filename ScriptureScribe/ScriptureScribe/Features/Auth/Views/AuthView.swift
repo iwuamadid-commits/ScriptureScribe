@@ -225,6 +225,23 @@ struct AuthView: View {
                                 .font(.subheadline)
                                 .foregroundStyle(themeManager.currentTheme.primary)
                         }
+                        // ── Legal links ──────────────────────────────
+                        VStack(spacing: 4) {
+                            Text("By continuing, you agree to our")
+                                .font(.caption2)
+                                .foregroundStyle(themeManager.currentTheme.textSecondary)
+                            HStack(spacing: 4) {
+                                Link("Privacy Policy", destination: AppConfig.privacyPolicyURL)
+                                    .font(.caption2.weight(.medium))
+                                    .foregroundStyle(themeManager.currentTheme.primary)
+                                Text("and")
+                                    .font(.caption2)
+                                    .foregroundStyle(themeManager.currentTheme.textSecondary)
+                                Link("Terms of Service", destination: AppConfig.termsOfServiceURL)
+                                    .font(.caption2.weight(.medium))
+                                    .foregroundStyle(themeManager.currentTheme.primary)
+                            }
+                        }
                         .padding(.bottom, 32)
                     }
                     .padding(.horizontal, 28)

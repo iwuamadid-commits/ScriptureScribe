@@ -173,7 +173,12 @@ struct DailyQuestionView: View {
                                             },
                                             onEdit:    { editingAnswer = answer },
                                             onComment: { selectedAnswer = answer },
-                                            onDelete:  { Task { await vm.deleteAnswer(answer) } }
+                                            onDelete:  { Task { await vm.deleteAnswer(answer) } },
+                                            onReport:  {
+                                                if let uid = authVM.currentUserID {
+                                                    Task { await vm.reportAnswer(id: answer.id, userId: uid) }
+                                                }
+                                            }
                                         )
                                         .blur(radius: (!isPremium && index > 0) ? 6 : 0)
                                         .allowsHitTesting(isPremium || index == 0)

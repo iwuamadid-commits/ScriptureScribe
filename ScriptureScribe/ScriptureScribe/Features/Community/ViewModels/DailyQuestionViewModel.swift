@@ -20,6 +20,7 @@ final class DailyQuestionViewModel: ObservableObject {
     @Published var questions:      [String]      = []   // reflection questions for the selected date
     @Published var answers:        [DailyAnswer] = []
     @Published var likedAnswerIds: Set<String>   = []
+    @Published var reportedIds:    Set<String>   = []
     @Published var isLoading:      Bool          = false
     @Published var errorMessage:   String?       = nil
 
@@ -138,6 +139,20 @@ final class DailyQuestionViewModel: ObservableObject {
         guard !fields.isEmpty else { return }
         do {
             try await firestore.updateDailyAnswerFields(id: answer.id, fields: fields)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    // MARK: - Report Answer
+
+    func reportAnswer(id: String, userId: String) async {
+        reportedIds.insert(id)
+        withAnimation(.easeOut(duration: 0.35)) {
+            answers.removeAll { $0.id == id }
+        }
+        do {
+            try await firestore.reportContent(collection: "dailyAnswers", documentId: id, userId: userId)
         } catch {
             errorMessage = error.localizedDescription
         }

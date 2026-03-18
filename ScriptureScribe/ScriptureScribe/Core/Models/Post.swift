@@ -21,6 +21,7 @@ struct Post: Codable, Identifiable {
     var createdAt:    Date
     var commentCount: Int
     var likeCount:    Int
+    var reportedBy:   [String]
 
     init(
         id:           String = UUID().uuidString,
@@ -32,7 +33,8 @@ struct Post: Codable, Identifiable {
         verseText:    String = "",
         createdAt:    Date = Date(),
         commentCount: Int = 0,
-        likeCount:    Int = 0
+        likeCount:    Int = 0,
+        reportedBy:   [String] = []
     ) {
         self.id           = id
         self.userId       = userId
@@ -44,5 +46,21 @@ struct Post: Codable, Identifiable {
         self.createdAt    = createdAt
         self.commentCount = commentCount
         self.likeCount    = likeCount
+        self.reportedBy   = reportedBy
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id           = try c.decode(String.self, forKey: .id)
+        userId       = try c.decode(String.self, forKey: .userId)
+        displayName  = try c.decode(String.self, forKey: .displayName)
+        photoURL     = try c.decodeIfPresent(String.self, forKey: .photoURL)
+        text         = try c.decode(String.self, forKey: .text)
+        verseRef     = try c.decode(String.self, forKey: .verseRef)
+        verseText    = try c.decode(String.self, forKey: .verseText)
+        createdAt    = try c.decode(Date.self, forKey: .createdAt)
+        commentCount = try c.decode(Int.self, forKey: .commentCount)
+        likeCount    = try c.decode(Int.self, forKey: .likeCount)
+        reportedBy   = try c.decodeIfPresent([String].self, forKey: .reportedBy) ?? []
     }
 }

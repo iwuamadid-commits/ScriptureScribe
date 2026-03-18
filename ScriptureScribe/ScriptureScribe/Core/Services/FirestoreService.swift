@@ -906,4 +906,33 @@ final class FirestoreService {
             completedAt: (data["completedAt"] as? Timestamp)?.dateValue() ?? Date()
         )
     }
+
+    // MARK: - Content Reporting
+
+    /// Adds the user's ID to the reportedBy array on any community content document.
+    /// Works for posts, prayerRequests, gratitudePosts, dailyAnswers, and comments.
+    func reportContent(collection: String, documentId: String, userId: String) async throws {
+        try await db.collection(collection).document(documentId).updateData([
+            "reportedBy": FieldValue.arrayUnion([userId])
+        ])
+    }
+
+    // MARK: - Account Deletion
+
+    /// Deletes all user data from Firestore: profile, bookmarks, notes, groups, habits, logs, saved items.
+    func deleteAllUserData(userId: String) async throws {
+        let userRef = db.collection("users").document(userId)
+
+        // Delete all subcollections
+        let subcollections = ["bookmarks", "notes", "bookmarkGroups", "habits", "habitLogs", "savedItems"]
+        for sub in subcollections {
+            let docs = try await userRef.collection(sub).getDocuments()
+            for doc in docs.documents {
+                try await doc.reference.delete()
+            }
+        }
+
+        // Delete the user document itself
+        try await userRef.delete()
+    }
 }

@@ -19,10 +19,12 @@ struct PostCardView: View {
     let onEdit:        () -> Void
     let onDelete:      () -> Void
     let onTap:         () -> Void
+    let onReport:      () -> Void
 
     @EnvironmentObject var themeManager: ThemeManager
     @EnvironmentObject var appNav:       AppNavigation
-    @State private var showDeleteConfirm = false
+    @State private var showDeleteConfirm  = false
+    @State private var showReportConfirm  = false
     @State private var showHeartAnimation = false
 
     private var postShareText: String {
@@ -179,6 +181,11 @@ struct PostCardView: View {
             ShareLink(item: postShareText) {
                 Label("Share Post", systemImage: "square.and.arrow.up")
             }
+            if currentUserId != nil && currentUserId != post.userId {
+                Button { showReportConfirm = true } label: {
+                    Label("Report Post", systemImage: "flag")
+                }
+            }
             if currentUserId == post.userId || AdminManager.isAdmin(currentUserId) {
                 Button { onEdit() } label: {
                     Label("Edit Post", systemImage: "pencil")
@@ -197,6 +204,16 @@ struct PostCardView: View {
         ) {
             Button("Delete", role: .destructive) { onDelete() }
             Button("Cancel", role: .cancel) {}
+        }
+        .confirmationDialog(
+            "Report this post?",
+            isPresented: $showReportConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Report", role: .destructive) { onReport() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This post will be reviewed by our team and hidden from your feed.")
         }
     }
 }

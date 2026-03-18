@@ -337,7 +337,12 @@ struct FeedView: View {
                                 },
                                 onEdit:   { editingPost = post },
                                 onDelete: { Task { await communityVM.deletePost(post) } },
-                                onTap:    { selectedPost = post }
+                                onTap:    { selectedPost = post },
+                                onReport: {
+                                    if let uid = authVM.currentUserID {
+                                        Task { await communityVM.reportPost(id: post.id, userId: uid) }
+                                    }
+                                }
                             )
                             .transition(.opacity)
                         }
@@ -364,7 +369,8 @@ struct FeedView: View {
                             onLike:        { },
                             onEdit:        { },
                             onDelete:      { },
-                            onTap:         { }
+                            onTap:         { },
+                            onReport:      { }
                         )
                         .allowsHitTesting(false)
                         .padding(.horizontal, 16)

@@ -50,4 +50,9 @@ enum AppConfig {
     }
 
     static let anthropicBaseURL = "https://api.anthropic.com/v1/messages"
+
+    // MARK: - Legal
+
+    static let privacyPolicyURL  = URL(string: "https://scripture-scribe.app/privacy")!
+    static let termsOfServiceURL = URL(string: "https://scripture-scribe.app/terms")!
 }

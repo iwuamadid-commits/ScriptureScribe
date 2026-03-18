@@ -15,6 +15,7 @@ final class GratitudeViewModel: ObservableObject {
 
     @Published var posts:              [GratitudePost] = []
     @Published var likedGratitudeIds: Set<String>     = []
+    @Published var reportedIds:       Set<String>     = []
     @Published var isLoading:         Bool            = false
     @Published var isUploading:       Bool            = false
     @Published var errorMessage:      String?         = nil
@@ -112,6 +113,20 @@ final class GratitudeViewModel: ObservableObject {
         guard !fields.isEmpty else { return }
         do {
             try await firestore.updateGratitudePostFields(id: post.id, fields: fields)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    // MARK: - Report Post
+
+    func reportPost(id: String, userId: String) async {
+        reportedIds.insert(id)
+        withAnimation(.easeOut(duration: 0.35)) {
+            posts.removeAll { $0.id == id }
+        }
+        do {
+            try await firestore.reportContent(collection: "gratitudePosts", documentId: id, userId: userId)
         } catch {
             errorMessage = error.localizedDescription
         }

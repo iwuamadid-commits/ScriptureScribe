@@ -105,7 +105,12 @@ struct GratitudeFeedView: View {
                                 },
                                 onEdit:    { editingPost = post },
                                 onComment: { selectedPost = post },
-                                onDelete:  { Task { await vm.deletePost(post) } }
+                                onDelete:  { Task { await vm.deletePost(post) } },
+                                onReport:  {
+                                    if let uid = authVM.currentUserID {
+                                        Task { await vm.reportPost(id: post.id, userId: uid) }
+                                    }
+                                }
                             )
                             .transition(.opacity)
                         }
@@ -141,7 +146,8 @@ struct GratitudeFeedView: View {
                             onLike:        { },
                             onEdit:        { },
                             onComment:     { },
-                            onDelete:      { }
+                            onDelete:      { },
+                            onReport:      { }
                         )
                         .allowsHitTesting(false)
                         .padding(.horizontal, 16)

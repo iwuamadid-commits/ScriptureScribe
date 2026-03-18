@@ -184,4 +184,51 @@ final class AuthViewModel: ObservableObject {
             errorMessage = error.localizedDescription
         }
     }
+
+    // MARK: - Delete Account
+
+    /// True when Firebase requires the user to re-authenticate before deleting.
+    @Published var needsReAuth: Bool = false
+
+    /// Deletes all user data from Firestore, Firebase Storage, and Firebase Auth,
+    /// then clears local UserDefaults data and signs out.
+    /// Returns true on success, false if re-auth is needed.
+    @discardableResult
+    func deleteAccount() async -> Bool {
+        guard let userId = currentUserID else { return false }
+        isLoading = true
+        errorMessage = nil
+        do {
+            try await authService.deleteAccount(userId: userId)
+            clearLocalData()
+            currentUser = nil
+            isSignedIn  = false
+            isLoading   = false
+            return true
+        } catch let error as NSError where error.code == AuthErrorCode.requiresRecentLogin.rawValue {
+            needsReAuth = true
+            isLoading   = false
+            return false
+        } catch {
+            errorMessage = error.localizedDescription
+            isLoading    = false
+            return false
+        }
+    }
+
+    /// Clears all locally persisted user data from UserDefaults.
+    private func clearLocalData() {
+        let keys = [
+            "bookmarks_data", "bookmarkGroups_data",
+            "notes_data",
+            "habits_data", "habitLogs_data",
+            "streak_currentCount", "streak_longestCount", "streak_lastDate", "streak_history",
+            "selectedTheme", "selectedTranslation", "myVersionIds",
+            "savedAnnotationColors",
+            "hasCompletedOnboarding", "hasCompletedWalkthrough",
+        ]
+        for key in keys {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+    }
 }

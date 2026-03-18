@@ -20,7 +20,10 @@ struct ProfileView: View {
     @State private var showAuth        = false
     @State private var showPaywall     = false
     @State private var photoPickerItem: PhotosPickerItem? = nil
-    @State private var showSignOutConfirmation = false
+    @State private var showSignOutConfirmation  = false
+    @State private var showDeleteConfirmation   = false
+    @State private var showDeleteFinalConfirm   = false
+    @State private var isDeletingAccount        = false
 
     // Read streak values written by StreakViewModel in the Reader tab
     @AppStorage("streak_currentCount") private var currentStreak: Int = 0
@@ -245,6 +248,53 @@ struct ProfileView: View {
                             } message: {
                                 Text("Are you sure you want to sign out?")
                             }
+
+                            // Delete Account button
+                            Button(role: .destructive) {
+                                showDeleteConfirmation = true
+                            } label: {
+                                HStack(spacing: 12) {
+                                    if isDeletingAccount {
+                                        ProgressView()
+                                            .frame(width: 24)
+                                    } else {
+                                        Image(systemName: "trash.fill")
+                                            .foregroundStyle(.red)
+                                            .frame(width: 24)
+                                    }
+                                    Text("Delete Account")
+                                        .foregroundStyle(.red)
+                                }
+                            }
+                            .disabled(isDeletingAccount)
+                            .alert("Delete Account?", isPresented: $showDeleteConfirmation) {
+                                Button("Cancel", role: .cancel) { }
+                                Button("Continue", role: .destructive) {
+                                    showDeleteFinalConfirm = true
+                                }
+                            } message: {
+                                Text("This will permanently delete your account and all your data, including bookmarks, notes, habits, and community posts. This cannot be undone.")
+                            }
+                            .alert("Are you sure?", isPresented: $showDeleteFinalConfirm) {
+                                Button("Cancel", role: .cancel) { }
+                                Button("Delete Everything", role: .destructive) {
+                                    isDeletingAccount = true
+                                    Task {
+                                        await authVM.deleteAccount()
+                                        isDeletingAccount = false
+                                    }
+                                }
+                            } message: {
+                                Text("This is your last chance. All data will be permanently removed.")
+                            }
+                            .alert("Sign In Required", isPresented: $authVM.needsReAuth) {
+                                Button("OK") {
+                                    authVM.signOut()
+                                    showAuth = true
+                                }
+                            } message: {
+                                Text("For security, please sign in again and then try deleting your account.")
+                            }
                         } else {
                             // Signed-out: show sign-in prompt
                             Button {
@@ -270,6 +320,41 @@ struct ProfileView: View {
                         }
                     } header: {
                         Text("Account")
+                            .foregroundStyle(themeManager.currentTheme.textSecondary)
+                    }
+                    .listRowBackground(themeManager.currentTheme.surface)
+
+                    // ── Legal ────────────────────────────────────────────────
+                    Section {
+                        Link(destination: AppConfig.privacyPolicyURL) {
+                            HStack(spacing: 12) {
+                                Image(systemName: "hand.raised.fill")
+                                    .foregroundStyle(themeManager.currentTheme.primary)
+                                    .frame(width: 24)
+                                Text("Privacy Policy")
+                                    .foregroundStyle(themeManager.currentTheme.text)
+                                Spacer()
+                                Image(systemName: "arrow.up.right")
+                                    .foregroundStyle(themeManager.currentTheme.textSecondary)
+                                    .font(.caption)
+                            }
+                        }
+
+                        Link(destination: AppConfig.termsOfServiceURL) {
+                            HStack(spacing: 12) {
+                                Image(systemName: "doc.text.fill")
+                                    .foregroundStyle(themeManager.currentTheme.primary)
+                                    .frame(width: 24)
+                                Text("Terms of Service")
+                                    .foregroundStyle(themeManager.currentTheme.text)
+                                Spacer()
+                                Image(systemName: "arrow.up.right")
+                                    .foregroundStyle(themeManager.currentTheme.textSecondary)
+                                    .font(.caption)
+                            }
+                        }
+                    } header: {
+                        Text("Legal")
                             .foregroundStyle(themeManager.currentTheme.textSecondary)
                     }
                     .listRowBackground(themeManager.currentTheme.surface)

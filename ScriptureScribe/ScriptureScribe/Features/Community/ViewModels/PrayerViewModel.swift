@@ -16,6 +16,7 @@ final class PrayerViewModel: ObservableObject {
 
     @Published var requests:     [PrayerRequest] = []
     @Published var prayingIds:   Set<String>     = []   // request IDs this user has prayed for
+    @Published var reportedIds:  Set<String>     = []
     @Published var isLoading:    Bool            = false
     @Published var errorMessage: String?         = nil
 
@@ -85,6 +86,20 @@ final class PrayerViewModel: ObservableObject {
         guard !fields.isEmpty else { return }
         do {
             try await firestore.updatePrayerRequestFields(id: request.id, fields: fields)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    // MARK: - Report Request
+
+    func reportRequest(id: String, userId: String) async {
+        reportedIds.insert(id)
+        withAnimation(.easeOut(duration: 0.35)) {
+            requests.removeAll { $0.id == id }
+        }
+        do {
+            try await firestore.reportContent(collection: "prayerRequests", documentId: id, userId: userId)
         } catch {
             errorMessage = error.localizedDescription
         }

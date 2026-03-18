@@ -21,6 +21,7 @@ struct PrayerRequest: Codable, Identifiable {
     var prayingCount: Int     // total users who tapped 🙏
     var commentCount: Int
     var createdAt:    Date
+    var reportedBy:   [String]
 
     init(
         id:           String  = UUID().uuidString,
@@ -30,7 +31,8 @@ struct PrayerRequest: Codable, Identifiable {
         text:         String,
         prayingCount: Int     = 0,
         commentCount: Int     = 0,
-        createdAt:    Date    = Date()
+        createdAt:    Date    = Date(),
+        reportedBy:   [String] = []
     ) {
         self.id           = id
         self.userId       = userId
@@ -40,5 +42,19 @@ struct PrayerRequest: Codable, Identifiable {
         self.prayingCount = prayingCount
         self.commentCount = commentCount
         self.createdAt    = createdAt
+        self.reportedBy   = reportedBy
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id           = try c.decode(String.self, forKey: .id)
+        userId       = try c.decode(String.self, forKey: .userId)
+        displayName  = try c.decode(String.self, forKey: .displayName)
+        photoURL     = try c.decodeIfPresent(String.self, forKey: .photoURL)
+        text         = try c.decode(String.self, forKey: .text)
+        prayingCount = try c.decode(Int.self, forKey: .prayingCount)
+        commentCount = try c.decode(Int.self, forKey: .commentCount)
+        createdAt    = try c.decode(Date.self, forKey: .createdAt)
+        reportedBy   = try c.decodeIfPresent([String].self, forKey: .reportedBy) ?? []
     }
 }
