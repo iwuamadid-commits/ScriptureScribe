@@ -917,23 +917,6 @@ final class FirestoreService {
         ])
     }
 
-    // MARK: - User Preferences (synced per-account)
-
-    /// Saves the user's app preferences to Firestore so they persist across devices and sign-ins.
-    func savePreferences(_ prefs: [String: Any], userId: String) async throws {
-        try await db.collection("users").document(userId)
-            .collection("preferences").document("settings")
-            .setData(prefs, merge: true)
-    }
-
-    /// Fetches the user's saved preferences from Firestore. Returns nil if none exist.
-    func fetchPreferences(userId: String) async throws -> [String: Any]? {
-        let doc = try await db.collection("users").document(userId)
-            .collection("preferences").document("settings")
-            .getDocument()
-        return doc.data()
-    }
-
     // MARK: - Account Deletion
 
     /// Deletes all user data from Firestore: profile, bookmarks, notes, groups, habits, logs, saved items.

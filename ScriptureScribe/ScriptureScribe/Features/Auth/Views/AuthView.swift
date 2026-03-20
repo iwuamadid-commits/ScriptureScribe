@@ -201,7 +201,10 @@ struct AuthView: View {
                                         if authVM.isSignedIn { dismiss() }
                                     }
                                 case .failure(let error):
-                                    authVM.errorMessage = error.localizedDescription
+                                    // User tapped "X" on the Apple sheet — not a real error
+                                    let nsError = error as NSError
+                                    if nsError.code == ASAuthorizationError.canceled.rawValue { break }
+                                    authVM.errorMessage = error.userMessage
                                 }
                             }
                         )

@@ -29,7 +29,15 @@ final class CommunityViewModel: ObservableObject {
         isLoading = true
         feedListener = firestore.listenToFeed { [weak self] posts in
             guard let self else { return }
-            self.posts     = posts
+            // Filter out posts reported by this user or with 5+ reports (auto-hidden).
+            // Admins see everything.
+            let isAdmin = AdminManager.isAdmin(userId)
+            self.posts = isAdmin ? posts : posts.filter { post in
+                let reported = post.reportedBy
+                if reported.count >= 5 { return false }
+                if let uid = userId, reported.contains(uid) { return false }
+                return true
+            }
             self.isLoading = false
         }
         if let uid = userId {
@@ -60,7 +68,7 @@ final class CommunityViewModel: ObservableObject {
             // Revert on failure
             if alreadyLiked { likedPostIds.insert(post.id) }
             else             { likedPostIds.remove(post.id) }
-            errorMessage = error.localizedDescription
+            errorMessage = error.userMessage
         }
     }
 
@@ -78,7 +86,7 @@ final class CommunityViewModel: ObservableObject {
         do {
             try await firestore.createPost(post)
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.userMessage
         }
     }
 
@@ -88,7 +96,7 @@ final class CommunityViewModel: ObservableObject {
         do {
             try await firestore.updatePost(postId: post.id, text: newText.trimmingCharacters(in: .whitespacesAndNewlines))
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.userMessage
         }
     }
 
@@ -104,7 +112,7 @@ final class CommunityViewModel: ObservableObject {
         do {
             try await firestore.updatePostFields(postId: post.id, fields: fields)
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.userMessage
         }
     }
 
@@ -118,7 +126,7 @@ final class CommunityViewModel: ObservableObject {
         do {
             try await firestore.reportContent(collection: "posts", documentId: id, userId: userId)
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.userMessage
         }
     }
 
@@ -131,7 +139,7 @@ final class CommunityViewModel: ObservableObject {
         do {
             try await firestore.deletePost(postId: post.id)
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.userMessage
         }
     }
 }

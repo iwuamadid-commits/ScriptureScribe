@@ -124,9 +124,11 @@ final class ReaderViewModel: ObservableObject {
             translations = try await api.fetchTranslations()
             await restoreOrDefaultTranslation()
         } catch let apiError as APIError {
-            errorMessage = "API error: \(apiError.errorDescription ?? "unknown")"
+            errorMessage = apiError.userMessage
+        } catch is CancellationError {
+            // Task was cancelled (e.g. user switched chapters quickly) — not a real error
         } catch {
-            errorMessage = "Network error: \(error.localizedDescription)"
+            errorMessage = error.userMessage
         }
     }
 

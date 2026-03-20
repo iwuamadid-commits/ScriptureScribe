@@ -35,6 +35,7 @@ final class DailyQuestionViewModel: ObservableObject {
 
     private let firestore:    FirestoreService = FirestoreService()
     private var listener:     ListenerRegistration?
+    private var currentUserId: String?
     private(set) var dateString: String = ""   // "YYYY-MM-DD" for the selected date
     private(set) var devotionDay: Int   = 1
 
@@ -43,6 +44,7 @@ final class DailyQuestionViewModel: ObservableObject {
     /// Call this on appear and whenever the user selects a new date.
     func load(userId: String? = nil, date: Date = Date()) {
         isLoading    = true
+        currentUserId = userId
         selectedDate = date
         devotionDay  = dayIndex(for: date)
         dateString   = isoDateString(for: date)
@@ -63,8 +65,16 @@ final class DailyQuestionViewModel: ObservableObject {
     // MARK: - Listener
 
     private func startListening(date: String) {
+        let userId = currentUserId
         listener = firestore.listenToDailyAnswers(date: date) { [weak self] answers in
-            self?.answers = answers
+            guard let self else { return }
+            let isAdmin = AdminManager.isAdmin(userId)
+            self.answers = isAdmin ? answers : answers.filter { answer in
+                let reported = answer.reportedBy
+                if reported.count >= 5 { return false }
+                if let uid = userId, reported.contains(uid) { return false }
+                return true
+            }
         }
     }
 
@@ -94,7 +104,7 @@ final class DailyQuestionViewModel: ObservableObject {
         } catch {
             if alreadyLiked { likedAnswerIds.insert(answer.id) }
             else             { likedAnswerIds.remove(answer.id) }
-            errorMessage = error.localizedDescription
+            errorMessage = error.userMessage
         }
     }
 
@@ -117,7 +127,7 @@ final class DailyQuestionViewModel: ObservableObject {
         do {
             try await firestore.createDailyAnswer(answer)
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.userMessage
         }
     }
 
@@ -127,7 +137,7 @@ final class DailyQuestionViewModel: ObservableObject {
         do {
             try await firestore.updateDailyAnswer(id: answer.id, text: newText.trimmingCharacters(in: .whitespacesAndNewlines))
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.userMessage
         }
     }
 
@@ -140,7 +150,7 @@ final class DailyQuestionViewModel: ObservableObject {
         do {
             try await firestore.updateDailyAnswerFields(id: answer.id, fields: fields)
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.userMessage
         }
     }
 
@@ -154,7 +164,7 @@ final class DailyQuestionViewModel: ObservableObject {
         do {
             try await firestore.reportContent(collection: "dailyAnswers", documentId: id, userId: userId)
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.userMessage
         }
     }
 
@@ -167,7 +177,7 @@ final class DailyQuestionViewModel: ObservableObject {
         do {
             try await firestore.deleteDailyAnswer(id: answer.id)
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.userMessage
         }
     }
 

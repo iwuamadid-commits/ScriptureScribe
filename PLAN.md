@@ -13,6 +13,9 @@ Derrick and Stephanie (brother and sister) are building a native iOS Bible annot
 - Monetization: StoreKit 2 (weekly/monthly/yearly/lifetime subscriptions)
 - Offline Bibles: KJV, WEB, ASV downloadable from Firebase Storage
 - API.Bible rate limit: 5,000 queries/day; max 500 consecutive verses per request
+- Data persistence: User content (bookmarks, notes, habits, saved items) syncs to Firestore per-account. Preferences (theme, font, tool settings) are device-local only (UserDefaults). Annotations (.pkdrawing files) are device-local per-chapter.
+- Sign-out behavior: Local data stays on device. Only account deletion clears everything.
+- Bundle ID: `com.derrickiwuamadi.ScriptureScribe` (Firebase + Xcode + Apple Developer Portal aligned)
 
 ---
 
@@ -30,6 +33,7 @@ ScriptureScribe/ScriptureScribe/ScriptureScribe/
 │   ├── Extensions/
 │   │   ├── Color+Hex.swift           ← Hex color parsing
 │   │   ├── CoachMarkModifier.swift   ← Walkthrough spotlight system (.coachMark("id") modifier)
+│   │   ├── Error+UserFriendly.swift  ← Maps Firebase/StoreKit/network errors to user-friendly messages
 │   │   ├── WrappingHStack.swift      ← Flow layout for tags
 │   │   └── ZoomScrollView.swift      ← Pinch-to-zoom container
 │   ├── Models/
@@ -59,22 +63,23 @@ ScriptureScribe/ScriptureScribe/ScriptureScribe/
 │       ├── BibleReferenceParser.swift ← Parse "John 3:16-18" etc.
 │       └── PremiumGateModifier.swift  ← Reusable premium gate ViewModifier
 ├── Features/
-│   ├── Annotation/   (14 files)  ← PencilKit canvas, toolbar, color pickers, lasso, crop, guides
-│   ├── Audio/        (5 files)   ← Streaming audio + TTS fallback with verse-by-verse sync
-│   ├── Auth/         (3 files)   ← Firebase Auth + Google Sign-In
-│   ├── Bookmarks/    (5 files)   ← Verse bookmarks with 8 colors, emojis, groups/collections
-│   ├── Community/    (22 files)  ← Posts, prayers, gratitude, daily Q&A with real-time listeners
-│   ├── Daily/        (4 files)   ← AI-generated devotionals, calendar browsing, verse of the day
-│   ├── Habits/       (6 files)   ← Habit tracking with goals, streaks, suggested plans
-│   ├── Notes/        (4 files)   ← Draggable sticky notes on Bible text
-│   ├── Onboarding/   (2 files)   ← First-launch slides + interactive walkthrough overlay
-│   ├── Profile/      (1 file)    ← User profile, settings, premium info
-│   ├── Reader/       (6 files)   ← Bible text, book/chapter nav, translation browser, offline downloads
-│   ├── Saved/        (2 files)   ← Library tab (bookmarks, prayers, devotionals, affirmations)
-│   ├── Search/       (4 files)   ← Text search, topic search, handwriting OCR search
-│   ├── Sharing/      (4 files)   ← Verse image composer for social sharing
-│   ├── Streaks/      (3 files)   ← Reading streak counter + calendar visualization
-│   └── Subscription/ (1 file)    ← Paywall UI (4 pricing tiers)
+│   ├── Admin/       (2 files)   ← Admin dashboard for content moderation (flagged content queue)
+│   ├── Annotation/  (14 files)  ← PencilKit canvas, toolbar, color pickers, lasso, crop, guides
+│   ├── Audio/       (5 files)   ← Streaming audio + TTS fallback with verse-by-verse sync
+│   ├── Auth/        (3 files)   ← Firebase Auth + Google Sign-In + Sign in with Apple
+│   ├── Bookmarks/   (5 files)   ← Verse bookmarks with 8 colors, emojis, groups/collections
+│   ├── Community/   (22 files)  ← Posts, prayers, gratitude, daily Q&A with real-time listeners
+│   ├── Daily/       (4 files)   ← AI-generated devotionals, calendar browsing, verse of the day
+│   ├── Habits/      (6 files)   ← Habit tracking with goals, streaks, suggested plans
+│   ├── Notes/       (4 files)   ← Draggable sticky notes on Bible text
+│   ├── Onboarding/  (2 files)   ← First-launch slides + interactive walkthrough overlay
+│   ├── Profile/     (1 file)    ← User profile, settings, premium info, admin link
+│   ├── Reader/      (6 files)   ← Bible text, book/chapter nav, translation browser, offline downloads
+│   ├── Saved/       (2 files)   ← Library tab (bookmarks, prayers, devotionals, affirmations)
+│   ├── Search/      (4 files)   ← Text search, topic search, handwriting OCR search
+│   ├── Sharing/     (4 files)   ← Verse image composer for social sharing
+│   ├── Streaks/     (3 files)   ← Reading streak counter + calendar visualization
+│   └── Subscription/ (1 file)   ← Paywall UI (4 pricing tiers)
 ```
 
 ---
@@ -89,7 +94,7 @@ ScriptureScribe/ScriptureScribe/ScriptureScribe/
 | Offline Bibles | JSON files on disk (Documents/OfflineBibles/) |
 | Bible text | `API.Bible` REST API |
 | Audio playback | `AVFoundation` (AVPlayer for streaming, AVSpeechSynthesizer for TTS) |
-| Auth | `Firebase Auth` + `GoogleSignIn` |
+| Auth | `Firebase Auth` + `GoogleSignIn` + `Sign in with Apple` |
 | Community data | `Cloud Firestore` (real-time listeners) |
 | Images/drawings | `Firebase Storage` |
 | AI content | `Anthropic Claude API` (daily devotionals, TTS formatting) |
@@ -107,22 +112,20 @@ users/{uid}/
   ├── notes/{noteId} → { bibleId, bookId, chapterId, verseId, text, xFraction, yFraction, width, height, color, createdAt }
   ├── habits/{habitId} → { name, goal, frequency, timeRange, taskDays[], createdAt }
   ├── habitLogs/{logId} → { habitId, date, value }
-  ├── savedItems/{itemId} → { type, date, title, content, verseReference, createdAt }
-  └── preferences/settings → { selectedTheme, fontSize, lineSpacing, fontChoice, ss_layoutMode, ss_savedAnnotationColors_v2, streak data, ... }
+  └── savedItems/{itemId} → { type, date, title, content, verseReference, createdAt }
 
-posts/{postId} → { authorId, authorName, text, imageURL, verseReference, likedBy[], commentCount, reportedBy[] }
-comments/{commentId} → { postId, authorId, authorName, text, createdAt }
-prayerRequests/{id} → { authorId, authorName, text, likedBy[], commentCount, createdAt }
-gratitudePosts/{id} → { authorId, authorName, text, likedBy[], commentCount, createdAt }
-dailyAnswers/{id} → { questionDate, authorId, authorName, text, likedBy[], commentCount, createdAt }
+posts/{postId} → { userId, displayName, text, verseRef, verseText, likeCount, commentCount, reportedBy[], adminReviewed }
+  └── comments/{commentId} → { postId, userId, displayName, text, likeCount, parentCommentId, reportedBy[], createdAt }
+prayerRequests/{id} → { userId, displayName, text, prayingCount, commentCount, reportedBy[], adminReviewed, createdAt }
+gratitudePosts/{id} → { userId, displayName, text, imageBase64, likeCount, commentCount, reportedBy[], adminReviewed, createdAt }
+dailyAnswers/{id} → { userId, displayName, text, date, devotionDay, likeCount, commentCount, reportedBy[], adminReviewed, createdAt }
 daily_content/{YYYY-MM-DD} → { verseReference, verseId, prayer, devotion, reflectionQuestions[] }
 ```
 
 Firebase Storage paths:
 - `annotations/{uid}/{bibleId}/{chapterId}.pkdrawing`
 - `offline-bibles/KJV.json.gz`, `WEB.json.gz`, `ASV.json.gz`
-- `profile_images/{uid}/profile.jpg`
-- `post_images/{postId}/image.jpg`
+- `profilePhotos/{uid}.jpg`
 
 ---
 
@@ -152,31 +155,75 @@ All defined via `AppTheme` protocol; `ThemeManager` persists selection via `@App
 | **Bookmarks** | `BookmarksViewModel`, `BookmarkListView`, `BookmarkPickerView` | 8 ribbon colors, emojis, groups/collections, non-consecutive verse support |
 | **Notes** | `NotesViewModel`, `NoteTileView`, `NoteEditorView` | Draggable sticky notes, 6 colors, position as fractions |
 | **Habits** | `HabitsViewModel`, `HabitsView`, `CreateHabitView` | Goal/frequency tracking, ISO weekdays, streaks, suggested plans, 3 free limit |
-| **Daily Devotionals** | `DailyViewModel`, `DailyView`, `CalendarSheetView` | Claude AI generation → Firestore cache → local JSON fallback, calendar browsing |
+| **Daily Devotionals** | `DailyViewModel`, `DailyView`, `CalendarSheetView` | Claude AI generation, Firestore cache, local JSON fallback, calendar browsing |
 | **Community** | `FeedView`, `CommunityViewModel`, `PrayerViewModel`, `GratitudeViewModel`, `DailyQuestionViewModel` | 4 sub-tabs (reflections, prayers, gratitude, daily Q&A), real-time Firestore listeners |
 | **Search** | `SearchViewModel`, `SearchView`, `HandwritingIndexService` | Text search, topic search, handwriting OCR (GoodNotes-style index) |
 | **Streaks** | `StreakViewModel`, `StreakBadgeView`, `StreakDetailView` | Consecutive day counter, calendar visualization, @AppStorage |
-| **Auth** | `AuthViewModel`, `AuthService`, `AuthView` | Firebase Auth + Google Sign-In |
+| **Auth** | `AuthViewModel`, `AuthService`, `AuthView` | Firebase Auth + Google Sign-In + Sign in with Apple |
 | **Premium** | `SubscriptionViewModel`, `PaywallView`, `PremiumLimits` | StoreKit 2, 4 tiers (weekly/monthly/yearly/lifetime), admin auto-premium |
 | **Themes** | `AppTheme.swift` | 8 themes, dark/light auto, @AppStorage persistence |
 | **Sharing** | `VerseImageComposerView`, `BackgroundPickerView`, `FontPickerBar` | Compose verse images with backgrounds/fonts for social sharing |
 | **Onboarding** | `OnboardingView`, `WalkthroughOverlayView`, `WalkthroughManager` | First-launch slides + interactive spotlight tour with welcome card |
 | **Library (Saved)** | `SavedView`, `SavedDevotionalsViewModel` | 4 sub-tabs: bookmarks, prayers, devotionals, affirmations |
+| **Admin Dashboard** | `AdminView`, `AdminViewModel` | Flagged content queue, remove/dismiss actions, user count, admin-only in ProfileView |
 
 ### Partially Built
 | Feature | Status | What's Missing |
 |---|---|---|
 | **Profile** | Basic UI | Settings page exists; could be expanded with more user stats |
 | **Lasso Color Picker** | Broken | `LassoOverlayView.swift` — sheet may not open, `recolorLassoSelection` needs debugging |
-| **Preferences Sync** | In Progress | `PreferencesManager` syncs UserDefaults ↔ Firestore per-account. Theme/layout restore inconsistent on repeated sign-out/sign-in cycles. Need to wire `scheduleSave()` into all preference-changing UI. |
 
 ### App Store Compliance (DONE)
 | Feature | Status |
 |---|---|
 | **Account Deletion** | Done — `AuthService.deleteAccount()`, ProfileView button with re-auth handling |
 | **Privacy Policy / ToS** | Done — Links in ProfileView + AuthView, hosted on Notion |
-| **Content Reporting** | Done — `reportedBy[]` on all community models, context menu report buttons, client-side filtering |
+| **Content Reporting** | Done — `reportedBy[]` on all community models, context menu report buttons, real-time feed filtering |
+| **Content Moderation** | Done — Admin dashboard with flagged queue, remove/dismiss with `adminReviewed` flag |
 | **Privacy Manifest** | Done — `PrivacyInfo.xcprivacy` with UserDefaults API declaration |
+| **Sign in with Apple** | Done — Entitlements, capability, Firebase bundle ID aligned |
+
+### Bug Fixes (March 20, 2026)
+| Fix | Details |
+|---|---|
+| **Apple Sign-In** | Added entitlement, aligned Firebase bundle ID (`com.derrickiwuamadi.ScriptureScribe`) |
+| **Google Sign-In freeze** | Updated reversed client ID URL scheme in Info.plist to match new GoogleService-Info.plist |
+| **Cancellation errors shown to users** | Filtered Apple/Google sign-in cancellations, StoreKit cancellations, task cancellations in Search/Reader |
+| **User-friendly error messages** | `Error+UserFriendly.swift` maps Firebase Auth/Firestore/Storage/StoreKit/network errors to clean messages. Raw errors logged to console for developers. |
+| **Force unwrap crashes** | Fixed `points.first!`/`.min()!` crashes in AnnotationCanvasView shape recognition |
+| **Auth race condition** | `isSignedIn` now set AFTER `currentUser` in auth state listener |
+| **Premium leak between accounts** | `checkEntitlement()` called on user switch for non-admins; `isPremiumCached` cleared on sign-out |
+| **Base64 image re-decoded every render** | GratitudeCardView now caches decoded UIImage in @State |
+| **Camera permission typo** | "phots" to "photos" in NSCameraUsageDescription |
+| **Report doesn't hide post** | Real-time feed listeners now filter by `reportedBy` (reporter's posts hidden, 5+ hidden from all) |
+| **Preferences sync removed** | Deleted PreferencesManager.swift entirely. Preferences are device-local only. |
+| **Debug premium override** | `-isPremiumCached YES` scheme argument no longer overridden by `checkEntitlement()` |
+
+---
+
+## Content Moderation System
+
+### How Reporting Works
+1. User taps report on any community content (post, prayer, gratitude, daily answer)
+2. Their user ID is added to the `reportedBy` array in Firestore
+3. Real-time listener filter hides the content from the reporter immediately
+4. Content with 5+ reports is hidden from ALL non-admin users
+5. Admins see everything unfiltered in both the feeds and the Admin Dashboard
+
+### Admin Dashboard (Profile > Admin Dashboard)
+- Only visible to users in `AdminManager.adminUserIDs`
+- Shows all content with 1+ reports (excluding admin-reviewed items under 5 reports)
+- Stats bar: flagged count, auto-hidden count (5+), total users
+- **Remove**: Permanently deletes the content from Firestore (with confirmation)
+- **Dismiss**: Sets `adminReviewed = true`. Content leaves the admin queue but stays hidden for reporters. If reports later reach 5+, it re-surfaces in the queue.
+
+### Visibility Rules
+| Reports | Reporter sees it? | Everyone else? | In admin queue? |
+|---------|-------------------|---------------|----------------|
+| 1-4 (not reviewed) | No (permanently) | Yes | Yes |
+| 1-4 (admin dismissed) | No (permanently) | Yes | No |
+| 5+ | No | No | Yes (even if previously dismissed) |
+| Admin removed | Gone | Gone | Gone |
 
 ---
 
@@ -199,6 +246,7 @@ All defined via `AppTheme` protocol; `ThemeManager` persists selection via `@App
 - On sign-in, `syncOnSignIn(userId:)` merges local + Firestore
 - App works entirely offline without login
 - Every mutation mirrored to Firestore when signed in
+- Preferences (theme, font, tool settings) stay device-local, never synced
 
 ### Premium Gating
 ```swift
@@ -210,20 +258,27 @@ if !subscriptionVM.isPremium && count >= PremiumLimits.maxFree* {
 ```
 
 ### Cross-Tab Navigation (AppNavigation)
-- `pendingChapterId` → Reader jumps to chapter
-- `pendingVerseNumbers` → Reader scrolls to + flashes verses
-- `pendingCommunityTab` → Community opens specific sub-tab
-- `pendingSavedTab` → Library opens specific sub-tab
-- `pendingDailyDate` → Daily tab loads specific date
+- `pendingChapterId` -> Reader jumps to chapter
+- `pendingVerseNumbers` -> Reader scrolls to + flashes verses
+- `pendingCommunityTab` -> Community opens specific sub-tab
+- `pendingSavedTab` -> Library opens specific sub-tab
+- `pendingDailyDate` -> Daily tab loads specific date
 
 ### Real-Time Firestore Listeners
 - Community posts, prayers, gratitude, daily answers use `addSnapshotListener`
 - Listeners registered on appear, cleaned up on disappear
+- All listener callbacks filter `reportedBy` for content moderation
 
 ### CoachMark Walkthrough System
 - `.coachMark("id")` modifier reports frame via `CoachMarkFrameKey` preference
 - `WalkthroughManager` tracks steps with spotlight coordinates
 - `WalkthroughOverlayView` renders dimmed overlay with spotlight cutout + tooltip
+
+### Error Handling
+- All user-facing errors go through `Error.userMessage` (Error+UserFriendly.swift)
+- Maps Firebase Auth/Firestore/Storage error codes to clean messages
+- Cancellation errors (user dismissed sheet, task cancelled) are silently ignored
+- Raw errors logged to console via `print("[Error] ...")` for developer debugging
 
 ---
 
@@ -241,20 +296,30 @@ if !subscriptionVM.isPremium && count >= PremiumLimits.maxFree* {
 
 ## Remaining Work (Pre-App Store)
 
-1. **Fix preferences sync consistency** — wire `scheduleSave()` into all preference-changing UI (theme picker, reading settings, annotation toolbar), debug theme restore timing
-2. **Fix lasso color picker** — debug sheet presentation and color application
+1. **Fix lasso color picker** — debug sheet presentation and color application
+2. **Test all user POVs** — offline, permissions denied, slow network, accessibility, child/family device, reinstall
 3. **Push notifications** — Firebase Cloud Messaging for daily reminders
 4. **Accessibility audit** — VoiceOver labels on all interactive elements
 5. **App Store assets** — icons, screenshots, metadata
-6. **Apple Developer Program enrollment** ($99/year)
+6. **App Store Connect setup** — create app listing, in-app purchases, pricing
 7. **TestFlight beta testing**
 8. **Archive + submit for review**
 
 ---
 
+## Debug Scheme Arguments
+
+| Argument | Effect |
+|---|---|
+| `-isPremiumCached YES` | Forces premium on for any account (skips StoreKit check in DEBUG) |
+| `-hasSeenOnboarding NO` | Resets onboarding flow (shows first-launch slides) |
+| `-hasCompletedWalkthrough NO` | Resets walkthrough (shows interactive spotlight tour) |
+
+---
+
 ## File Statistics
 
-- **Total Swift files:** ~167
-- **Core infrastructure:** ~29 files
-- **Feature modules:** ~134 files
+- **Total Swift files:** ~170
+- **Core infrastructure:** ~30 files
+- **Feature modules:** ~136 files
 - **Largest modules:** Community (22), Annotation (14), Habits (6), Reader (6)

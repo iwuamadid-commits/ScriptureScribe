@@ -24,6 +24,7 @@ struct GratitudeCardView: View {
     @State private var showReportConfirm  = false
     @State private var showFullImage      = false
     @State private var showHeartAnimation = false
+    @State private var cachedImage: UIImage?
 
     private var shareText: String {
         let link = "scripturescribe://gratitude/\(post.id)"
@@ -34,14 +35,6 @@ struct GratitudeCardView: View {
             return "\(preview)...\n\nShared by \(post.displayName) on Scripture Scribe\n\nRead more in Scripture Scribe:\n\(link)"
         }
         return "\(post.text)\n\nShared by \(post.displayName) on Scripture Scribe\n\n\(link)"
-    }
-
-    /// Decodes the inline base64 image (if present).
-    private var decodedImage: UIImage? {
-        guard let base64 = post.imageBase64,
-              let data = Data(base64Encoded: base64),
-              let img = UIImage(data: data) else { return nil }
-        return img
     }
 
     var body: some View {
@@ -72,7 +65,7 @@ struct GratitudeCardView: View {
                 .multilineTextAlignment(.leading)
 
             // ── Optional gratitude photo (small thumbnail) ─────────────
-            if let uiImage = decodedImage {
+            if let uiImage = cachedImage {
                 Button { showFullImage = true } label: {
                     Image(uiImage: uiImage)
                         .resizable()
@@ -189,8 +182,14 @@ struct GratitudeCardView: View {
             Text("This post will be reviewed by our team and hidden from your feed.")
         }
         .fullScreenCover(isPresented: $showFullImage) {
-            if let uiImage = decodedImage {
+            if let uiImage = cachedImage {
                 GratitudePhotoViewer(image: uiImage)
+            }
+        }
+        .onAppear {
+            if cachedImage == nil, let base64 = post.imageBase64,
+               let data = Data(base64Encoded: base64) {
+                cachedImage = UIImage(data: data)
             }
         }
     }

@@ -24,8 +24,6 @@ struct ScriptureScribeApp: App {
     @StateObject private var streakVM         = StreakViewModel()
     @StateObject private var offlineBibleManager = OfflineBibleManager()
     @StateObject private var walkthroughManager  = WalkthroughManager()
-    @StateObject private var preferencesManager  = PreferencesManager()
-    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         FirebaseApp.configure()
@@ -89,7 +87,6 @@ struct ScriptureScribeApp: App {
             .environmentObject(streakVM)
             .environmentObject(offlineBibleManager)
             .environmentObject(walkthroughManager)
-            .environmentObject(preferencesManager)
             // Give the walkthrough manager access to tab navigation
             .onAppear {
                 walkthroughManager.appNav = appNav
@@ -97,12 +94,6 @@ struct ScriptureScribeApp: App {
             }
             .onChange(of: authViewModel.currentUserID) { _, uid in
                 subscriptionVM.configureForUser(uid)
-            }
-            // Save preferences to Firestore when app goes to background
-            .onChange(of: scenePhase) { _, phase in
-                if phase == .background, let userId = authViewModel.currentUserID {
-                    Task { await preferencesManager.save(userId: userId) }
-                }
             }
             // Required for Google Sign-In: handles the redirect after the user picks their account
             .onOpenURL { url in

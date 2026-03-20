@@ -30,7 +30,13 @@ final class GratitudeViewModel: ObservableObject {
         isLoading    = true
         feedListener = firestore.listenToGratitudeFeed { [weak self] posts in
             guard let self else { return }
-            self.posts     = posts
+            let isAdmin = AdminManager.isAdmin(userId)
+            self.posts = isAdmin ? posts : posts.filter { post in
+                let reported = post.reportedBy
+                if reported.count >= 5 { return false }
+                if let uid = userId, reported.contains(uid) { return false }
+                return true
+            }
             self.isLoading = false
         }
         if let uid = userId {
@@ -60,7 +66,7 @@ final class GratitudeViewModel: ObservableObject {
         } catch {
             if alreadyLiked { likedGratitudeIds.insert(post.id) }
             else             { likedGratitudeIds.remove(post.id) }
-            errorMessage = error.localizedDescription
+            errorMessage = error.userMessage
         }
     }
 
@@ -91,7 +97,7 @@ final class GratitudeViewModel: ObservableObject {
         do {
             try await firestore.createGratitudePost(post)
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.userMessage
         }
     }
 
@@ -101,7 +107,7 @@ final class GratitudeViewModel: ObservableObject {
         do {
             try await firestore.updateGratitudePost(id: post.id, text: newText.trimmingCharacters(in: .whitespacesAndNewlines))
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.userMessage
         }
     }
 
@@ -114,7 +120,7 @@ final class GratitudeViewModel: ObservableObject {
         do {
             try await firestore.updateGratitudePostFields(id: post.id, fields: fields)
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.userMessage
         }
     }
 
@@ -128,7 +134,7 @@ final class GratitudeViewModel: ObservableObject {
         do {
             try await firestore.reportContent(collection: "gratitudePosts", documentId: id, userId: userId)
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.userMessage
         }
     }
 
@@ -141,7 +147,7 @@ final class GratitudeViewModel: ObservableObject {
         do {
             try await firestore.deleteGratitudePost(id: post.id)
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.userMessage
         }
     }
 

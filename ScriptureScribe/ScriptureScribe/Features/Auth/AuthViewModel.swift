@@ -90,7 +90,7 @@ final class AuthViewModel: ObservableObject {
             try await authService.signIn(email: email, password: password)
             // Auth state listener handles updating currentUser
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.userMessage
         }
         isLoading = false
     }
@@ -103,7 +103,7 @@ final class AuthViewModel: ObservableObject {
                 email: email, password: password, displayName: displayName)
             currentUser = user
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.userMessage
         }
         isLoading = false
     }
@@ -132,8 +132,12 @@ final class AuthViewModel: ObservableObject {
         do {
             let user     = try await authService.signInWithGoogle(presenting: topVC)
             currentUser  = user
+        } catch let error as NSError
+            where error.code == GIDSignInError.canceled.rawValue
+               && error.domain == "com.google.GIDSignIn" {
+            // User tapped "X" on the Google sheet — not a real error
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.userMessage
         }
         isLoading = false
     }
@@ -154,7 +158,7 @@ final class AuthViewModel: ObservableObject {
             let user = try await authService.completeAppleSignIn(credential: credential)
             currentUser = user
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.userMessage
         }
         isLoading = false
     }
@@ -170,33 +174,24 @@ final class AuthViewModel: ObservableObject {
             try await FirestoreService().updateUserPhoto(userId: userId, photoURL: url)
             currentUser?.photoURL = url
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.userMessage
         }
         isLoading = false
     }
 
     // MARK: - Sign Out
 
-    /// Saves preferences to Firestore, then signs out and clears local data.
-    func signOut() async {
-        guard let userId = currentUserID else {
-            performSignOut()
-            return
-        }
-        // Save current preferences to cloud before clearing local data
-        let prefManager = PreferencesManager()
-        await prefManager.save(userId: userId)
-        performSignOut()
-    }
-
-    private func performSignOut() {
+    /// Signs out of Firebase Auth. Local data (bookmarks, notes, annotations,
+    /// theme, etc.) stays on device — only account deletion clears everything.
+    func signOut() {
         do {
             try authService.signOut()
-            clearLocalData()
+            // Clear premium cache so it doesn't leak to a different account
+            UserDefaults.standard.removeObject(forKey: "isPremiumCached")
             currentUser = nil
             isSignedIn  = false
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.userMessage
         }
     }
 
@@ -225,7 +220,7 @@ final class AuthViewModel: ObservableObject {
             isLoading   = false
             return false
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.userMessage
             isLoading    = false
             return false
         }
@@ -267,6 +262,8 @@ final class AuthViewModel: ObservableObject {
             "dailySectionOrder",
             // Onboarding / walkthrough
             "hasSeenOnboarding", "hasCompletedWalkthrough",
+            // Premium cache (prevent leaking premium status between accounts)
+            "isPremiumCached",
         ]
         for key in keys {
             UserDefaults.standard.removeObject(forKey: key)

@@ -30,7 +30,13 @@ final class PrayerViewModel: ObservableObject {
         isLoading    = true
         feedListener = firestore.listenToPrayerFeed { [weak self] requests in
             guard let self else { return }
-            self.requests  = requests
+            let isAdmin = AdminManager.isAdmin(userId)
+            self.requests = isAdmin ? requests : requests.filter { req in
+                let reported = req.reportedBy
+                if reported.count >= 5 { return false }
+                if let uid = userId, reported.contains(uid) { return false }
+                return true
+            }
             self.isLoading = false
         }
         // Load which requests this user has already prayed for
@@ -64,7 +70,7 @@ final class PrayerViewModel: ObservableObject {
         do {
             try await firestore.createPrayerRequest(request)
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.userMessage
         }
     }
 
@@ -74,7 +80,7 @@ final class PrayerViewModel: ObservableObject {
         do {
             try await firestore.updatePrayerRequest(id: request.id, text: newText.trimmingCharacters(in: .whitespacesAndNewlines))
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.userMessage
         }
     }
 
@@ -87,7 +93,7 @@ final class PrayerViewModel: ObservableObject {
         do {
             try await firestore.updatePrayerRequestFields(id: request.id, fields: fields)
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.userMessage
         }
     }
 
@@ -101,7 +107,7 @@ final class PrayerViewModel: ObservableObject {
         do {
             try await firestore.reportContent(collection: "prayerRequests", documentId: id, userId: userId)
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.userMessage
         }
     }
 
@@ -114,7 +120,7 @@ final class PrayerViewModel: ObservableObject {
         do {
             try await firestore.deletePrayerRequest(id: request.id)
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.userMessage
         }
     }
 
@@ -141,7 +147,7 @@ final class PrayerViewModel: ObservableObject {
             } else {
                 prayingIds.remove(request.id)
             }
-            errorMessage = error.localizedDescription
+            errorMessage = error.userMessage
         }
     }
 }

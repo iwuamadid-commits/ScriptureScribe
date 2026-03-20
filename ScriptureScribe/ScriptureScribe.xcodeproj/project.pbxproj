@@ -444,7 +444,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ScriptureScribe/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Scripture Scribe";
-				INFOPLIST_KEY_NSCameraUsageDescription = "Scripture Scribe needs camera access to add phots to your Bible annotations.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Scripture Scribe needs camera access to add photos to your Bible annotations.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Scripture Scribe needs photo library access to add photos to your Bible annotations.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
@@ -485,14 +485,14 @@
 				CODE_SIGN_ENTITLEMENTS = ScriptureScribe/ScriptureScribe.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 8ZBDQ228TD;
+				DEVELOPMENT_TEAM = 547359H368;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ScriptureScribe/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Scripture Scribe";
-				INFOPLIST_KEY_NSCameraUsageDescription = "Scripture Scribe needs camera access to add phots to your Bible annotations.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Scripture Scribe needs camera access to add photos to your Bible annotations.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Scripture Scribe needs photo library access to add photos to your Bible annotations.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;

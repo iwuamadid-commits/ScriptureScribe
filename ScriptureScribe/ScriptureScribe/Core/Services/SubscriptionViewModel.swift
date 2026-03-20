@@ -30,29 +30,40 @@ final class SubscriptionViewModel: ObservableObject {
     // MARK: - Init
 
     /// Set the signed-in user's ID so admins get automatic premium access.
+    /// Also re-checks StoreKit entitlements when the user changes.
     func configureForUser(_ userId: String?) {
         if AdminManager.isAdmin(userId) {
             updatePremiumStatus(true)
+        } else {
+            // In DEBUG with scheme override, skip the StoreKit check
+            // so the "-isPremiumCached YES" argument works for any account.
+            #if DEBUG
+            if UserDefaults.standard.bool(forKey: premiumKey) { return }
+            #endif
+            // Re-check actual StoreKit entitlement so premium doesn't
+            // leak between accounts on the same device.
+            Task { await checkEntitlement() }
         }
     }
 
     init() {
-        // In DEBUG: premium is OFF by default.
-        // Check the "-isPremiumCached YES" box in the scheme to enable it.
-        // In RELEASE: restores cached status from UserDefaults.
-        #if DEBUG
+        // Restore cached premium status from UserDefaults.
+        // In DEBUG: check "-isPremiumCached YES" in the scheme to force premium on.
         isPremium = UserDefaults.standard.bool(forKey: premiumKey)
-        #else
-        isPremium = UserDefaults.standard.bool(forKey: premiumKey)
-        #endif
 
         // Start listening for transaction updates
         transactionListener = listenForTransactions()
 
-        // Load products and check entitlements
+        // Load products and check entitlements (skip if debug override is active)
         Task {
             await loadProducts()
+            #if DEBUG
+            if !UserDefaults.standard.bool(forKey: premiumKey) {
+                await checkEntitlement()
+            }
+            #else
             await checkEntitlement()
+            #endif
         }
     }
 
@@ -104,7 +115,7 @@ final class SubscriptionViewModel: ObservableObject {
                 break
             }
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.userMessage
         }
 
         isLoading = false

@@ -243,7 +243,7 @@ struct ProfileView: View {
                             .alert("Sign Out", isPresented: $showSignOutConfirmation) {
                                 Button("Cancel", role: .cancel) { }
                                 Button("Sign Out", role: .destructive) {
-                                    Task { await authVM.signOut() }
+                                    authVM.signOut()
                                 }
                             } message: {
                                 Text("Are you sure you want to sign out?")
@@ -289,10 +289,8 @@ struct ProfileView: View {
                             }
                             .alert("Sign In Required", isPresented: $authVM.needsReAuth) {
                                 Button("OK") {
-                                    Task {
-                                        await authVM.signOut()
-                                        showAuth = true
-                                    }
+                                    authVM.signOut()
+                                    showAuth = true
                                 }
                             } message: {
                                 Text("For security, please sign in again and then try deleting your account.")
@@ -325,6 +323,36 @@ struct ProfileView: View {
                             .foregroundStyle(themeManager.currentTheme.textSecondary)
                     }
                     .listRowBackground(themeManager.currentTheme.surface)
+
+                    // ── Admin (only visible to admin users) ────────────────
+                    if AdminManager.isAdmin(authVM.currentUserID) {
+                        Section {
+                            NavigationLink {
+                                AdminView()
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "shield.checkered")
+                                        .foregroundStyle(.red)
+                                        .frame(width: 24)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("Admin Dashboard")
+                                            .foregroundStyle(themeManager.currentTheme.text)
+                                        Text("Review flagged content")
+                                            .font(.caption)
+                                            .foregroundStyle(themeManager.currentTheme.textSecondary)
+                                    }
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .foregroundStyle(themeManager.currentTheme.textSecondary)
+                                        .font(.caption)
+                                }
+                            }
+                        } header: {
+                            Text("Admin")
+                                .foregroundStyle(themeManager.currentTheme.textSecondary)
+                        }
+                        .listRowBackground(themeManager.currentTheme.surface)
+                    }
 
                     // ── Legal ────────────────────────────────────────────────
                     Section {

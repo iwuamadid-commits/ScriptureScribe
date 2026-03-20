@@ -541,14 +541,14 @@ struct AnnotationCanvasView: UIViewRepresentable {
         }
 
         private func recognizeShape(points: [CGPoint], template: PKStroke) -> PKStroke? {
-            guard points.count >= 3 else { return nil }
+            guard points.count >= 3,
+                  let first = points.first, let last = points.last else { return nil }
             if straightnessRatio(points) > 0.88 {
-                return lineStroke(from: points.first!, to: points.last!, template: template)
+                return lineStroke(from: first, to: last, template: template)
             }
             let span = boundingSpan(points)
             guard span > 20 else { return nil }
-            let gap = hypot(points.first!.x - points.last!.x,
-                            points.first!.y - points.last!.y)
+            let gap = hypot(first.x - last.x, first.y - last.y)
             guard gap / span < 0.30 else { return nil }
             if let (center, radius) = fitCircle(points) {
                 return circleStroke(center: center, radius: radius, template: template)
@@ -562,15 +562,17 @@ struct AnnotationCanvasView: UIViewRepresentable {
         // MARK: Shape geometry
 
         private func straightnessRatio(_ pts: [CGPoint]) -> CGFloat {
+            guard let first = pts.first, let last = pts.last else { return 0 }
             let arc = zip(pts, pts.dropFirst())
                 .reduce(CGFloat(0)) { $0 + hypot($1.1.x - $1.0.x, $1.1.y - $1.0.y) }
             guard arc > 0 else { return 0 }
-            return hypot(pts.last!.x - pts.first!.x, pts.last!.y - pts.first!.y) / arc
+            return hypot(last.x - first.x, last.y - first.y) / arc
         }
 
         private func boundingSpan(_ pts: [CGPoint]) -> CGFloat {
-            let minX = pts.map(\.x).min()!, maxX = pts.map(\.x).max()!
-            let minY = pts.map(\.y).min()!, maxY = pts.map(\.y).max()!
+            guard let minX = pts.map(\.x).min(), let maxX = pts.map(\.x).max(),
+                  let minY = pts.map(\.y).min(), let maxY = pts.map(\.y).max()
+            else { return 0 }
             return hypot(maxX - minX, maxY - minY)
         }
 
@@ -587,8 +589,9 @@ struct AnnotationCanvasView: UIViewRepresentable {
         }
 
         private func fitRectangle(_ pts: [CGPoint]) -> CGRect? {
-            let minX = pts.map(\.x).min()!, maxX = pts.map(\.x).max()!
-            let minY = pts.map(\.y).min()!, maxY = pts.map(\.y).max()!
+            guard let minX = pts.map(\.x).min(), let maxX = pts.map(\.x).max(),
+                  let minY = pts.map(\.y).min(), let maxY = pts.map(\.y).max()
+            else { return nil }
             let w = maxX - minX, h = maxY - minY
             guard w > 20, h > 20 else { return nil }
             let thr  = min(w, h) * 0.22

@@ -101,9 +101,11 @@ final class SearchViewModel: ObservableObject {
             results = try await api.search(bibleId: lastBibleId, query: trimmed)
             if saveToRecents && !results.isEmpty { addRecentSearch(trimmed) }
         } catch let err as APIError {
-            errorMessage = err.errorDescription
+            errorMessage = err.errorDescription ?? err.userMessage
+        } catch is CancellationError {
+            // Task was cancelled (e.g. user navigated away) — not a real error
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.userMessage
         }
 
         isLoading = false
@@ -128,9 +130,11 @@ final class SearchViewModel: ObservableObject {
             results = try await api.search(bibleId: lastBibleId, query: topic.keyword)
             if !results.isEmpty { addRecentSearch(topic.keyword) }
         } catch let err as APIError {
-            errorMessage = err.errorDescription
+            errorMessage = err.errorDescription ?? err.userMessage
+        } catch is CancellationError {
+            // Task was cancelled — not a real error
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.userMessage
         }
 
         isLoading = false
