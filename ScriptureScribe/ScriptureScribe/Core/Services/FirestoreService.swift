@@ -123,7 +123,8 @@ final class FirestoreService {
             verseText:    data["verseText"]    as? String ?? "",
             createdAt:    (data["createdAt"]   as? Timestamp)?.dateValue() ?? Date(),
             commentCount: data["commentCount"] as? Int ?? 0,
-            likeCount:    data["likeCount"]    as? Int ?? 0
+            likeCount:    data["likeCount"]    as? Int ?? 0,
+            reportedBy:   data["reportedBy"]   as? [String] ?? []
         )
     }
 
@@ -386,7 +387,8 @@ final class FirestoreService {
             text:         data["text"]         as? String ?? "",
             likeCount:    data["likeCount"]    as? Int ?? 0,
             commentCount: data["commentCount"] as? Int ?? 0,
-            createdAt:    (data["createdAt"]   as? Timestamp)?.dateValue() ?? Date()
+            createdAt:    (data["createdAt"]   as? Timestamp)?.dateValue() ?? Date(),
+            reportedBy:   data["reportedBy"]   as? [String] ?? []
         )
     }
 
@@ -547,7 +549,8 @@ final class FirestoreService {
             text:         data["text"]         as? String ?? "",
             prayingCount: data["prayingCount"] as? Int ?? 0,
             commentCount: data["commentCount"] as? Int ?? 0,
-            createdAt:    (data["createdAt"]   as? Timestamp)?.dateValue() ?? Date()
+            createdAt:    (data["createdAt"]   as? Timestamp)?.dateValue() ?? Date(),
+            reportedBy:   data["reportedBy"]   as? [String] ?? []
         )
     }
 
@@ -664,7 +667,8 @@ final class FirestoreService {
             devotionDay:  data["devotionDay"]  as? Int ?? 1,
             likeCount:    data["likeCount"]    as? Int ?? 0,
             commentCount: data["commentCount"] as? Int ?? 0,
-            createdAt:    (data["createdAt"]   as? Timestamp)?.dateValue() ?? Date()
+            createdAt:    (data["createdAt"]   as? Timestamp)?.dateValue() ?? Date(),
+            reportedBy:   data["reportedBy"]   as? [String] ?? []
         )
     }
 
