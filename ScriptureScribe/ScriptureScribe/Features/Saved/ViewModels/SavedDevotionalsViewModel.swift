@@ -27,9 +27,9 @@ final class SavedDevotionalsViewModel: ObservableObject {
         defer { isLoading = false }
         do {
             let all = try await firestore.fetchSavedItems(userId: userId)
-            prayers      = all.filter { $0.type == "prayer"      }.sorted { $0.savedAt > $1.savedAt }
-            devotionals  = all.filter { $0.type == "devotional"  }.sorted { $0.savedAt > $1.savedAt }
-            affirmations = all.filter { $0.type == "affirmation" }.sorted { $0.savedAt > $1.savedAt }
+            prayers      = all.filter { $0.type == "prayer"      }.sorted { $0.entryDate > $1.entryDate }
+            devotionals  = all.filter { $0.type == "devotional"  }.sorted { $0.entryDate > $1.entryDate }
+            affirmations = all.filter { $0.type == "affirmation" }.sorted { $0.entryDate > $1.entryDate }
         } catch {
             // Keep whatever is already in memory if the fetch fails
         }

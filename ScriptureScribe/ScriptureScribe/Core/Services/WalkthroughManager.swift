@@ -205,10 +205,6 @@ final class WalkthroughManager: ObservableObject {
         .tabSwitch(slot: 2, switchTo: 2,
                    message: "Now let's check out Habits."),
 
-        .content(id: "habits-card", tab: 2,
-                 message: "Tap a habit to mark it complete. Track your progress each day.",
-                 padding: 8, radius: 18),
-
         .content(id: "habits-add-button", tab: 2,
                  message: "Tap '+' to create a custom habit or choose from suggestions.",
                  edge: .bottom, padding: 14, radius: 50),
