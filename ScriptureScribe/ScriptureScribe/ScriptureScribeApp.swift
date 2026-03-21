@@ -22,7 +22,6 @@ struct ScriptureScribeApp: App {
     @StateObject private var habitsVM          = HabitsViewModel()
     @StateObject private var subscriptionVM   = SubscriptionViewModel()
     @StateObject private var streakVM         = StreakViewModel()
-    @StateObject private var offlineBibleManager = OfflineBibleManager()
     @StateObject private var walkthroughManager  = WalkthroughManager()
 
     init() {
@@ -85,7 +84,6 @@ struct ScriptureScribeApp: App {
             .environmentObject(habitsVM)
             .environmentObject(subscriptionVM)
             .environmentObject(streakVM)
-            .environmentObject(offlineBibleManager)
             .environmentObject(walkthroughManager)
             // Give the walkthrough manager access to tab navigation
             .onAppear {

@@ -28,8 +28,13 @@ final class GratitudeViewModel: ObservableObject {
     func startListening(userId: String? = nil) {
         guard feedListener == nil else { return }
         isLoading    = true
-        feedListener = firestore.listenToGratitudeFeed { [weak self] posts in
+        feedListener = firestore.listenToGratitudeFeed { [weak self] posts, error in
             guard let self else { return }
+            if let error {
+                self.errorMessage = error.userMessage
+                self.isLoading = false
+                return
+            }
             let isAdmin = AdminManager.isAdmin(userId)
             self.posts = isAdmin ? posts : posts.filter { post in
                 let reported = post.reportedBy

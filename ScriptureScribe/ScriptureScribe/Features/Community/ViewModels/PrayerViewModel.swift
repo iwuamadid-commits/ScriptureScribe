@@ -28,8 +28,13 @@ final class PrayerViewModel: ObservableObject {
     func startListening(userId: String?) {
         guard feedListener == nil else { return }
         isLoading    = true
-        feedListener = firestore.listenToPrayerFeed { [weak self] requests in
+        feedListener = firestore.listenToPrayerFeed { [weak self] requests, error in
             guard let self else { return }
+            if let error {
+                self.errorMessage = error.userMessage
+                self.isLoading = false
+                return
+            }
             let isAdmin = AdminManager.isAdmin(userId)
             self.requests = isAdmin ? requests : requests.filter { req in
                 let reported = req.reportedBy

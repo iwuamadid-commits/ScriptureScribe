@@ -27,8 +27,13 @@ final class CommunityViewModel: ObservableObject {
     func startListening(userId: String? = nil) {
         guard feedListener == nil else { return }
         isLoading = true
-        feedListener = firestore.listenToFeed { [weak self] posts in
+        feedListener = firestore.listenToFeed { [weak self] posts, error in
             guard let self else { return }
+            if let error {
+                self.errorMessage = error.userMessage
+                self.isLoading = false
+                return
+            }
             // Filter out posts reported by this user or with 5+ reports (auto-hidden).
             // Admins see everything.
             let isAdmin = AdminManager.isAdmin(userId)

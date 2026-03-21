@@ -67,14 +67,14 @@ final class FirestoreService {
     }
 
     /// Attaches a real-time listener to the feed. Call `remove()` on the returned handle to stop.
-    func listenToFeed(onChange: @escaping ([Post]) -> Void) -> ListenerRegistration {
+    func listenToFeed(onChange: @escaping ([Post], Error?) -> Void) -> ListenerRegistration {
         db.collection("posts")
             .order(by: "createdAt", descending: true)
             .limit(to: 50)
             .addSnapshotListener { snapshot, error in
-                guard error == nil, let snapshot else { onChange([]); return }
+                guard error == nil, let snapshot else { onChange([], error); return }
                 let posts = snapshot.documents.compactMap { self.decodePost($0) }
-                onChange(posts)
+                onChange(posts, nil)
             }
     }
 
@@ -336,15 +336,14 @@ final class FirestoreService {
 
     // MARK: - Gratitude Posts
 
-    func listenToGratitudeFeed(onChange: @escaping ([GratitudePost]) -> Void) -> ListenerRegistration {
+    func listenToGratitudeFeed(onChange: @escaping ([GratitudePost], Error?) -> Void) -> ListenerRegistration {
         db.collection("gratitudePosts")
             .order(by: "createdAt", descending: true)
             .limit(to: 50)
             .addSnapshotListener { snapshot, error in
-                // Surface an empty list on error so the loading spinner always resolves
-                guard error == nil, let snapshot else { onChange([]); return }
+                guard error == nil, let snapshot else { onChange([], error); return }
                 let posts = snapshot.documents.compactMap { self.decodeGratitudePost($0) }
-                onChange(posts)
+                onChange(posts, nil)
             }
     }
 
@@ -449,15 +448,14 @@ final class FirestoreService {
 
     // MARK: - Prayer Requests
 
-    func listenToPrayerFeed(onChange: @escaping ([PrayerRequest]) -> Void) -> ListenerRegistration {
+    func listenToPrayerFeed(onChange: @escaping ([PrayerRequest], Error?) -> Void) -> ListenerRegistration {
         db.collection("prayerRequests")
             .order(by: "createdAt", descending: true)
             .limit(to: 50)
             .addSnapshotListener { snapshot, error in
-                // Surface an empty list on error so the loading spinner always resolves
-                guard error == nil, let snapshot else { onChange([]); return }
+                guard error == nil, let snapshot else { onChange([], error); return }
                 let requests = snapshot.documents.compactMap { self.decodePrayerRequest($0) }
-                onChange(requests)
+                onChange(requests, nil)
             }
     }
 
@@ -556,7 +554,7 @@ final class FirestoreService {
 
     // MARK: - Daily Answers
 
-    func listenToDailyAnswers(date: String, onChange: @escaping ([DailyAnswer]) -> Void) -> ListenerRegistration {
+    func listenToDailyAnswers(date: String, onChange: @escaping ([DailyAnswer], Error?) -> Void) -> ListenerRegistration {
         // NOTE: Combining whereField + orderBy on different fields requires a composite
         // Firestore index. To avoid that requirement we filter by date only and sort
         // client-side in the ViewModel.
@@ -564,12 +562,11 @@ final class FirestoreService {
             .whereField("date", isEqualTo: date)
             .limit(to: 100)
             .addSnapshotListener { snapshot, error in
-                // Surface an empty list on error so the loading spinner always resolves
-                guard error == nil, let snapshot else { onChange([]); return }
+                guard error == nil, let snapshot else { onChange([], error); return }
                 let answers = snapshot.documents
                     .compactMap { self.decodeDailyAnswer($0) }
                     .sorted { $0.createdAt < $1.createdAt }
-                onChange(answers)
+                onChange(answers, nil)
             }
     }
 

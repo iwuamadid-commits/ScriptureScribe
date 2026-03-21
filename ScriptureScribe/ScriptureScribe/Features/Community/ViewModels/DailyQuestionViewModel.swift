@@ -66,8 +66,13 @@ final class DailyQuestionViewModel: ObservableObject {
 
     private func startListening(date: String) {
         let userId = currentUserId
-        listener = firestore.listenToDailyAnswers(date: date) { [weak self] answers in
+        listener = firestore.listenToDailyAnswers(date: date) { [weak self] answers, error in
             guard let self else { return }
+            if let error {
+                self.errorMessage = error.userMessage
+                self.isLoading = false
+                return
+            }
             let isAdmin = AdminManager.isAdmin(userId)
             self.answers = isAdmin ? answers : answers.filter { answer in
                 let reported = answer.reportedBy
