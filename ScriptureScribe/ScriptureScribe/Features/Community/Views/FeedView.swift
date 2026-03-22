@@ -53,6 +53,8 @@ struct FeedView: View {
     @State private var showPaywall    = false
     @State private var selectedPost:  Post?     = nil
     @State private var editingPost:   Post?     = nil   // opens edit sheet
+    @State private var showErrorAlert = false
+    @State private var errorAlertMessage = ""
 
     var body: some View {
         NavigationStack {
@@ -186,6 +188,31 @@ struct FeedView: View {
                     EditTextSheet(title: "Edit Post", originalText: post.text) { newText in
                         Task { await communityVM.editPost(post, newText: newText) }
                     }
+                }
+            }
+            .alert("Something went wrong", isPresented: $showErrorAlert) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(errorAlertMessage)
+            }
+            .onChange(of: communityVM.errorMessage) { _, msg in
+                if let msg { errorAlertMessage = msg; showErrorAlert = true; communityVM.errorMessage = nil }
+            }
+            .onChange(of: gratitudeVM.errorMessage) { _, msg in
+                if let msg { errorAlertMessage = msg; showErrorAlert = true; gratitudeVM.errorMessage = nil }
+            }
+            .onChange(of: prayerVM.errorMessage) { _, msg in
+                if let msg { errorAlertMessage = msg; showErrorAlert = true; prayerVM.errorMessage = nil }
+            }
+            .onChange(of: dailyVM.errorMessage) { _, msg in
+                if let msg { errorAlertMessage = msg; showErrorAlert = true; dailyVM.errorMessage = nil }
+            }
+            .onChange(of: authVM.isSignedIn) { _, signedIn in
+                if !signedIn {
+                    communityVM.stopListening()
+                    gratitudeVM.stopListening()
+                    prayerVM.stopListening()
+                    dailyVM.stopListening()
                 }
             }
         }

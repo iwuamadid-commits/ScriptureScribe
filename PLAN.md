@@ -216,6 +216,22 @@ All defined via `AppTheme` protocol; `ThemeManager` persists selection via `@App
 | **Calendar duplicate month/year** | Removed `.navigationTitle(monthTitle)` from CalendarSheetView |
 | **Offline Bible download removed** | All references removed from TranslationBrowserView (offlineBibleManager, download UI) |
 
+### Comprehensive Audit Fixes (March 21, 2026)
+| Fix | Details |
+|---|---|
+| **Force unwrap elimination** | Replaced all `!` force unwraps across 8 files: BibleAPIService, AudioBibleService, CalendarSheetView, WeekStripView, AnnotationViewModel, CommentsView (x4) |
+| **Thread safety** | Added `@MainActor` to BibleAPIService and AudioBibleService for cache thread safety |
+| **Race condition fix** | ReaderViewModel selectBook/selectChapter now cancel previous navigation Task to prevent stale content overwrites |
+| **Account deletion cleanup** | FirestoreService.deleteAllUserData() now deletes community posts + subcollection comments; ProfileView resets `isDeletingAccount` on failure via `defer` |
+| **Bookmark delete sync** | BookmarkListView/BookmarkDetailView now passes `userId` to `removeBookmark()` for Firestore sync |
+| **HTML entity decoding** | Expanded from ~11 to ~90 entities (Latin accented chars, symbols, punctuation) for international Bible translations |
+| **Community error alerts** | FeedView shows alert when any community VM's `errorMessage` is set; comment views show alert on send failure |
+| **CancellationError handling** | All 4 community VMs + 4 comment views now silently ignore CancellationError instead of showing confusing messages |
+| **Firestore listeners on sign-out** | FeedView watches `authVM.isSignedIn` and calls `stopListening()` on all 4 community VMs when user signs out |
+| **Orphaned files removed** | Deleted unused CompactColorPickerView.swift and empty Core/Persistence/ directory |
+| **Build error fixes** | Fixed `ColorWheelView` reference (now uses HSBSquareViewFull + HueSliderViewFull), removed `@retroactive` on Habit (same module) |
+| **Verse picker UX** | Book suggestions no longer reappear after tapping; hint "Type chapter:verse" shown after book selection |
+
 ---
 
 ## Content Moderation System

@@ -932,12 +932,13 @@ final class AnnotationViewModel: ObservableObject {
 
     /// Replace the stored image with a cropped/flipped version and update display size.
     func applyCropToPhoto(id: UUID, croppedImage: UIImage, for chapterId: String) {
-        guard let idx = photoAnnotations[chapterId]?.firstIndex(where: { $0.id == id }),
+        guard let photos = photoAnnotations[chapterId],
+              let idx = photos.firstIndex(where: { $0.id == id }),
               let docs = FileManager.default
                   .urls(for: .documentDirectory, in: .userDomainMask).first
         else { return }
 
-        let photo = photoAnnotations[chapterId]![idx]
+        let photo = photos[idx]
 
         // Save new image as PNG (supports transparency from freehand crops)
         let safeId = chapterId
@@ -1431,8 +1432,9 @@ final class AnnotationViewModel: ObservableObject {
 
         // Resize selected photos
         for photoId in lassoState.selectedPhotoIds {
-            if let idx = photoAnnotations[chapterId]?.firstIndex(where: { $0.id == photoId }) {
-                let photo = photoAnnotations[chapterId]![idx]
+            if let photos = photoAnnotations[chapterId],
+               let idx = photos.firstIndex(where: { $0.id == photoId }) {
+                let photo = photos[idx]
                 let centerX = photo.position.x + photo.size.width / 2
                 let centerY = photo.position.y + photo.size.height / 2
                 let newCenterX = anchorX + (centerX - anchorX) * scale

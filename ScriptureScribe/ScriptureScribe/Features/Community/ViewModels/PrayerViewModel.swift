@@ -74,6 +74,7 @@ final class PrayerViewModel: ObservableObject {
         )
         do {
             try await firestore.createPrayerRequest(request)
+        } catch is CancellationError {
         } catch {
             errorMessage = error.userMessage
         }
@@ -84,6 +85,7 @@ final class PrayerViewModel: ObservableObject {
     func editRequest(_ request: PrayerRequest, newText: String) async {
         do {
             try await firestore.updatePrayerRequest(id: request.id, text: newText.trimmingCharacters(in: .whitespacesAndNewlines))
+        } catch is CancellationError {
         } catch {
             errorMessage = error.userMessage
         }
@@ -97,6 +99,7 @@ final class PrayerViewModel: ObservableObject {
         guard !fields.isEmpty else { return }
         do {
             try await firestore.updatePrayerRequestFields(id: request.id, fields: fields)
+        } catch is CancellationError {
         } catch {
             errorMessage = error.userMessage
         }
@@ -111,6 +114,7 @@ final class PrayerViewModel: ObservableObject {
         }
         do {
             try await firestore.reportContent(collection: "prayerRequests", documentId: id, userId: userId)
+        } catch is CancellationError {
         } catch {
             errorMessage = error.userMessage
         }
@@ -124,6 +128,7 @@ final class PrayerViewModel: ObservableObject {
         }
         do {
             try await firestore.deletePrayerRequest(id: request.id)
+        } catch is CancellationError {
         } catch {
             errorMessage = error.userMessage
         }
@@ -145,13 +150,12 @@ final class PrayerViewModel: ObservableObject {
                 userId:     userId,
                 isPraying:  alreadyPraying
             )
+        } catch is CancellationError {
+            if alreadyPraying { prayingIds.insert(request.id) }
+            else               { prayingIds.remove(request.id) }
         } catch {
-            // Revert the optimistic update if the server call failed
-            if alreadyPraying {
-                prayingIds.insert(request.id)
-            } else {
-                prayingIds.remove(request.id)
-            }
+            if alreadyPraying { prayingIds.insert(request.id) }
+            else               { prayingIds.remove(request.id) }
             errorMessage = error.userMessage
         }
     }

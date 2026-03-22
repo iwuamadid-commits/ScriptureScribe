@@ -31,10 +31,15 @@ struct ToolSettingsPopoverView: View {
     var body: some View {
         VStack(spacing: 16) {
 
-            // ── Color Wheel ──────────────────────────────────────────────
-            ColorWheelView(hue: $hue, saturation: $saturation, brightness: $brightness)
+            // ── Color Square + Hue Slider ───────────────────────────────
+            HSBSquareViewFull(hue: $hue, saturation: $saturation, brightness: $brightness)
                 .frame(width: 200, height: 200)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
                 .padding(.top, 8)
+
+            HueSliderViewFull(hue: $hue)
+                .frame(height: 24)
+                .padding(.horizontal, 12)
 
             // ── Stroke Width Slider ──────────────────────────────────────
             VStack(alignment: .leading, spacing: 8) {

@@ -30,7 +30,7 @@ struct CalendarSheetView: View {
         // Open on the month that contains selectedDate
         let cal  = Calendar.current
         let comp = cal.dateComponents([.year, .month], from: selectedDate)
-        _displayMonth = State(initialValue: cal.date(from: comp)!)
+        _displayMonth = State(initialValue: cal.date(from: comp) ?? selectedDate)
     }
 
     var body: some View {
@@ -88,8 +88,9 @@ struct CalendarSheetView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     // "Today" snaps the display back to the current month
                     Button("Today") {
-                        let comp = calendar.dateComponents([.year, .month], from: Date())
-                        displayMonth = calendar.date(from: comp)!
+                        if let first = firstOfMonth(for: Date()) {
+                            displayMonth = first
+                        }
                     }
                     .foregroundStyle(themeManager.currentTheme.primary)
                 }
@@ -108,7 +109,9 @@ struct CalendarSheetView: View {
         HStack(spacing: 0) {
 
             Button {
-                displayMonth = calendar.date(byAdding: .month, value: -1, to: displayMonth)!
+                if let prev = calendar.date(byAdding: .month, value: -1, to: displayMonth) {
+                    displayMonth = prev
+                }
             } label: {
                 Image(systemName: "chevron.left")
                     .font(.body.weight(.semibold))
@@ -122,39 +125,41 @@ struct CalendarSheetView: View {
                 .frame(maxWidth: .infinity)
 
             Button {
-                let next         = calendar.date(byAdding: .month, value: 1, to: displayMonth)!
-                let nextComp     = calendar.dateComponents([.year, .month], from: next)
-                let todayComp    = calendar.dateComponents([.year, .month], from: Date())
-                let firstOfNext  = calendar.date(from: nextComp)!
-                let firstOfToday = calendar.date(from: todayComp)!
-                guard firstOfNext <= firstOfToday else { return }
-                displayMonth = next
+                guard canGoForward else { return }
+                if let next = calendar.date(byAdding: .month, value: 1, to: displayMonth) {
+                    displayMonth = next
+                }
             } label: {
-                let next         = calendar.date(byAdding: .month, value: 1, to: displayMonth)!
-                let nextComp     = calendar.dateComponents([.year, .month], from: next)
-                let todayComp    = calendar.dateComponents([.year, .month], from: Date())
-                let firstOfNext  = calendar.date(from: nextComp)!
-                let firstOfToday = calendar.date(from: todayComp)!
                 Image(systemName: "chevron.right")
                     .font(.body.weight(.semibold))
                     .foregroundStyle(
-                        firstOfNext <= firstOfToday
+                        canGoForward
                             ? themeManager.currentTheme.primary
                             : themeManager.currentTheme.textSecondary.opacity(0.3)
                     )
                     .frame(width: 48, height: 44)
             }
-            .disabled({
-                let next         = calendar.date(byAdding: .month, value: 1, to: displayMonth)!
-                let nextComp     = calendar.dateComponents([.year, .month], from: next)
-                let todayComp    = calendar.dateComponents([.year, .month], from: Date())
-                return calendar.date(from: nextComp)! > calendar.date(from: todayComp)!
-            }())
+            .disabled(!canGoForward)
         }
         .padding(.horizontal, 8)
     }
 
     // MARK: - Computed Helpers
+
+    /// Whether the forward chevron should be enabled (next month <= current month).
+    private var canGoForward: Bool {
+        guard let next = calendar.date(byAdding: .month, value: 1, to: displayMonth),
+              let firstOfNext  = firstOfMonth(for: next),
+              let firstOfToday = firstOfMonth(for: Date())
+        else { return false }
+        return firstOfNext <= firstOfToday
+    }
+
+    /// Returns the first day of the month containing the given date.
+    private func firstOfMonth(for date: Date) -> Date? {
+        let comp = calendar.dateComponents([.year, .month], from: date)
+        return calendar.date(from: comp)
+    }
 
     private var monthTitle: String {
         let f        = DateFormatter()

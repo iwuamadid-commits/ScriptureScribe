@@ -280,8 +280,8 @@ struct ProfileView: View {
                                 Button("Delete Everything", role: .destructive) {
                                     isDeletingAccount = true
                                     Task {
+                                        defer { isDeletingAccount = false }
                                         await authVM.deleteAccount()
-                                        isDeletingAccount = false
                                     }
                                 }
                             } message: {

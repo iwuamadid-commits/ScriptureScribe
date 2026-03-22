@@ -318,7 +318,7 @@ struct ColorPickerWheelView: View {
 // MARK: - HSB Square
 
 /// 2-D color field: saturation on the X axis, brightness on the Y axis.
-private struct HSBSquareViewFull: View {
+struct HSBSquareViewFull: View {
 
     @Binding var hue:        Double
     @Binding var saturation: Double
@@ -453,7 +453,7 @@ private struct BrightnessSliderViewFull: View {
 // MARK: - Hue Slider
 
 /// Horizontal rainbow bar — drag to set the hue.
-private struct HueSliderViewFull: View {
+struct HueSliderViewFull: View {
 
     @Binding var hue: Double
 

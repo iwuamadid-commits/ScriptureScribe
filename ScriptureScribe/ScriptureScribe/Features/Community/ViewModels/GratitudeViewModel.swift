@@ -68,6 +68,9 @@ final class GratitudeViewModel: ObservableObject {
 
         do {
             try await firestore.toggleGratitudeLike(postId: post.id, userId: userId, isLiked: alreadyLiked)
+        } catch is CancellationError {
+            if alreadyLiked { likedGratitudeIds.insert(post.id) }
+            else             { likedGratitudeIds.remove(post.id) }
         } catch {
             if alreadyLiked { likedGratitudeIds.insert(post.id) }
             else             { likedGratitudeIds.remove(post.id) }
@@ -101,6 +104,7 @@ final class GratitudeViewModel: ObservableObject {
         )
         do {
             try await firestore.createGratitudePost(post)
+        } catch is CancellationError {
         } catch {
             errorMessage = error.userMessage
         }
@@ -111,6 +115,7 @@ final class GratitudeViewModel: ObservableObject {
     func editPost(_ post: GratitudePost, newText: String) async {
         do {
             try await firestore.updateGratitudePost(id: post.id, text: newText.trimmingCharacters(in: .whitespacesAndNewlines))
+        } catch is CancellationError {
         } catch {
             errorMessage = error.userMessage
         }
@@ -124,6 +129,7 @@ final class GratitudeViewModel: ObservableObject {
         guard !fields.isEmpty else { return }
         do {
             try await firestore.updateGratitudePostFields(id: post.id, fields: fields)
+        } catch is CancellationError {
         } catch {
             errorMessage = error.userMessage
         }
@@ -138,6 +144,7 @@ final class GratitudeViewModel: ObservableObject {
         }
         do {
             try await firestore.reportContent(collection: "gratitudePosts", documentId: id, userId: userId)
+        } catch is CancellationError {
         } catch {
             errorMessage = error.userMessage
         }
@@ -151,6 +158,7 @@ final class GratitudeViewModel: ObservableObject {
         }
         do {
             try await firestore.deleteGratitudePost(id: post.id)
+        } catch is CancellationError {
         } catch {
             errorMessage = error.userMessage
         }

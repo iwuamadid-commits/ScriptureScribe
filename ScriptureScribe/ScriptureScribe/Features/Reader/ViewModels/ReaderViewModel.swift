@@ -94,6 +94,9 @@ final class ReaderViewModel: ObservableObject {
 
     private let api = BibleAPIService()
     private let firestore = FirestoreService()
+    /// Tracks the in-flight selectBook/selectChapter task so a new navigation
+    /// cancels any previous one — prevents stale content from overwriting fresh content.
+    private var navigationTask: Task<Void, Never>?
 
     // MARK: - Cloud Sync
 
@@ -183,67 +186,78 @@ final class ReaderViewModel: ObservableObject {
     }
 
     func selectBook(_ book: BibleBook) async {
+        navigationTask?.cancel()
         guard let translation = selectedTranslation else { return }
         lastBookId   = book.id
         selectedBook = book     // update book selector highlight immediately
 
-        // ── Phase 1: silently fetch chapters ─────────────────────────────────
-        let newChapters: [BibleChapter]
-        do {
-            newChapters = try await api.fetchChapters(bibleId: translation.id, bookId: book.id)
-        } catch {
-            errorMessage = "Couldn't load chapters for \(book.name)."
-            return
-        }
-        guard !newChapters.isEmpty else { return }
+        let task = Task {
+            // ── Phase 1: silently fetch chapters ─────────────────────────────────
+            let newChapters: [BibleChapter]
+            do {
+                newChapters = try await api.fetchChapters(bibleId: translation.id, bookId: book.id)
+            } catch {
+                if !Task.isCancelled { errorMessage = "Couldn't load chapters for \(book.name)." }
+                return
+            }
+            guard !Task.isCancelled, !newChapters.isEmpty else { return }
 
-        // ── Phase 2: determine target chapter (restore last visited, or first) ─
-        let targetChapter = newChapters.first(where: { $0.id == lastChapterId }) ?? newChapters[0]
-        lastChapterId = targetChapter.id
+            // ── Phase 2: determine target chapter (restore last visited, or first) ─
+            let targetChapter = newChapters.first(where: { $0.id == lastChapterId }) ?? newChapters[0]
+            lastChapterId = targetChapter.id
 
-        // ── Phase 3: silently fetch content ───────────────────────────────────
-        // isLoadingContent is NOT set — old content stays fully visible while
-        // loading. The user sees no spinners or backend activity.
-        let newContent: BibleChapterContent?
-        do {
-            newContent = try await api.fetchChapterContent(
-                bibleId:   translation.id,
-                chapterId: targetChapter.id
-            )
-        } catch {
-            newContent = nil
-            errorMessage = "Couldn't load \(targetChapter.reference). Try again."
-        }
+            // ── Phase 3: silently fetch content ───────────────────────────────────
+            // isLoadingContent is NOT set — old content stays fully visible while
+            // loading. The user sees no spinners or backend activity.
+            let newContent: BibleChapterContent?
+            do {
+                newContent = try await api.fetchChapterContent(
+                    bibleId:   translation.id,
+                    chapterId: targetChapter.id
+                )
+            } catch {
+                newContent = nil
+                if !Task.isCancelled { errorMessage = "Couldn't load \(targetChapter.reference). Try again." }
+            }
+            guard !Task.isCancelled else { return }
 
-        // ── Phase 4a: spring-transition chapter chips into place ──────────────
-        // selectedChapter still holds the old book's chapter ID, so none of the
-        // new chips match — they all appear unselected. No blank/empty state.
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-            chapters = newChapters
-        }
+            // ── Phase 4a: spring-transition chapter chips into place ──────────────
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                chapters = newChapters
+            }
 
-        // ── Phase 4b: select the target chip (triggers fade-out in ReaderView) ─
-        try? await Task.sleep(for: .milliseconds(50))
-        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-            selectedChapter = targetChapter
-        }
+            // ── Phase 4b: select the target chip (triggers fade-out in ReaderView) ─
+            try? await Task.sleep(for: .milliseconds(50))
+            guard !Task.isCancelled else { return }
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                selectedChapter = targetChapter
+            }
 
-        // ── Phase 4c: swap content after the fade-out completes ─────────────
-        // The 0.25s delay lets the contentOpacity fade-out (0.2s) finish before
-        // the new text is set, so the user never sees text change mid-fade.
-        if let content = newContent {
-            try? await Task.sleep(for: .milliseconds(250))
-            chapterContent     = content
-            contentLoadCounter += 1
+            // ── Phase 4c: swap content after the fade-out completes ─────────────
+            if let content = newContent {
+                try? await Task.sleep(for: .milliseconds(250))
+                guard !Task.isCancelled else { return }
+                chapterContent     = content
+                contentLoadCounter += 1
+            }
         }
+        navigationTask = task
+        await task.value
     }
 
     func selectChapter(_ chapter: BibleChapter) async {
+        navigationTask?.cancel()
         selectedChapter = chapter
         lastChapterId   = chapter.id
-        // Wait for the fade-out animation (0.2s) to finish before loading new content
-        try? await Task.sleep(for: .milliseconds(250))
-        await loadChapterContent(chapter)
+
+        let task = Task {
+            // Wait for the fade-out animation (0.2s) to finish before loading new content
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            await loadChapterContent(chapter)
+        }
+        navigationTask = task
+        await task.value
     }
 
     func goToNextChapter() async {

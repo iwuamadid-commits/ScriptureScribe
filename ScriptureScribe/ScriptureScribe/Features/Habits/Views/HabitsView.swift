@@ -80,9 +80,11 @@ struct HabitsView: View {
                 }
                 .padding(.top, 12)
                 .padding(.horizontal, 16)
-
-                Divider()
-                    .padding(.top, 8)
+                .padding(.bottom, 8)
+                .background(themeManager.currentTheme.surface)
+                .overlay(alignment: .bottom) {
+                    Divider()
+                }
 
                 // Habit list
                 if habitsVM.habits.isEmpty {
@@ -450,7 +452,7 @@ struct HabitsView: View {
 }
 
 // Make Habit identifiable for sheet(item:)
-extension Habit: @retroactive Hashable {
+extension Habit: Hashable {
     static func == (lhs: Habit, rhs: Habit) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }

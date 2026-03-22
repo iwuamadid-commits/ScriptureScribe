@@ -935,15 +935,32 @@ final class FirestoreService {
 
     // MARK: - Account Deletion
 
-    /// Deletes all user data from Firestore: profile, bookmarks, notes, groups, habits, logs, saved items.
+    /// Deletes all user data from Firestore: profile, bookmarks, notes, groups, habits, logs,
+    /// saved items, AND community content (posts, comments, prayers, gratitude, daily answers).
     func deleteAllUserData(userId: String) async throws {
         let userRef = db.collection("users").document(userId)
 
-        // Delete all subcollections
+        // Delete all subcollections under users/{uid}
         let subcollections = ["bookmarks", "notes", "bookmarkGroups", "habits", "habitLogs", "savedItems", "preferences", "syncData"]
         for sub in subcollections {
             let docs = try await userRef.collection(sub).getDocuments()
             for doc in docs.documents {
+                try await doc.reference.delete()
+            }
+        }
+
+        // Delete community content authored by this user
+        let communityCollections = ["posts", "prayerRequests", "gratitudePosts", "dailyAnswers"]
+        for collection in communityCollections {
+            let docs = try await db.collection(collection)
+                .whereField("userId", isEqualTo: userId)
+                .getDocuments()
+            for doc in docs.documents {
+                // Delete subcollections (comments, likes) before the parent doc
+                let commentSnap = try await doc.reference.collection("comments").getDocuments()
+                for comment in commentSnap.documents {
+                    try await comment.reference.delete()
+                }
                 try await doc.reference.delete()
             }
         }

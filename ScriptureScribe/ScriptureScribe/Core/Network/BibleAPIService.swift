@@ -9,6 +9,7 @@
 
 import Foundation
 
+@MainActor
 final class BibleAPIService {
 
     // MARK: - In-Memory Cache
@@ -124,7 +125,8 @@ final class BibleAPIService {
     /// Downloads and returns the full readable text for a single chapter.
     /// HTML is requested so that Words of Jesus (red letter) markup is preserved.
     func fetchChapterContent(bibleId: String, chapterId: String) async throws -> BibleChapterContent {
-        var components = URLComponents(string: AppConfig.bibleAPIBaseURL + "/bibles/\(bibleId)/chapters/\(chapterId)")!
+        guard var components = URLComponents(string: AppConfig.bibleAPIBaseURL + "/bibles/\(bibleId)/chapters/\(chapterId)")
+        else { throw APIError.invalidURL }
         components.queryItems = [
             URLQueryItem(name: "content-type",           value: "html"),  // HTML preserves red-letter spans
             URLQueryItem(name: "include-notes",          value: "false"),
@@ -158,9 +160,9 @@ final class BibleAPIService {
     /// Fetches the text of one verse (e.g. "JHN.3.16") for the given translation.
     /// Used by the Daily tab to display today's verse.
     func fetchVerse(bibleId: String, verseId: String) async throws -> DailyVerse {
-        var components = URLComponents(
+        guard var components = URLComponents(
             string: AppConfig.bibleAPIBaseURL + "/bibles/\(bibleId)/verses/\(verseId)"
-        )!
+        ) else { throw APIError.invalidURL }
         components.queryItems = [
             URLQueryItem(name: "content-type",         value: "text"),
             URLQueryItem(name: "include-verse-numbers", value: "false"),
@@ -183,9 +185,9 @@ final class BibleAPIService {
     func search(bibleId: String, query: String, limit: Int = 20) async throws -> [SearchResult] {
         guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
 
-        var components = URLComponents(
+        guard var components = URLComponents(
             string: AppConfig.bibleAPIBaseURL + "/bibles/\(bibleId)/search"
-        )!
+        ) else { throw APIError.invalidURL }
         components.queryItems = [
             URLQueryItem(name: "query",  value: query),
             URLQueryItem(name: "limit",  value: "\(limit)"),
@@ -364,28 +366,49 @@ final class BibleAPIService {
     }
 
     /// Converts common HTML entities to their plain-text equivalents.
+    /// Maps HTML named entities to their Unicode characters.
+    /// Covers the standard XML entities, typographic punctuation, and all
+    /// Latin accented characters commonly found in Bible translations.
+    private static let htmlEntities: [String: String] = [
+        // XML basics
+        "nbsp": " ", "amp": "&", "lt": "<", "gt": ">", "quot": "\"", "apos": "'",
+        // Punctuation & symbols
+        "mdash": "\u{2014}", "ndash": "\u{2013}", "ldquo": "\u{201C}", "rdquo": "\u{201D}",
+        "lsquo": "\u{2018}", "rsquo": "\u{2019}", "hellip": "\u{2026}", "bull": "\u{2022}",
+        "copy": "\u{00A9}", "reg": "\u{00AE}", "trade": "\u{2122}", "deg": "\u{00B0}",
+        "para": "\u{00B6}", "sect": "\u{00A7}", "middot": "\u{00B7}", "laquo": "\u{00AB}",
+        "raquo": "\u{00BB}", "iquest": "\u{00BF}", "iexcl": "\u{00A1}", "cent": "\u{00A2}",
+        "pound": "\u{00A3}", "curren": "\u{00A4}", "yen": "\u{00A5}", "micro": "\u{00B5}",
+        "times": "\u{00D7}", "divide": "\u{00F7}", "plusmn": "\u{00B1}", "frac12": "\u{00BD}",
+        "frac14": "\u{00BC}", "frac34": "\u{00BE}", "dagger": "\u{2020}", "Dagger": "\u{2021}",
+        // Latin accented — lowercase
+        "agrave": "\u{00E0}", "aacute": "\u{00E1}", "acirc": "\u{00E2}", "atilde": "\u{00E3}",
+        "auml": "\u{00E4}", "aring": "\u{00E5}", "aelig": "\u{00E6}", "ccedil": "\u{00E7}",
+        "egrave": "\u{00E8}", "eacute": "\u{00E9}", "ecirc": "\u{00EA}", "euml": "\u{00EB}",
+        "igrave": "\u{00EC}", "iacute": "\u{00ED}", "icirc": "\u{00EE}", "iuml": "\u{00EF}",
+        "eth": "\u{00F0}", "ntilde": "\u{00F1}", "ograve": "\u{00F2}", "oacute": "\u{00F3}",
+        "ocirc": "\u{00F4}", "otilde": "\u{00F5}", "ouml": "\u{00F6}", "oslash": "\u{00F8}",
+        "ugrave": "\u{00F9}", "uacute": "\u{00FA}", "ucirc": "\u{00FB}", "uuml": "\u{00FC}",
+        "yacute": "\u{00FD}", "thorn": "\u{00FE}", "yuml": "\u{00FF}", "szlig": "\u{00DF}",
+        // Latin accented — uppercase
+        "Agrave": "\u{00C0}", "Aacute": "\u{00C1}", "Acirc": "\u{00C2}", "Atilde": "\u{00C3}",
+        "Auml": "\u{00C4}", "Aring": "\u{00C5}", "AElig": "\u{00C6}", "Ccedil": "\u{00C7}",
+        "Egrave": "\u{00C8}", "Eacute": "\u{00C9}", "Ecirc": "\u{00CA}", "Euml": "\u{00CB}",
+        "Igrave": "\u{00CC}", "Iacute": "\u{00CD}", "Icirc": "\u{00CE}", "Iuml": "\u{00CF}",
+        "ETH": "\u{00D0}", "Ntilde": "\u{00D1}", "Ograve": "\u{00D2}", "Oacute": "\u{00D3}",
+        "Ocirc": "\u{00D4}", "Otilde": "\u{00D5}", "Ouml": "\u{00D6}", "Oslash": "\u{00D8}",
+        "Ugrave": "\u{00D9}", "Uacute": "\u{00DA}", "Ucirc": "\u{00DB}", "Uuml": "\u{00DC}",
+        "Yacute": "\u{00DD}", "THORN": "\u{00DE}",
+    ]
+
     private func decodeHTMLEntity(_ entity: String) -> String {
-        switch entity {
-        case "nbsp":   return " "
-        case "amp":    return "&"
-        case "lt":     return "<"
-        case "gt":     return ">"
-        case "quot":   return "\""
-        case "apos":   return "'"
-        case "mdash":  return "\u{2014}"
-        case "ndash":  return "\u{2013}"
-        case "ldquo":  return "\u{201C}"
-        case "rdquo":  return "\u{201D}"
-        case "lsquo":  return "\u{2018}"
-        case "rsquo":  return "\u{2019}"
-        case "hellip": return "\u{2026}"
-        default:
-            if entity.hasPrefix("#x"), let v = UInt32(entity.dropFirst(2), radix: 16),
-               let s = Unicode.Scalar(v) { return String(Character(s)) }
-            if entity.hasPrefix("#"), let v = UInt32(entity.dropFirst()),
-               let s = Unicode.Scalar(v) { return String(Character(s)) }
-            return "&\(entity);"   // unknown entity — return as-is
-        }
+        if let match = Self.htmlEntities[entity] { return match }
+        // Numeric entities: &#x00E9; or &#233;
+        if entity.hasPrefix("#x"), let v = UInt32(entity.dropFirst(2), radix: 16),
+           let s = Unicode.Scalar(v) { return String(Character(s)) }
+        if entity.hasPrefix("#"), let v = UInt32(entity.dropFirst()),
+           let s = Unicode.Scalar(v) { return String(Character(s)) }
+        return "&\(entity);"   // truly unknown entity — return as-is
     }
 
     /// Generic fetch: builds the request, sends it, checks for errors, decodes the JSON.

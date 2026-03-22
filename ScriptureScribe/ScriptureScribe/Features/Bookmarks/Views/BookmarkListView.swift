@@ -17,6 +17,7 @@ struct BookmarkListView: View {
 
     @ObservedObject var bookmarksVM: BookmarksViewModel
     @EnvironmentObject var themeManager: ThemeManager
+    @EnvironmentObject var authVM: AuthViewModel
     @Environment(\.dismiss) private var dismiss
 
     /// nil = show all;  "" = show ungrouped;  any group.id = filter to that group
@@ -145,7 +146,7 @@ struct BookmarkListView: View {
                 .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                         Button(role: .destructive) {
-                            bookmarksVM.removeBookmark(id: bookmark.id)
+                            bookmarksVM.removeBookmark(id: bookmark.id, userId: authVM.currentUserID)
                         } label: {
                             Label("Delete", systemImage: "trash")
                         }
@@ -279,6 +280,7 @@ struct BookmarkDetailView: View {
     @EnvironmentObject var themeManager: ThemeManager
     @EnvironmentObject var appNav:       AppNavigation
     @EnvironmentObject var bookmarksVM:  BookmarksViewModel
+    @EnvironmentObject var authVM:       AuthViewModel
     @Environment(\.dismiss) private var dismiss
 
     @State private var showMoveToCollection = false
@@ -399,7 +401,7 @@ struct BookmarkDetailView: View {
             titleVisibility: .visible
         ) {
             Button("Delete", role: .destructive) {
-                bookmarksVM.removeBookmark(id: bookmark.id)
+                bookmarksVM.removeBookmark(id: bookmark.id, userId: authVM.currentUserID)
                 dismiss()
             }
             Button("Cancel", role: .cancel) {}

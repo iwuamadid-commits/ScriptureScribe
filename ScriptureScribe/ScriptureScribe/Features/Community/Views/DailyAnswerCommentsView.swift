@@ -25,6 +25,7 @@ struct DailyAnswerCommentsView: View {
     @State private var replyingTo:         Comment? = nil
     @State private var editingComment:     Comment? = nil
     @State private var collapsedThreadIds: Set<String> = []
+    @State private var showSendError      = false
 
     private let firestore = FirestoreService()
 
@@ -147,7 +148,7 @@ struct DailyAnswerCommentsView: View {
                         HStack(spacing: 10) {
                             TextField(
                                 replyingTo != nil
-                                    ? "Reply to @\(replyingTo!.displayName)…"
+                                    ? "Reply to @\(replyingTo?.displayName ?? "")…"
                                     : "Add a reply…",
                                 text: $commentText,
                                 axis: .vertical
@@ -205,6 +206,11 @@ struct DailyAnswerCommentsView: View {
             }
         }
         .task { await loadComments() }
+        .alert("Couldn't send comment", isPresented: $showSendError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("Please check your connection and try again.")
+        }
     }
 
     // MARK: - Answer Header
@@ -261,7 +267,7 @@ struct DailyAnswerCommentsView: View {
 
         isSending = true
         let finalText = replyingTo != nil
-            ? "@\(replyingTo!.displayName) \(trimmed)"
+            ? "@\(replyingTo?.displayName ?? "") \(trimmed)"
             : trimmed
 
         let comment = Comment(
@@ -277,7 +283,10 @@ struct DailyAnswerCommentsView: View {
             commentText = ""
             replyingTo  = nil
             comments.append(comment)
-        } catch { }
+        } catch is CancellationError {
+        } catch {
+            showSendError = true
+        }
         isSending = false
     }
 

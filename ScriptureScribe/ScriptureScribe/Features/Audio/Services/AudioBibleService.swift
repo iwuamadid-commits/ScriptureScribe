@@ -9,6 +9,7 @@
 
 import Foundation
 
+@MainActor
 final class AudioBibleService {
 
     // MARK: - Cache (keyed by bibleId so different translations cache separately)
@@ -23,7 +24,8 @@ final class AudioBibleService {
         let cacheKey = bibleId.isEmpty ? "__all__" : bibleId
         if let cached = audioBiblesCache[cacheKey] { return cached }
 
-        var components = URLComponents(string: AppConfig.bibleAPIBaseURL + "/audio-bibles")!
+        guard var components = URLComponents(string: AppConfig.bibleAPIBaseURL + "/audio-bibles")
+        else { throw APIError.invalidURL }
         if !bibleId.isEmpty {
             components.queryItems = [URLQueryItem(name: "bibleId", value: bibleId)]
         }

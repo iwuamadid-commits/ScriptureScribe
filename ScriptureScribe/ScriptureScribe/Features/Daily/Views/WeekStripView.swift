@@ -36,12 +36,12 @@ struct WeekStripView: View {
         let today   = calendar.startOfDay(for: Date())
         let weekday = calendar.component(.weekday, from: today)  // 1=Sun … 7=Sat
         let offset  = (weekday + 5) % 7                          // Mon=0 … Sun=6
-        return calendar.date(byAdding: .day, value: -offset, to: today)!
+        return calendar.date(byAdding: .day, value: -offset, to: today) ?? today
     }
 
     /// Monday of the week currently on screen.
     private var displayedMonday: Date {
-        calendar.date(byAdding: .day, value: weekOffset * 7, to: baseMonday)!
+        calendar.date(byAdding: .day, value: weekOffset * 7, to: baseMonday) ?? baseMonday
     }
 
     /// The seven days of the currently displayed week.
@@ -165,7 +165,7 @@ struct WeekStripView: View {
         let dayStart = calendar.startOfDay(for: date)
         let weekday  = calendar.component(.weekday, from: dayStart)
         let shift    = (weekday + 5) % 7
-        let monday   = calendar.date(byAdding: .day, value: -shift, to: dayStart)!
+        let monday   = calendar.date(byAdding: .day, value: -shift, to: dayStart) ?? dayStart
         let daysDiff = calendar.dateComponents([.day], from: baseMonday, to: monday).day ?? 0
         return daysDiff / 7
     }

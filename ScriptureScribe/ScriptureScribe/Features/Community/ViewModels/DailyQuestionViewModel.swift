@@ -106,6 +106,9 @@ final class DailyQuestionViewModel: ObservableObject {
                 userId:   userId,
                 isLiked:  alreadyLiked
             )
+        } catch is CancellationError {
+            if alreadyLiked { likedAnswerIds.insert(answer.id) }
+            else             { likedAnswerIds.remove(answer.id) }
         } catch {
             if alreadyLiked { likedAnswerIds.insert(answer.id) }
             else             { likedAnswerIds.remove(answer.id) }
@@ -131,6 +134,7 @@ final class DailyQuestionViewModel: ObservableObject {
         )
         do {
             try await firestore.createDailyAnswer(answer)
+        } catch is CancellationError {
         } catch {
             errorMessage = error.userMessage
         }
@@ -141,6 +145,7 @@ final class DailyQuestionViewModel: ObservableObject {
     func editAnswer(_ answer: DailyAnswer, newText: String) async {
         do {
             try await firestore.updateDailyAnswer(id: answer.id, text: newText.trimmingCharacters(in: .whitespacesAndNewlines))
+        } catch is CancellationError {
         } catch {
             errorMessage = error.userMessage
         }
@@ -154,6 +159,7 @@ final class DailyQuestionViewModel: ObservableObject {
         guard !fields.isEmpty else { return }
         do {
             try await firestore.updateDailyAnswerFields(id: answer.id, fields: fields)
+        } catch is CancellationError {
         } catch {
             errorMessage = error.userMessage
         }
@@ -168,6 +174,7 @@ final class DailyQuestionViewModel: ObservableObject {
         }
         do {
             try await firestore.reportContent(collection: "dailyAnswers", documentId: id, userId: userId)
+        } catch is CancellationError {
         } catch {
             errorMessage = error.userMessage
         }
@@ -181,6 +188,7 @@ final class DailyQuestionViewModel: ObservableObject {
         }
         do {
             try await firestore.deleteDailyAnswer(id: answer.id)
+        } catch is CancellationError {
         } catch {
             errorMessage = error.userMessage
         }

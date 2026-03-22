@@ -181,6 +181,7 @@ private struct VerseReferencePickerView: View {
     @State private var fetchedVerse:  DailyVerse? = nil
     @State private var isFetching     = false
     @State private var fetchTask:     Task<Void, Never>? = nil
+    @State private var selectedBookName: String? = nil
 
     private let api = BibleAPIService()
 
@@ -217,6 +218,7 @@ private struct VerseReferencePickerView: View {
                                     Button {
                                         // Fill in the book name and leave a trailing space
                                         // so the user can immediately type the chapter number.
+                                        selectedBookName = match.name
                                         draftRef = match.name + " "
                                     } label: {
                                         HStack(spacing: 12) {
@@ -286,6 +288,18 @@ private struct VerseReferencePickerView: View {
                         }
                         .padding(.horizontal, 20)
                         .padding(.top, 20)
+
+                    // ── Hint after book selected ─────────────────────
+                    } else if selectedBookName != nil && !draftRef.trimmingCharacters(in: .whitespaces).isEmpty {
+                        HStack(spacing: 8) {
+                            Image(systemName: "info.circle")
+                                .foregroundStyle(themeManager.currentTheme.primary)
+                            Text("Type chapter:verse (e.g. 3:16)")
+                                .font(.subheadline)
+                                .foregroundStyle(themeManager.currentTheme.textSecondary)
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.top, 20)
                     }
 
                     Spacer()
@@ -340,13 +354,27 @@ private struct VerseReferencePickerView: View {
         fetchedVerse = nil
 
         let trimmed = text.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { isFetching = false; return }
+        guard !trimmed.isEmpty else { isFetching = false; selectedBookName = nil; return }
+
+        // If user edits back to change the book, clear the selection
+        if let selected = selectedBookName,
+           !trimmed.lowercased().hasPrefix(selected.lowercased()) {
+            selectedBookName = nil
+        }
 
         let hasDigit = trimmed.contains(where: { $0.isNumber })
 
-        // No digits yet → show matching book names
+        // No digits yet → show matching book names (but not if a book is already selected)
         if !hasDigit {
-            bookMatches = BibleReferenceParser.bookSuggestions(for: trimmed)
+            if selectedBookName == nil {
+                let matches = BibleReferenceParser.bookSuggestions(for: trimmed)
+                // If the typed text exactly matches a single book, auto-select it
+                if matches.count == 1, matches[0].name.lowercased() == trimmed.lowercased() {
+                    selectedBookName = matches[0].name
+                } else {
+                    bookMatches = matches
+                }
+            }
             return
         }
 

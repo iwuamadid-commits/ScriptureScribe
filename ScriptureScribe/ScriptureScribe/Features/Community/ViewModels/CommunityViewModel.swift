@@ -69,8 +69,10 @@ final class CommunityViewModel: ObservableObject {
 
         do {
             try await firestore.togglePostLike(postId: post.id, userId: userId, isLiked: alreadyLiked)
+        } catch is CancellationError {
+            if alreadyLiked { likedPostIds.insert(post.id) }
+            else             { likedPostIds.remove(post.id) }
         } catch {
-            // Revert on failure
             if alreadyLiked { likedPostIds.insert(post.id) }
             else             { likedPostIds.remove(post.id) }
             errorMessage = error.userMessage
@@ -90,6 +92,7 @@ final class CommunityViewModel: ObservableObject {
         )
         do {
             try await firestore.createPost(post)
+        } catch is CancellationError {
         } catch {
             errorMessage = error.userMessage
         }
@@ -100,6 +103,7 @@ final class CommunityViewModel: ObservableObject {
     func editPost(_ post: Post, newText: String) async {
         do {
             try await firestore.updatePost(postId: post.id, text: newText.trimmingCharacters(in: .whitespacesAndNewlines))
+        } catch is CancellationError {
         } catch {
             errorMessage = error.userMessage
         }
@@ -116,6 +120,7 @@ final class CommunityViewModel: ObservableObject {
         guard !fields.isEmpty else { return }
         do {
             try await firestore.updatePostFields(postId: post.id, fields: fields)
+        } catch is CancellationError {
         } catch {
             errorMessage = error.userMessage
         }
@@ -130,6 +135,7 @@ final class CommunityViewModel: ObservableObject {
         }
         do {
             try await firestore.reportContent(collection: "posts", documentId: id, userId: userId)
+        } catch is CancellationError {
         } catch {
             errorMessage = error.userMessage
         }
@@ -143,6 +149,7 @@ final class CommunityViewModel: ObservableObject {
         }
         do {
             try await firestore.deletePost(postId: post.id)
+        } catch is CancellationError {
         } catch {
             errorMessage = error.userMessage
         }
