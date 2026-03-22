@@ -54,6 +54,8 @@ struct ReaderView: View {
     @EnvironmentObject var bookmarksVM:   BookmarksViewModel
     @EnvironmentObject var notesVM:       NotesViewModel
     @EnvironmentObject var subscriptionVM: SubscriptionViewModel
+    @EnvironmentObject var authVM:        AuthViewModel
+    @Environment(\.scenePhase) private var scenePhase
 
     // MARK: - State
 
@@ -173,8 +175,12 @@ struct ReaderView: View {
                             Task { await vm.loadInitialData() }
                         }
                     } else {
-                        Text("Select a book above to start reading.")
-                            .foregroundStyle(themeManager.currentTheme.textSecondary)
+                        VStack(spacing: 16) {
+                            ProgressView()
+                            Text("Loading Bible…")
+                                .font(.subheadline)
+                                .foregroundStyle(themeManager.currentTheme.textSecondary)
+                        }
                     }
                 }
 
@@ -257,8 +263,18 @@ struct ReaderView: View {
             }
         }
         .task {
+            // Restore reading position + My Versions from cloud before loading
+            if let userId = authVM.currentUserID {
+                await vm.restoreFromCloud(userId: userId)
+            }
             await vm.loadInitialData()
             annotationVM.notesVMRef = notesVM
+        }
+        // Save reading position + My Versions when the app goes to background
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background, let userId = authVM.currentUserID {
+                Task { await vm.syncToCloud(userId: userId) }
+            }
         }
         // When any tab sends the user here via a chapter/verse link, navigate and
         // remember the target verse so we can scroll + highlight once the content loads.

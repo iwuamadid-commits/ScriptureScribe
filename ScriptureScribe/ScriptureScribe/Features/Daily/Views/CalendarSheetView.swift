@@ -83,7 +83,6 @@ struct CalendarSheetView: View {
                 Spacer()
             }
             .background(themeManager.currentTheme.background.ignoresSafeArea())
-            .navigationTitle(monthTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {

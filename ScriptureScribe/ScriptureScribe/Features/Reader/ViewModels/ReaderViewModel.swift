@@ -93,6 +93,42 @@ final class ReaderViewModel: ObservableObject {
     // MARK: - Private
 
     private let api = BibleAPIService()
+    private let firestore = FirestoreService()
+
+    // MARK: - Cloud Sync
+
+    func syncToCloud(userId: String) async {
+        let data: [String: Any] = [
+            "lastBibleId": lastBibleId,
+            "lastBookId": lastBookId,
+            "lastChapterId": lastChapterId,
+            "myVersionIds": myVersionIds
+        ]
+        try? await firestore.saveSyncData(data, userId: userId)
+    }
+
+    func restoreFromCloud(userId: String) async {
+        guard let data = try? await firestore.fetchSyncData(userId: userId) else { return }
+
+        if let bibleId = data["lastBibleId"] as? String, !bibleId.isEmpty {
+            lastBibleId = bibleId
+        }
+        if let bookId = data["lastBookId"] as? String, !bookId.isEmpty {
+            lastBookId = bookId
+        }
+        if let chapterId = data["lastChapterId"] as? String, !chapterId.isEmpty {
+            lastChapterId = chapterId
+        }
+        if let versions = data["myVersionIds"] as? [String], !versions.isEmpty {
+            // Merge cloud versions with local (preserve order, no duplicates)
+            var merged = myVersionIds
+            for id in versions where !merged.contains(id) {
+                merged.append(id)
+            }
+            myVersionIds = merged
+            UserDefaults.standard.set(myVersionIds, forKey: "myVersionIds")
+        }
+    }
 
     // MARK: - Public Actions
 
@@ -186,22 +222,27 @@ final class ReaderViewModel: ObservableObject {
             chapters = newChapters
         }
 
-        // ── Phase 4b: one frame later — spring-select the target chip ─────────
-        // The new chips now exist in the view hierarchy, so SwiftUI can animate
-        // isSelected false → true on the matching chip with a proper spring.
+        // ── Phase 4b: select the target chip (triggers fade-out in ReaderView) ─
         try? await Task.sleep(for: .milliseconds(50))
         withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
             selectedChapter = targetChapter
-            if let content = newContent {
-                chapterContent   = content
-                contentLoadCounter += 1
-            }
+        }
+
+        // ── Phase 4c: swap content after the fade-out completes ─────────────
+        // The 0.25s delay lets the contentOpacity fade-out (0.2s) finish before
+        // the new text is set, so the user never sees text change mid-fade.
+        if let content = newContent {
+            try? await Task.sleep(for: .milliseconds(250))
+            chapterContent     = content
+            contentLoadCounter += 1
         }
     }
 
     func selectChapter(_ chapter: BibleChapter) async {
         selectedChapter = chapter
         lastChapterId   = chapter.id
+        // Wait for the fade-out animation (0.2s) to finish before loading new content
+        try? await Task.sleep(for: .milliseconds(250))
         await loadChapterContent(chapter)
     }
 

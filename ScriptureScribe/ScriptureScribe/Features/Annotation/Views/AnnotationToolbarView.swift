@@ -14,6 +14,8 @@
 //  Hidden colors are excluded from the toolbar but managed in Favorites.
 //
 
+import AVFoundation
+import Photos
 import SwiftUI
 
 struct AnnotationToolbarView: View {
@@ -31,6 +33,8 @@ struct AnnotationToolbarView: View {
     @State private var showImagePicker       = false
     @State private var showClearConfirmation = false
     @State private var showPaywall           = false
+    @State private var showPermissionAlert   = false
+    @State private var permissionAlertMessage = ""
     @State private var imagePickerSource     = UIImagePickerController.SourceType.photoLibrary
 
     // Drag-to-reorder state (indices into visibleColors, not savedColors)
@@ -168,10 +172,30 @@ struct AnnotationToolbarView: View {
         .confirmationDialog("Add Photo", isPresented: $showPhotoSourcePicker) {
             if UIImagePickerController.isSourceTypeAvailable(.camera) {
                 Button("Take Photo") {
-                    imagePickerSource = .camera
-                    // Small delay lets the dialog fully dismiss before the sheet opens
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        showImagePicker = true
+                    let status = AVCaptureDevice.authorizationStatus(for: .video)
+                    switch status {
+                    case .notDetermined:
+                        AVCaptureDevice.requestAccess(for: .video) { granted in
+                            DispatchQueue.main.async {
+                                if granted {
+                                    imagePickerSource = .camera
+                                    showImagePicker = true
+                                } else {
+                                    permissionAlertMessage = "Camera access is needed to take photos. You can enable it in Settings."
+                                    showPermissionAlert = true
+                                }
+                            }
+                        }
+                    case .authorized:
+                        imagePickerSource = .camera
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            showImagePicker = true
+                        }
+                    default:
+                        permissionAlertMessage = "Camera access is needed to take photos. You can enable it in Settings."
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            showPermissionAlert = true
+                        }
                     }
                 }
             }
@@ -201,6 +225,17 @@ struct AnnotationToolbarView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This will erase everything on the current page. You can undo this action.")
+        }
+        // Permission denied — direct user to Settings
+        .alert("Permission Required", isPresented: $showPermissionAlert) {
+            Button("Open Settings") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(permissionAlertMessage)
         }
     }
 

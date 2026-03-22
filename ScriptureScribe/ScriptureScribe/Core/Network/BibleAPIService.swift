@@ -17,12 +17,51 @@ final class BibleAPIService {
     private var booksCache:    [String: [BibleBook]]    = [:]  // key = bibleId
     private var chaptersCache: [String: [BibleChapter]] = [:]  // key = "bibleId/bookId"
 
+    // MARK: - Disk Cache
+
+    private static let cacheDir: URL = {
+        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("BibleAPICache", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
+
+    /// Translations change rarely — cache for 7 days.
+    private static let translationsTTL: TimeInterval = 7 * 24 * 3600
+    /// Books and chapters never change — cache for 30 days.
+    private static let structureTTL: TimeInterval = 30 * 24 * 3600
+
+    private func diskCacheURL(for key: String) -> URL {
+        Self.cacheDir.appendingPathComponent(key + ".json")
+    }
+
+    private func loadFromDisk<T: Decodable>(_ key: String, ttl: TimeInterval) -> T? {
+        let url = diskCacheURL(for: key)
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let modified = attrs[.modificationDate] as? Date,
+              Date().timeIntervalSince(modified) < ttl,
+              let data = try? Data(contentsOf: url)
+        else { return nil }
+        return try? JSONDecoder().decode(T.self, from: data)
+    }
+
+    private func saveToDisk<T: Encodable>(_ value: T, key: String) {
+        guard let data = try? JSONEncoder().encode(value) else { return }
+        try? data.write(to: diskCacheURL(for: key), options: .atomic)
+    }
+
     // MARK: - Fetch All Translations
 
     /// Returns the full list of Bible translations your API key has access to (1,500+).
     /// English translations are sorted to the top; the rest follow alphabetically by language.
     func fetchTranslations() async throws -> [BibleTranslation] {
         if let cached = translationsCache { return cached }
+
+        // Try disk cache first
+        if let disk: [BibleTranslation] = loadFromDisk("translations", ttl: Self.translationsTTL) {
+            translationsCache = disk
+            return disk
+        }
 
         let url = try apiURL(path: "/bibles")
         let response: ListResponse<BibleTranslation> = try await fetch(url)
@@ -34,6 +73,7 @@ final class BibleAPIService {
         }
 
         translationsCache = sorted
+        saveToDisk(sorted, key: "translations")
         return sorted
     }
 
@@ -43,9 +83,16 @@ final class BibleAPIService {
     func fetchBooks(bibleId: String) async throws -> [BibleBook] {
         if let cached = booksCache[bibleId] { return cached }
 
+        let diskKey = "books_\(bibleId)"
+        if let disk: [BibleBook] = loadFromDisk(diskKey, ttl: Self.structureTTL) {
+            booksCache[bibleId] = disk
+            return disk
+        }
+
         let url = try apiURL(path: "/bibles/\(bibleId)/books")
         let response: ListResponse<BibleBook> = try await fetch(url)
         booksCache[bibleId] = response.data
+        saveToDisk(response.data, key: diskKey)
         return response.data
     }
 
@@ -56,12 +103,19 @@ final class BibleAPIService {
         let cacheKey = "\(bibleId)/\(bookId)"
         if let cached = chaptersCache[cacheKey] { return cached }
 
+        let diskKey = "chapters_\(bibleId)_\(bookId)"
+        if let disk: [BibleChapter] = loadFromDisk(diskKey, ttl: Self.structureTTL) {
+            chaptersCache[cacheKey] = disk
+            return disk
+        }
+
         let url = try apiURL(path: "/bibles/\(bibleId)/books/\(bookId)/chapters")
         let response: ListResponse<BibleChapter> = try await fetch(url)
 
         // Some translations include an "intro" chapter — filter it out so only numbered chapters show.
         let numbered = response.data.filter { $0.number.lowercased() != "intro" }
         chaptersCache[cacheKey] = numbered
+        saveToDisk(numbered, key: diskKey)
         return numbered
     }
 
@@ -218,7 +272,9 @@ final class BibleAPIService {
                 } else if lower.hasPrefix("/p") {
                     if inHeadingParagraph {
                         // End of a section heading paragraph — save it as a special verse
-                        let t = headingBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
+                        // Drop leading punctuation (API sometimes includes a stray period)
+                        var t = headingBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
+                        while t.first == "." || t.first == ":" { t = String(t.dropFirst()).trimmingCharacters(in: .whitespaces) }
                         if !t.isEmpty {
                             verses.append(ParsedVerse(number: "§",
                                 segments: [VerseSegment(text: t, isRedLetter: false)]))

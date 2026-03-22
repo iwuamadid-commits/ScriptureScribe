@@ -23,6 +23,7 @@ struct ScriptureScribeApp: App {
     @StateObject private var subscriptionVM   = SubscriptionViewModel()
     @StateObject private var streakVM         = StreakViewModel()
     @StateObject private var walkthroughManager  = WalkthroughManager()
+    @StateObject private var networkMonitor       = NetworkMonitor()
 
     init() {
         FirebaseApp.configure()
@@ -85,6 +86,7 @@ struct ScriptureScribeApp: App {
             .environmentObject(subscriptionVM)
             .environmentObject(streakVM)
             .environmentObject(walkthroughManager)
+            .environmentObject(networkMonitor)
             // Give the walkthrough manager access to tab navigation
             .onAppear {
                 walkthroughManager.appNav = appNav

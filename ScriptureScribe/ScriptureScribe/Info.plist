@@ -25,5 +25,9 @@
 			</array>
 		</dict>
 	</array>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Scripture Scribe uses your photo library to set a profile picture, add images to gratitude posts, and customize verse backgrounds.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Scripture Scribe uses your camera to take photos for annotations.</string>
 </dict>
 </plist>

@@ -30,6 +30,8 @@ final class StreakViewModel: ObservableObject {
     @AppStorage("streak_lastOpenedDate") private var lastOpenedDateString: String = ""
     @AppStorage("streak_openedDatesJSON") private var openedDatesJSON: String = "[]"
 
+    private let firestore = FirestoreService()
+
     /// The set of "yyyy-MM-dd" strings for every day the user opened the app (last 365 days).
     var openedDates: Set<String> {
         guard let data = openedDatesJSON.data(using: .utf8),
@@ -100,6 +102,51 @@ final class StreakViewModel: ObservableObject {
         if let data = try? JSONEncoder().encode(Array(dates)),
            let json = String(data: data, encoding: .utf8) {
             openedDatesJSON = json
+        }
+    }
+
+    // MARK: - Cloud Sync
+
+    func syncToCloud(userId: String) async {
+        let data: [String: Any] = [
+            "streak_currentCount": storedCurrentStreak,
+            "streak_longestCount": storedLongestStreak,
+            "streak_lastOpenedDate": lastOpenedDateString,
+            "streak_openedDatesJSON": openedDatesJSON
+        ]
+        try? await firestore.saveSyncData(data, userId: userId)
+    }
+
+    func restoreFromCloud(userId: String) async {
+        guard let data = try? await firestore.fetchSyncData(userId: userId) else { return }
+
+        if let current = data["streak_currentCount"] as? Int {
+            // Keep whichever is higher — local or cloud
+            if current > storedCurrentStreak {
+                storedCurrentStreak = current
+                currentStreak = current
+            }
+        }
+        if let longest = data["streak_longestCount"] as? Int {
+            if longest > storedLongestStreak {
+                storedLongestStreak = longest
+                longestStreak = longest
+            }
+        }
+        if let lastDate = data["streak_lastOpenedDate"] as? String,
+           lastDate > lastOpenedDateString {
+            lastOpenedDateString = lastDate
+        }
+        if let cloudJSON = data["streak_openedDatesJSON"] as? String,
+           let cloudData = cloudJSON.data(using: .utf8),
+           let cloudDates = try? JSONDecoder().decode([String].self, from: cloudData) {
+            // Merge cloud dates with local dates
+            var merged = openedDates
+            merged.formUnion(cloudDates)
+            if let encoded = try? JSONEncoder().encode(Array(merged)),
+               let json = String(data: encoded, encoding: .utf8) {
+                openedDatesJSON = json
+            }
         }
     }
 }

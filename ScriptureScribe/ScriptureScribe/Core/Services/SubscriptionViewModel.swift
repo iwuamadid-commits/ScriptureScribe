@@ -137,6 +137,11 @@ final class SubscriptionViewModel: ObservableObject {
     // MARK: - Check Entitlement
 
     func checkEntitlement() async {
+        // In DEBUG, never override the scheme argument "-isPremiumCached YES"
+        #if DEBUG
+        if UserDefaults.standard.bool(forKey: premiumKey) { return }
+        #endif
+
         var activePurchases: Set<String> = []
 
         for await result in Transaction.currentEntitlements {

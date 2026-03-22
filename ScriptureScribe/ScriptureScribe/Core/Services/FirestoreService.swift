@@ -918,6 +918,21 @@ final class FirestoreService {
         ])
     }
 
+    // MARK: - User Sync Data (reading position, streaks, My Versions)
+
+    func saveSyncData(_ data: [String: Any], userId: String) async throws {
+        try await db.collection("users").document(userId)
+            .collection("syncData").document("state")
+            .setData(data, merge: true)
+    }
+
+    func fetchSyncData(userId: String) async throws -> [String: Any]? {
+        let doc = try await db.collection("users").document(userId)
+            .collection("syncData").document("state")
+            .getDocument()
+        return doc.data()
+    }
+
     // MARK: - Account Deletion
 
     /// Deletes all user data from Firestore: profile, bookmarks, notes, groups, habits, logs, saved items.
@@ -925,7 +940,7 @@ final class FirestoreService {
         let userRef = db.collection("users").document(userId)
 
         // Delete all subcollections
-        let subcollections = ["bookmarks", "notes", "bookmarkGroups", "habits", "habitLogs", "savedItems", "preferences"]
+        let subcollections = ["bookmarks", "notes", "bookmarkGroups", "habits", "habitLogs", "savedItems", "preferences", "syncData"]
         for sub in subcollections {
             let docs = try await userRef.collection(sub).getDocuments()
             for doc in docs.documents {

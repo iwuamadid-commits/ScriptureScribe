@@ -19,6 +19,9 @@ struct ContentView: View {
     @EnvironmentObject var habitsVM:            HabitsViewModel
     @EnvironmentObject var streakVM:            StreakViewModel
     @EnvironmentObject var walkthroughManager:  WalkthroughManager
+    @EnvironmentObject var networkMonitor:      NetworkMonitor
+
+    @Environment(\.scenePhase) private var scenePhase
 
     @AppStorage("hasSeenOnboarding")       private var hasSeenOnboarding = false
     @AppStorage("hasCompletedWalkthrough") private var hasCompletedWalkthrough = false
@@ -57,6 +60,23 @@ struct ContentView: View {
                         .tabItem { Label("Profile", systemImage: "person.circle.fill") }
                         .tag(5)
                 }
+                // Offline banner — slides in just above the tab bar
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    if !networkMonitor.isConnected {
+                        HStack(spacing: 8) {
+                            Image(systemName: "wifi.slash")
+                                .font(.caption.weight(.semibold))
+                            Text("You're offline. Some features may be unavailable.")
+                                .font(.caption)
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity)
+                        .background(Color(.systemGray))
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                }
+                .animation(.easeInOut(duration: 0.3), value: networkMonitor.isConnected)
                 // Selected tab icon uses the theme's primary colour
                 .tint(themeManager.currentTheme.primary)
                 // Tab bar background matches the theme's surface colour
@@ -68,15 +88,25 @@ struct ContentView: View {
                 .onChange(of: authVM.isSignedIn) { _, signedIn in
                     if signedIn, let userId = authVM.currentUserID {
                         Task {
+                            await streakVM.restoreFromCloud(userId: userId)
                             streakVM.updateStreak()
                             await bookmarksVM.syncOnSignIn(userId: userId)
                             await notesVM.syncOnSignIn(userId: userId)
                             await savedDevotionalsVM.load(userId: userId)
                             await habitsVM.syncOnSignIn(userId: userId)
                         }
+                    } else if !signedIn, let userId = authVM.currentUserID {
+                        // Sign-out: save streak data to cloud before leaving
+                        Task { await streakVM.syncToCloud(userId: userId) }
                     }
                     // Sign-out: local data stays on device (bookmarks, notes,
                     // annotations, theme, etc.). Only account deletion clears everything.
+                }
+                // Save streak data to cloud when app goes to background
+                .onChange(of: scenePhase) { _, phase in
+                    if phase == .background, let userId = authVM.currentUserID {
+                        Task { await streakVM.syncToCloud(userId: userId) }
+                    }
                 }
                 // Guard against edge case where app returns from background on a new calendar day
                 .onAppear {
