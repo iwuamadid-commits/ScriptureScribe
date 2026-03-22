@@ -294,14 +294,6 @@ struct DailyView: View {
             .toolbarBackground(.visible, for: .navigationBar)
             .sheet(isPresented: $showCalendar) {
                 CalendarSheetView(selectedDate: vm.selectedDate) { date in
-                    // Free users can only view today — show paywall for any other date
-                    if !subscriptionVM.isPremium && !Calendar.current.isDateInToday(date) {
-                        showCalendar = false
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
-                            showPaywall = true
-                        }
-                        return
-                    }
                     vm.selectedDate = date
                     Task { await vm.loadContent(for: date) }
                 }
