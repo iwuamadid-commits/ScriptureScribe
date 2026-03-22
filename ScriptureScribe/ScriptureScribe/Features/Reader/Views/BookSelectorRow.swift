@@ -61,9 +61,6 @@ struct BookSelectorRow: View {
                                 isCompact:  isCompact,
                                 coachMarkID: isSelected && showCoachMarks ? "reader-selected-book" : nil
                             )
-                            // Extra horizontal layout space lets the scaled chip expand
-                            // without bleeding into its neighbors.
-                            .padding(.horizontal, isSelected ? 4 : 0)
                             .animation(.spring(response: 0.8, dampingFraction: 0.85), value: isSelected)
                             .id(book.id)
                             .onTapGesture {
@@ -156,8 +153,8 @@ private struct BookChip: View {
                   ? .caption2.weight(isSelected ? .bold : .regular)
                   : .footnote.weight(isSelected ? .bold : .regular))
             .lineLimit(1)
-            .padding(.horizontal, isCompact ? 7 : 10)
-            .padding(.vertical, isCompact ? 4 : 6)
+            .padding(.horizontal, isSelected ? (isCompact ? 10 : 14) : (isCompact ? 7 : 10))
+            .padding(.vertical, isSelected ? (isCompact ? 6 : 9) : (isCompact ? 4 : 6))
             .foregroundStyle(isSelected ? Color.white : theme.text)
             .background {
                 ZStack {
@@ -170,7 +167,6 @@ private struct BookChip: View {
                 }
             }
             .coachMark(coachMarkID ?? "", active: coachMarkID != nil)
-            .scaleEffect(isSelected ? 1.12 : 1.0)
             .animation(.spring(response: 0.8, dampingFraction: 0.85), value: isSelected)
     }
 }
