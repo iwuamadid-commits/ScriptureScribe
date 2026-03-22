@@ -61,7 +61,7 @@ struct CreateAnswerView: View {
                         // ── Text editor ────────────────────────────────
                         ZStack(alignment: .topLeading) {
                             if answerText.isEmpty {
-                                Text("Share your answer…")
+                                Text("Share your answer\u{2026}")
                                     .foregroundStyle(themeManager.currentTheme.textSecondary)
                                     .padding(.top, 8)
                                     .padding(.leading, 5)
@@ -70,13 +70,24 @@ struct CreateAnswerView: View {
                                 .frame(minHeight: 140)
                                 .scrollContentBackground(.hidden)
                                 .background(Color.clear)
+                                .onChange(of: answerText) { _, newValue in
+                                    if newValue.count > 2000 { answerText = String(newValue.prefix(2000)) }
+                                }
                         }
                         .foregroundStyle(themeManager.currentTheme.text)
                         .font(.body)
+
+                        if answerText.count > 1800 {
+                            Text("\(answerText.count)/2000")
+                                .font(.caption2)
+                                .foregroundStyle(answerText.count >= 2000 ? .red : themeManager.currentTheme.textSecondary)
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+                        }
                     }
                     .padding(.horizontal, 20)
                     .padding(.bottom, 20)
                 }
+                .scrollDismissesKeyboard(.interactively)
             }
             .navigationTitle("Share Your Answer")
             .navigationBarTitleDisplayMode(.inline)

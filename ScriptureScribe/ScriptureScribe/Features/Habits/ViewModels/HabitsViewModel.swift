@@ -206,7 +206,7 @@ final class HabitsViewModel: ObservableObject {
             let dueHabits = habits.filter { h in
                 h.taskDays.contains(wd) &&
                 date >= calendar.startOfDay(for: h.startDate) &&
-                (h.endDate == nil || date <= calendar.startOfDay(for: h.endDate!))
+                (h.endDate.map { date <= calendar.startOfDay(for: $0) } ?? true)
             }
             if !dueHabits.isEmpty && dueHabits.allSatisfy({ isCompletedOnDate($0, date: date) }) {
                 count += 1
@@ -228,7 +228,7 @@ final class HabitsViewModel: ObservableObject {
             let dueHabits = habits.filter { h in
                 h.taskDays.contains(wd) &&
                 checkDate >= calendar.startOfDay(for: h.startDate) &&
-                (h.endDate == nil || checkDate <= calendar.startOfDay(for: h.endDate!))
+                (h.endDate.map { checkDate <= calendar.startOfDay(for: $0) } ?? true)
             }
             if !dueHabits.isEmpty && dueHabits.allSatisfy({ isCompletedOnDate($0, date: checkDate) }) {
                 current += 1

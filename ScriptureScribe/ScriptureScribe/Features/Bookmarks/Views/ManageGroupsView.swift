@@ -291,6 +291,7 @@ struct CreateGroupSheet: View {
                 }
                 .padding(.top, 8)
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("New Group")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -437,6 +438,7 @@ struct EditGroupSheet: View {
                 }
                 .padding(.top, 8)
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Edit Group")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

@@ -25,6 +25,7 @@ struct PrayerCommentsView: View {
     @State private var editingComment:     Comment? = nil
     @State private var collapsedThreadIds: Set<String> = []
     @State private var showSendError      = false
+    @State private var showActionError     = false
 
     private let firestore = FirestoreService()
 
@@ -147,8 +148,8 @@ struct PrayerCommentsView: View {
                         HStack(spacing: 10) {
                             TextField(
                                 replyingTo != nil
-                                    ? "Reply to @\(replyingTo?.displayName ?? "")…"
-                                    : "Add a reply…",
+                                    ? "Reply to @\(replyingTo?.displayName ?? "")\u{2026}"
+                                    : "Add a reply\u{2026}",
                                 text: $commentText,
                                 axis: .vertical
                             )
@@ -161,6 +162,9 @@ struct PrayerCommentsView: View {
                                     RoundedRectangle(cornerRadius: 20)
                                         .stroke(themeManager.currentTheme.border, lineWidth: 1)
                                 )
+                                .onChange(of: commentText) { _, newValue in
+                                    if newValue.count > 2000 { commentText = String(newValue.prefix(2000)) }
+                                }
 
                             Button {
                                 Task { await sendComment() }
@@ -206,6 +210,11 @@ struct PrayerCommentsView: View {
         }
         .task { await loadComments() }
         .alert("Couldn't send comment", isPresented: $showSendError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("Please check your connection and try again.")
+        }
+        .alert("Something went wrong", isPresented: $showActionError) {
             Button("OK", role: .cancel) { }
         } message: {
             Text("Please check your connection and try again.")
@@ -286,31 +295,61 @@ struct PrayerCommentsView: View {
         if let idx = comments.firstIndex(where: { $0.id == comment.id }) {
             comments[idx].likeCount += wasLiked ? -1 : 1
         }
-        try? await firestore.toggleCommentLike(
-            parentCollection: "prayerRequests", parentId: request.id,
-            commentId: comment.id, userId: uid, isLiked: wasLiked
-        )
+        do {
+            try await firestore.toggleCommentLike(
+                parentCollection: "prayerRequests", parentId: request.id,
+                commentId: comment.id, userId: uid, isLiked: wasLiked
+            )
+        } catch is CancellationError {
+        } catch {
+            if wasLiked { likedCommentIds.insert(comment.id) }
+            else        { likedCommentIds.remove(comment.id) }
+            if let idx = comments.firstIndex(where: { $0.id == comment.id }) {
+                comments[idx].likeCount += wasLiked ? 1 : -1
+            }
+        }
     }
 
     private func editComment(_ comment: Comment, newText: String) async {
         let trimmed = newText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        try? await firestore.updateComment(
-            parentCollection: "prayerRequests", parentId: request.id,
-            commentId: comment.id, text: trimmed
-        )
+        let originalText = comment.text
         if let idx = comments.firstIndex(where: { $0.id == comment.id }) {
             comments[idx].text = trimmed
+        }
+        do {
+            try await firestore.updateComment(
+                parentCollection: "prayerRequests", parentId: request.id,
+                commentId: comment.id, text: trimmed
+            )
+        } catch is CancellationError {
+        } catch {
+            if let idx = comments.firstIndex(where: { $0.id == comment.id }) {
+                comments[idx].text = originalText
+            }
+            showActionError = true
         }
     }
 
     private func deleteComment(_ comment: Comment) async {
-        try? await firestore.deleteComment(
-            parentCollection: "prayerRequests", parentId: request.id,
-            commentId: comment.id
-        )
+        let snapshot = comment
+        let originalIndex = comments.firstIndex(where: { $0.id == comment.id })
         withAnimation(.easeOut(duration: 0.35)) {
             comments.removeAll { $0.id == comment.id }
+        }
+        do {
+            try await firestore.deleteComment(
+                parentCollection: "prayerRequests", parentId: request.id,
+                commentId: comment.id
+            )
+        } catch is CancellationError {
+        } catch {
+            if let idx = originalIndex, idx <= comments.count {
+                comments.insert(snapshot, at: idx)
+            } else {
+                comments.append(snapshot)
+            }
+            showActionError = true
         }
     }
 }

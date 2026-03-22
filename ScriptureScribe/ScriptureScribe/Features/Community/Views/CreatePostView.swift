@@ -93,9 +93,19 @@ struct CreatePostView: View {
                                 .frame(minHeight: 160)
                                 .scrollContentBackground(.hidden)
                                 .background(Color.clear)
+                                .onChange(of: postText) { _, newValue in
+                                    if newValue.count > 2000 { postText = String(newValue.prefix(2000)) }
+                                }
                         }
                         .foregroundStyle(themeManager.currentTheme.text)
                         .font(.body)
+
+                        if postText.count > 1800 {
+                            Text("\(postText.count)/2000")
+                                .font(.caption2)
+                                .foregroundStyle(postText.count >= 2000 ? .red : themeManager.currentTheme.textSecondary)
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+                        }
 
                         // ── Add verse button (always visible) ────────
                         Button {
@@ -119,6 +129,7 @@ struct CreatePostView: View {
                     .padding(.horizontal, 20)
                     .padding(.bottom, 20)
                 }
+                .scrollDismissesKeyboard(.interactively)
             }
             .navigationTitle("New Reflection")
             .navigationBarTitleDisplayMode(.inline)

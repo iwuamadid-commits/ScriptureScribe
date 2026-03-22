@@ -61,6 +61,7 @@ struct HabitDetailView: View {
                         Image(systemName: "pencil.circle.fill")
                             .foregroundStyle(themeManager.currentTheme.primary)
                     }
+                    .accessibilityLabel("Edit habit")
                 }
             }
             .sheet(isPresented: $showEditSheet) {

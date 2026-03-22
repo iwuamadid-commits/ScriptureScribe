@@ -145,8 +145,11 @@ final class SubscriptionViewModel: ObservableObject {
         var activePurchases: Set<String> = []
 
         for await result in Transaction.currentEntitlements {
-            if let transaction = try? checkVerified(result) {
+            do {
+                let transaction = try checkVerified(result)
                 activePurchases.insert(transaction.productID)
+            } catch {
+                print("[SubscriptionVM] Transaction verification failed: \(error.localizedDescription)")
             }
         }
 

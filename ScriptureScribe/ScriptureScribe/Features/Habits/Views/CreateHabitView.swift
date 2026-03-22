@@ -86,6 +86,7 @@ struct CreateHabitView: View {
                 }
                 .padding(16)
             }
+            .scrollDismissesKeyboard(.interactively)
             .background(themeManager.currentTheme.background.ignoresSafeArea())
             .navigationTitle(editing != nil ? "Edit Habit" : "New Habit")
             .navigationBarTitleDisplayMode(.inline)

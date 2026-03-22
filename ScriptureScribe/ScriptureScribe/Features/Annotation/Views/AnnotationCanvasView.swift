@@ -63,6 +63,12 @@ final class PassThroughPKCanvasView: PKCanvasView {
         super.touchesCancelled(touches, with: event)
     }
 
+    // MARK: Disable PencilKit edit menu (Select All / Insert Space)
+
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        false
+    }
+
     // MARK: Finger pass-through
 
     private var _isUserInteractionEnabled: Bool = true
@@ -138,6 +144,13 @@ struct AnnotationCanvasView: UIViewRepresentable {
         pencilInteraction.delegate = context.coordinator
         canvas.addInteraction(pencilInteraction)
 
+        // Swallow finger taps so PencilKit's edit menu ("Select All / Insert Space")
+        // never appears. Only responds to direct (finger) touches — pencil is unaffected.
+        let tapEater = UITapGestureRecognizer(target: context.coordinator,
+                                              action: #selector(Coordinator.eatTap))
+        tapEater.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        canvas.addGestureRecognizer(tapEater)
+
         context.coordinator.canvas               = canvas
         context.coordinator.currentChapterId     = chapterId
         context.coordinator.currentChapterRef    = chapterReference
@@ -173,19 +186,9 @@ struct AnnotationCanvasView: UIViewRepresentable {
         // and exposes its undoManager. Then restore the correct state in updateUIView.
         // Also briefly become first responder so PencilKit registers its undo manager.
         canvas.isUserInteractionEnabled = true
-        vm.undoAction = { [weak canvas] in
-            // Briefly enable interaction to access the undo manager if in hand mode
-            let wasEnabled = canvas?.isUserInteractionEnabled ?? true
-            canvas?.isUserInteractionEnabled = true
-            canvas?.undoManager?.undo()
-            canvas?.isUserInteractionEnabled = wasEnabled
-        }
-        vm.redoAction = { [weak canvas] in
-            let wasEnabled = canvas?.isUserInteractionEnabled ?? true
-            canvas?.isUserInteractionEnabled = true
-            canvas?.undoManager?.redo()
-            canvas?.isUserInteractionEnabled = wasEnabled
-        }
+        // Disable PencilKit's built-in undo manager — we use our own unified stack.
+        canvas.undoManager?.removeAllActions()
+
         vm.clearCanvasAction = { [weak canvas, weak coordinator] in
             guard let canvas = canvas else { return }
             coordinator?.isRewriting = true
@@ -341,7 +344,18 @@ struct AnnotationCanvasView: UIViewRepresentable {
             }
         }
 
+        /// No-op target for the finger tap gesture that blocks PencilKit's edit menu.
+        @objc func eatTap() {}
+
         // MARK: Drawing delegate
+
+        func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
+            // Capture the full annotation state before a stroke/erase begins.
+            // This snapshot will be committed to the unified undo stack when
+            // canvasViewDrawingDidChange fires with the completed stroke.
+            guard !vm.isLassoActive else { return }
+            vm.capturePreStrokeState()
+        }
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
             guard !currentChapterId.isEmpty else { return }
@@ -395,6 +409,9 @@ struct AnnotationCanvasView: UIViewRepresentable {
                 } else {
                     normalizeHighlighterTip(in: canvasView)
                 }
+                vm.commitPreStrokeUndo()
+                canvasView.undoManager?.removeAllActions()
+                save(canvasView.drawing)
                 return
             }
 
@@ -404,11 +421,18 @@ struct AnnotationCanvasView: UIViewRepresentable {
                     if let pcv = canvasView as? PassThroughPKCanvasView,
                        pcv.didHoldAtEnd,
                        snapToShape(in: canvasView) {
+                        vm.commitPreStrokeUndo()
+                        canvasView.undoManager?.removeAllActions()
+                        save(canvasView.drawing)
                         return
                     }
                 default: break
                 }
             }
+
+            // Commit the pre-stroke snapshot to the undo stack for strokes and erases.
+            vm.commitPreStrokeUndo()
+            canvasView.undoManager?.removeAllActions()
 
             save(canvasView.drawing)
         }
@@ -693,17 +717,12 @@ struct AnnotationCanvasView: UIViewRepresentable {
             var strokes = canvasView.drawing.strokes
             guard index < strokes.count else { return }
             strokes[index] = stroke
-            // Undo PencilKit's original stroke registration first, then set the
-            // modified drawing.  Group both operations so one undo removes just
-            // this stroke — not the entire drawing.
+            // Replace the stroke directly — our unified undo stack already
+            // captured the pre-stroke state in canvasViewDidBeginUsingTool.
             isRewriting = true
-            canvasView.undoManager?.beginUndoGrouping()
-            canvasView.undoManager?.undo()
             canvasView.drawing = PKDrawing(strokes: strokes)
-            canvasView.undoManager?.endUndoGrouping()
             isRewriting = false
             previousStrokeCount = canvasView.drawing.strokes.count
-            save(canvasView.drawing)
         }
     }
 }

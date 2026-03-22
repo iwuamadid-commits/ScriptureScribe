@@ -496,7 +496,6 @@ struct ReaderView: View {
         scrollableReaderStack(content: content)
             .offset(x: swipeOffset)
             .overlay { swipeChapterLabel }
-            .simultaneousGesture(canSwipePages ? swipeGesture : nil)
     }
 
     /// True when horizontal swipe-to-turn is allowed.
@@ -581,6 +580,13 @@ struct ReaderView: View {
                         guard let id = vm.selectedChapter?.id else { return false }
                         notesVM.addNote(to: id)
                         return true
+                    },
+                    swipeEnabled: canSwipePages,
+                    onSwipeChanged: { translation in
+                        handleSwipeChanged(translation)
+                    },
+                    onSwipeEnded: { translation in
+                        handleSwipeEnded(translation)
                     }
                 ) {
                     ZStack(alignment: .topLeading) {
@@ -782,7 +788,6 @@ struct ReaderView: View {
                 .onPreferenceChange(ContentHeightKey.self) { h in if h > 0 { contentHeight = h } }
                 .offset(x: swipeOffset)
                 .overlay { swipeChapterLabel }
-                .simultaneousGesture(canSwipePages ? swipeGesture : nil)
                 .opacity(contentOpacity)
             }
         }
@@ -805,6 +810,13 @@ struct ReaderView: View {
                     guard let id = vm.selectedChapter?.id else { return false }
                     notesVM.addNote(to: id)
                     return true
+                },
+                swipeEnabled: canSwipePages,
+                onSwipeChanged: { translation in
+                    handleSwipeChanged(translation)
+                },
+                onSwipeEnded: { translation in
+                    handleSwipeEnded(translation)
                 }
             ) {
                 ZStack(alignment: .topLeading) {
@@ -1142,49 +1154,32 @@ struct ReaderView: View {
     /// Maximum distance (pts) the content shifts during a swipe peek.
     private let swipeMaxShift: CGFloat = 80
 
-    private var swipeGesture: some Gesture {
-        DragGesture(minimumDistance: 40)
-            .onChanged { value in
-                guard !isSwipeTransitioning else { return }
-                let h = value.translation.width
-                let v = abs(value.translation.height)
-                // Only engage when the drag is clearly horizontal (not diagonal scrolling)
-                guard abs(h) > v * 1.5 else {
-                    // Reset if the user drifted diagonal
-                    if swipeOffset != 0 {
-                        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-                            swipeOffset = 0
-                        }
-                    }
-                    return
-                }
+    /// Called by ZoomScrollView's horizontal pan gesture every frame.
+    private func handleSwipeChanged(_ h: CGFloat) {
+        guard !isSwipeTransitioning else { return }
 
-                if (h > 0 && isAtFirstChapter) || (h < 0 && isAtLastChapter) {
-                    // Rubber-band at the edge — capped to a tiny amount
-                    swipeOffset = max(-20, min(20, h * 0.15))
-                } else {
-                    // Soft-cap: follow finger up to swipeMaxShift, then decelerate
-                    let clamped = max(-swipeMaxShift, min(swipeMaxShift, h))
-                    swipeOffset = clamped
-                }
-            }
-            .onEnded { value in
-                guard !isSwipeTransitioning else { return }
-                let h = value.translation.width
-                let v = abs(value.translation.height)
-                let threshold: CGFloat = 80
+        if (h > 0 && isAtFirstChapter) || (h < 0 && isAtLastChapter) {
+            swipeOffset = max(-20, min(20, h * 0.15))
+        } else {
+            let clamped = max(-swipeMaxShift, min(swipeMaxShift, h))
+            swipeOffset = clamped
+        }
+    }
 
-                // Only commit page turn if the gesture was clearly horizontal
-                if abs(h) > v * 1.5 && h < -threshold && !isAtLastChapter {
-                    commitPageTurn(direction: .next)
-                } else if abs(h) > v * 1.5 && h > threshold && !isAtFirstChapter {
-                    commitPageTurn(direction: .previous)
-                } else {
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                        swipeOffset = 0
-                    }
-                }
+    /// Called by ZoomScrollView's horizontal pan gesture when the drag ends.
+    private func handleSwipeEnded(_ h: CGFloat) {
+        guard !isSwipeTransitioning else { return }
+        let threshold: CGFloat = 80
+
+        if h < -threshold && !isAtLastChapter {
+            commitPageTurn(direction: .next)
+        } else if h > threshold && !isAtFirstChapter {
+            commitPageTurn(direction: .previous)
+        } else {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                swipeOffset = 0
             }
+        }
     }
 
     private func commitPageTurn(direction: SwipeDirection) {

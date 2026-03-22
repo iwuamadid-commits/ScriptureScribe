@@ -69,6 +69,9 @@ struct AuthView: View {
                                     text: $displayName
                                 )
                                 .transition(.move(edge: .top).combined(with: .opacity))
+                                .onChange(of: displayName) { _, newValue in
+                                    if newValue.count > 40 { displayName = String(newValue.prefix(40)) }
+                                }
                             }
 
                             fieldRow(
@@ -96,6 +99,7 @@ struct AuthView: View {
                                     Image(systemName: showPassword ? "eye.slash" : "eye")
                                         .foregroundStyle(themeManager.currentTheme.textSecondary)
                                 }
+                                .accessibilityLabel(showPassword ? "Hide password" : "Show password")
                             }
                             .padding(.horizontal, 16)
                             .padding(.vertical, 14)
@@ -147,6 +151,20 @@ struct AuthView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 14))
                         }
                         .disabled(!formIsValid || authVM.isLoading)
+
+                        // ── Forgot Password (sign-in only) ───────────────
+                        if !isSignUp {
+                            Button {
+                                Task {
+                                    await authVM.resetPassword(email: email)
+                                }
+                            } label: {
+                                Text("Forgot Password?")
+                                    .font(.subheadline)
+                                    .foregroundStyle(themeManager.currentTheme.primary)
+                            }
+                            .disabled(authVM.isLoading || !email.contains("@"))
+                        }
 
                         // ── Divider ───────────────────────────────────────
                         HStack {
@@ -250,6 +268,7 @@ struct AuthView: View {
                     .padding(.horizontal, 28)
                     .animation(.easeInOut(duration: 0.2), value: isSignUp)
                 }
+                .scrollDismissesKeyboard(.interactively)
             }
             .navigationTitle(isSignUp ? "Sign Up" : "Sign In")
             .navigationBarTitleDisplayMode(.inline)
@@ -263,6 +282,11 @@ struct AuthView: View {
             .toolbarBackground(.visible, for: .navigationBar)
         }
         .onAppear { authVM.errorMessage = nil }
+        .alert("Check Your Email", isPresented: $authVM.didSendResetEmail) {
+            Button("OK") { }
+        } message: {
+            Text("If an account exists for \(email), a password reset link has been sent.")
+        }
     }
 
     // MARK: - Helpers

@@ -106,6 +106,7 @@ struct CommentRowView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(currentUserId == nil)
+                .accessibilityLabel("Reply")
 
                 Spacer()
             }

@@ -326,8 +326,6 @@ final class AnnotationViewModel: ObservableObject {
 
     // MARK: - Canvas Callbacks (set by AnnotationCanvasView)
 
-    var undoAction:        (() -> Void)?
-    var redoAction:        (() -> Void)?
     var clearCanvasAction: (() -> Void)?
     var getDrawingAction:  (() -> PKDrawing)?
     var setDrawingAction:  ((PKDrawing) -> Void)?
@@ -341,22 +339,24 @@ final class AnnotationViewModel: ObservableObject {
     /// Weak reference to NotesViewModel for undo/redo restoration
     weak var notesVMRef: NotesViewModel?
 
-    // MARK: - Lasso Undo/Redo Stack
+    // MARK: - Unified Undo/Redo Stack
 
-    struct LassoUndoSnapshot {
+    struct UndoSnapshot {
         let drawing: PKDrawing
         let photos: [PhotoAnnotation]?
         let notes: [UserNote]
         let chapterId: String
     }
 
-    private var lassoUndoStack: [LassoUndoSnapshot] = []
-    private var lassoRedoStack: [LassoUndoSnapshot] = []
-    private var preDragSnapshot: LassoUndoSnapshot?
-    private let maxUndoStackSize = 20
+    private var undoStack: [UndoSnapshot] = []
+    private var redoStack: [UndoSnapshot] = []
+    private var preDragSnapshot: UndoSnapshot?
+    /// Set by the canvas delegate before a PencilKit stroke/erase begins.
+    private var preStrokeSnapshot: UndoSnapshot?
+    private let maxUndoStackSize = 30
 
-    private func captureLassoSnapshot(chapterId: String, notesVM: NotesViewModel?) -> LassoUndoSnapshot {
-        LassoUndoSnapshot(
+    func captureSnapshot(chapterId: String, notesVM: NotesViewModel?) -> UndoSnapshot {
+        UndoSnapshot(
             drawing: getDrawingAction?() ?? PKDrawing(),
             photos: photoAnnotations[chapterId],
             notes: notesVM?.notes ?? notesVMRef?.notes ?? [],
@@ -364,17 +364,18 @@ final class AnnotationViewModel: ObservableObject {
         )
     }
 
-    private func pushLassoUndo(_ snapshot: LassoUndoSnapshot) {
-        lassoUndoStack.append(snapshot)
-        if lassoUndoStack.count > maxUndoStackSize {
-            lassoUndoStack.removeFirst()
+    func pushUndo(_ snapshot: UndoSnapshot) {
+        undoStack.append(snapshot)
+        if undoStack.count > maxUndoStackSize {
+            undoStack.removeFirst()
         }
-        lassoRedoStack.removeAll()
+        redoStack.removeAll()
     }
 
-    private func restoreLassoSnapshot(_ snapshot: LassoUndoSnapshot) {
-        // setDrawingAction uses isRewriting to safely bypass the delegate
+    private func restoreSnapshot(_ snapshot: UndoSnapshot) {
+        suppressCanvasSave = true
         setDrawingAction?(snapshot.drawing)
+        suppressCanvasSave = false
         saveDrawing(snapshot.drawing, for: snapshot.chapterId)
         photoAnnotations[snapshot.chapterId] = snapshot.photos
         savePhotoAnnotations(for: snapshot.chapterId)
@@ -384,16 +385,30 @@ final class AnnotationViewModel: ObservableObject {
         }
     }
 
-    /// Call before snapshot drag starts to capture pre-drag state.
-    func captureLassoDragUndo(chapterId: String, notesVM: NotesViewModel) {
-        notesVMRef = notesVM
-        preDragSnapshot = captureLassoSnapshot(chapterId: chapterId, notesVM: notesVM)
+    /// Called by the canvas delegate before a PencilKit stroke or erase begins.
+    func capturePreStrokeState() {
+        guard !currentChapterId.isEmpty else { return }
+        preStrokeSnapshot = captureSnapshot(chapterId: currentChapterId, notesVM: notesVMRef)
     }
 
-    /// Call after snapshot drag ends to commit the captured state to the undo stack.
+    /// Called by the canvas delegate after a PencilKit stroke or erase completes.
+    func commitPreStrokeUndo() {
+        if let snapshot = preStrokeSnapshot {
+            pushUndo(snapshot)
+            preStrokeSnapshot = nil
+        }
+    }
+
+    /// Call before lasso drag starts to capture pre-drag state.
+    func captureLassoDragUndo(chapterId: String, notesVM: NotesViewModel) {
+        notesVMRef = notesVM
+        preDragSnapshot = captureSnapshot(chapterId: chapterId, notesVM: notesVM)
+    }
+
+    /// Call after lasso drag ends to commit the captured state to the undo stack.
     func commitLassoDragUndo() {
         if let snapshot = preDragSnapshot {
-            pushLassoUndo(snapshot)
+            pushUndo(snapshot)
             preDragSnapshot = nil
         }
     }
@@ -421,44 +436,29 @@ final class AnnotationViewModel: ObservableObject {
         saveDrawing(drawing, for: currentChapterId)
     }
 
-    /// Clears the lasso undo/redo stacks. Called on chapter change so
+    /// Clears the undo/redo stacks. Called on chapter change so
     /// old-chapter operations can't leak onto the new page.
     func clearUndoStacks() {
-        lassoUndoStack.removeAll()
-        lassoRedoStack.removeAll()
+        undoStack.removeAll()
+        redoStack.removeAll()
         preDragSnapshot = nil
+        preStrokeSnapshot = nil
     }
 
     func undo() {
-        if let snapshot = lassoUndoStack.popLast() {
-            let current = LassoUndoSnapshot(
-                drawing: getDrawingAction?() ?? PKDrawing(),
-                photos: photoAnnotations[snapshot.chapterId],
-                notes: notesVMRef?.notes ?? [],
-                chapterId: snapshot.chapterId
-            )
-            lassoRedoStack.append(current)
-            restoreLassoSnapshot(snapshot)
-            lassoState.clear()
-        } else {
-            undoAction?()
-        }
+        guard let snapshot = undoStack.popLast() else { return }
+        let current = captureSnapshot(chapterId: snapshot.chapterId, notesVM: notesVMRef)
+        redoStack.append(current)
+        restoreSnapshot(snapshot)
+        lassoState.clear()
     }
 
     func redo() {
-        if let snapshot = lassoRedoStack.popLast() {
-            let current = LassoUndoSnapshot(
-                drawing: getDrawingAction?() ?? PKDrawing(),
-                photos: photoAnnotations[snapshot.chapterId],
-                notes: notesVMRef?.notes ?? [],
-                chapterId: snapshot.chapterId
-            )
-            lassoUndoStack.append(current)
-            restoreLassoSnapshot(snapshot)
-            lassoState.clear()
-        } else {
-            redoAction?()
-        }
+        guard let snapshot = redoStack.popLast() else { return }
+        let current = captureSnapshot(chapterId: snapshot.chapterId, notesVM: notesVMRef)
+        undoStack.append(current)
+        restoreSnapshot(snapshot)
+        lassoState.clear()
     }
     func clearCanvas() {
         let chapterId = currentChapterId
@@ -473,13 +473,13 @@ final class AnnotationViewModel: ObservableObject {
 
         // Capture current state for undo before clearing
         if hasContent {
-            let undoSnapshot = LassoUndoSnapshot(
+            let snapshot = UndoSnapshot(
                 drawing: drawing,
                 photos: photoAnnotations[chapterId],
                 notes: notesVMRef?.notes ?? [],
                 chapterId: chapterId
             )
-            pushLassoUndo(undoSnapshot)
+            pushUndo(snapshot)
         }
 
         // Clear drawing
@@ -616,9 +616,9 @@ final class AnnotationViewModel: ObservableObject {
     func addSavedColor(_ color: UIColor) {
         let newColor = SavedColor(color: color)
         savedColors.removeAll { $0.colorHex == newColor.colorHex && $0.alpha == newColor.alpha }
-        savedColors.insert(newColor, at: 0)
+        savedColors.append(newColor)
         if savedColors.count > maxSavedColors {
-            savedColors = Array(savedColors.prefix(maxSavedColors))
+            savedColors = Array(savedColors.suffix(maxSavedColors))
         }
         persistColors()
     }
@@ -1269,7 +1269,8 @@ final class AnnotationViewModel: ObservableObject {
             for index in lassoState.selectedStrokeIndices where index < allStrokes.count {
                 let movedDrawing = PKDrawing(strokes: [allStrokes[index]])
                     .transformed(using: transform)
-                allStrokes[index] = movedDrawing.strokes[0]
+                guard let movedStroke = movedDrawing.strokes.first else { continue }
+                allStrokes[index] = movedStroke
             }
             let newDrawing = PKDrawing(strokes: allStrokes)
             // setDrawingAction uses isRewriting to safely bypass the delegate
@@ -1365,7 +1366,7 @@ final class AnnotationViewModel: ObservableObject {
         var allStrokes = drawing.strokes
         var newIndices: [Int] = []
         for stroke in originalStrokes {
-            let moved = PKDrawing(strokes: [stroke]).transformed(using: transform).strokes[0]
+            guard let moved = PKDrawing(strokes: [stroke]).transformed(using: transform).strokes.first else { continue }
             newIndices.append(allStrokes.count)
             allStrokes.append(moved)
         }
@@ -1405,7 +1406,7 @@ final class AnnotationViewModel: ObservableObject {
         areaSize: CGSize
     ) {
         notesVMRef = notesVM
-        let undoSnapshot = captureLassoSnapshot(chapterId: chapterId, notesVM: notesVM)
+        let undoSnapshot = captureSnapshot(chapterId: chapterId, notesVM: notesVM)
 
         let box = lassoState.boundingBox
         let anchorX = box.midX
@@ -1421,9 +1422,9 @@ final class AnnotationViewModel: ObservableObject {
             let toBack   = CGAffineTransform(translationX: anchorX, y: anchorY)
             let combined = toOrigin.concatenating(scaleT).concatenating(toBack)
             for index in lassoState.selectedStrokeIndices where index < allStrokes.count {
-                let movedDrawing = PKDrawing(strokes: [allStrokes[index]])
-                    .transformed(using: combined)
-                allStrokes[index] = movedDrawing.strokes[0]
+                guard let movedStroke = PKDrawing(strokes: [allStrokes[index]])
+                    .transformed(using: combined).strokes.first else { continue }
+                allStrokes[index] = movedStroke
             }
             let newDrawing = PKDrawing(strokes: allStrokes)
             setDrawingAction?(newDrawing)
@@ -1476,7 +1477,7 @@ final class AnnotationViewModel: ObservableObject {
             width: newW,
             height: newH
         )
-        pushLassoUndo(undoSnapshot)
+        pushUndo(undoSnapshot)
     }
 
     // MARK: - Lasso Clipboard
@@ -1604,7 +1605,7 @@ final class AnnotationViewModel: ObservableObject {
     ) {
         guard !lassoClipboard.isEmpty else { return }
         notesVMRef = notesVM
-        let undoSnapshot = captureLassoSnapshot(chapterId: chapterId, notesVM: notesVM)
+        let undoSnapshot = captureSnapshot(chapterId: chapterId, notesVM: notesVM)
 
         // Paste strokes
         if !lassoClipboard.strokes.isEmpty, let drawing = getDrawingAction?() {
@@ -1616,7 +1617,7 @@ final class AnnotationViewModel: ObservableObject {
             let transform = CGAffineTransform(translationX: dx, y: dy)
             var allStrokes = drawing.strokes
             for stroke in lassoClipboard.strokes {
-                let moved = PKDrawing(strokes: [stroke]).transformed(using: transform).strokes[0]
+                guard let moved = PKDrawing(strokes: [stroke]).transformed(using: transform).strokes.first else { continue }
                 allStrokes.append(moved)
             }
             let newDrawing = PKDrawing(strokes: allStrokes)
@@ -1664,7 +1665,7 @@ final class AnnotationViewModel: ObservableObject {
             notesVM.persistNotes()
         }
 
-        pushLassoUndo(undoSnapshot)
+        pushUndo(undoSnapshot)
         if clearAfterPaste {
             lassoState.clear()
         }
@@ -1678,7 +1679,7 @@ final class AnnotationViewModel: ObservableObject {
               let drawing = getDrawingAction?()
         else { return }
 
-        let undoSnapshot = captureLassoSnapshot(
+        let undoSnapshot = captureSnapshot(
             chapterId: chapterId,
             notesVM: notesVMRef
         )
@@ -1698,14 +1699,14 @@ final class AnnotationViewModel: ObservableObject {
         let newDrawing = PKDrawing(strokes: allStrokes)
         setDrawingAction?(newDrawing)
         saveDrawing(newDrawing, for: chapterId)
-        pushLassoUndo(undoSnapshot)
+        pushUndo(undoSnapshot)
     }
 
     // MARK: - Lasso Group Delete
 
     func deleteLassoSelection(chapterId: String, notesVM: NotesViewModel) {
         notesVMRef = notesVM
-        let undoSnapshot = captureLassoSnapshot(chapterId: chapterId, notesVM: notesVM)
+        let undoSnapshot = captureSnapshot(chapterId: chapterId, notesVM: notesVM)
 
         // Delete selected strokes
         if !lassoState.selectedStrokeIndices.isEmpty,
@@ -1734,7 +1735,7 @@ final class AnnotationViewModel: ObservableObject {
             notesVM.persistNotes()
         }
 
-        pushLassoUndo(undoSnapshot)
+        pushUndo(undoSnapshot)
         lassoState.clear()
     }
 }

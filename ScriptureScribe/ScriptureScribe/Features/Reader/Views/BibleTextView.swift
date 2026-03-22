@@ -169,6 +169,7 @@ struct BibleTextView: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
             }
+            .accessibilityLabel("Cancel selection")
 
             Divider().frame(height: 18)
 

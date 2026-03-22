@@ -24,6 +24,8 @@ struct ProfileView: View {
     @State private var showDeleteConfirmation   = false
     @State private var showDeleteFinalConfirm   = false
     @State private var isDeletingAccount        = false
+    @State private var showEditDisplayName       = false
+    @State private var editDisplayNameText       = ""
 
     // Read streak values written by StreakViewModel in the Reader tab
     @AppStorage("streak_currentCount") private var currentStreak: Int = 0
@@ -204,6 +206,7 @@ struct ProfileView: View {
                                             .background(Circle().fill(themeManager.currentTheme.surface).padding(1))
                                     }
                                 }
+                                .buttonStyle(.borderless)
                                 .onChange(of: photoPickerItem) { _, item in
                                     Task {
                                         guard let data = try? await item?.loadTransferable(type: Data.self),
@@ -215,9 +218,21 @@ struct ProfileView: View {
                                 }
 
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(user.displayName)
-                                        .font(.subheadline.weight(.medium))
-                                        .foregroundStyle(themeManager.currentTheme.text)
+                                    HStack(spacing: 6) {
+                                        Text(user.displayName)
+                                            .font(.subheadline.weight(.medium))
+                                            .foregroundStyle(themeManager.currentTheme.text)
+                                        Button {
+                                            editDisplayNameText = user.displayName
+                                            showEditDisplayName = true
+                                        } label: {
+                                            Image(systemName: "pencil.circle.fill")
+                                                .font(.system(size: 16))
+                                                .foregroundStyle(themeManager.currentTheme.primary)
+                                        }
+                                        .buttonStyle(.borderless)
+                                        .accessibilityLabel("Edit display name")
+                                    }
                                     Text(user.email)
                                         .font(.caption)
                                         .foregroundStyle(themeManager.currentTheme.textSecondary)
@@ -423,6 +438,19 @@ struct ProfileView: View {
             }
             .sheet(isPresented: $showPaywall) {
                 PaywallView()
+            }
+            .alert("Edit Display Name", isPresented: $showEditDisplayName) {
+                TextField("Display name", text: $editDisplayNameText)
+                    .onChange(of: editDisplayNameText) { _, newValue in
+                        if newValue.count > 40 { editDisplayNameText = String(newValue.prefix(40)) }
+                    }
+                Button("Save") {
+                    Task { await authVM.updateDisplayName(editDisplayNameText) }
+                }
+                .disabled(editDisplayNameText.trimmingCharacters(in: .whitespaces).isEmpty)
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("Choose a display name for your community posts.")
             }
         }
     }

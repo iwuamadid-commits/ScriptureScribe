@@ -256,7 +256,7 @@ struct HabitStatsView: View {
         let dueHabits = habitsVM.habits.filter { h in
             h.taskDays.contains(wd) &&
             date >= calendar.startOfDay(for: h.startDate) &&
-            (h.endDate == nil || date <= calendar.startOfDay(for: h.endDate!))
+            (h.endDate.map { date <= calendar.startOfDay(for: $0) } ?? true)
         }
         return !dueHabits.isEmpty && dueHabits.allSatisfy { habitsVM.isCompletedOnDate($0, date: date) }
     }

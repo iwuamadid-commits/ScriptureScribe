@@ -167,6 +167,8 @@ struct AnnotationToolbarView: View {
                     isAtLimit: isAtFreeLimit
                 )
             }
+            .presentationDetents([.fraction(0.88)])
+            .presentationDragIndicator(.visible)
         }
         // Photo source: take photo or choose from library
         .confirmationDialog("Add Photo", isPresented: $showPhotoSourcePicker) {
@@ -376,12 +378,14 @@ struct AnnotationToolbarView: View {
     /// Extracted into its own builder to prevent body type-check timeout.
     @ViewBuilder
     private func colorSwatch(visibleIdx: Int, item: (realIndex: Int, color: SavedColor)) -> some View {
-        let isSelected:   Bool    = item.color.colorHex == vm.selectedColor.hexString
+        let isBeingEdited: Bool   = vm.pendingEditColorIndex == item.realIndex
+        let isSelected:   Bool    = isBeingEdited || item.color.colorHex == vm.selectedColor.hexString
         let isDragged:    Bool    = draggedVisibleIndex == visibleIdx
         let displacement: CGFloat = isDragged ? dragOffset : colorDisplacement(for: visibleIdx)
+        let displayColor: Color   = isBeingEdited ? Color(vm.selectedColor) : Color(item.color.uiColor)
 
         ZStack {
-            Circle().fill(Color(item.color.uiColor))
+            Circle().fill(displayColor)
             Circle().strokeBorder(
                 isSelected ? themeManager.currentTheme.primary : Color.white.opacity(0.3),
                 lineWidth: isSelected ? 2.5 : 1.5

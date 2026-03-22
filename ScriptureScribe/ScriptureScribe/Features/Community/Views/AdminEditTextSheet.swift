@@ -34,7 +34,7 @@ struct AdminEditTextSheet: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
 
-                        // ── Admin badge ──────────────────────────────
+                        // ── Admin badge ─────────────────────────────
                         HStack(spacing: 6) {
                             Image(systemName: "shield.checkered")
                                 .foregroundStyle(.orange)
@@ -60,6 +60,9 @@ struct AdminEditTextSheet: View {
                                     RoundedRectangle(cornerRadius: 10)
                                         .stroke(themeManager.currentTheme.border, lineWidth: 1)
                                 )
+                                .onChange(of: displayName) { _, newValue in
+                                    if newValue.count > 50 { displayName = String(newValue.prefix(50)) }
+                                }
                         }
 
                         // ── Post Text ────────────────────────────────
@@ -77,11 +80,22 @@ struct AdminEditTextSheet: View {
                                     RoundedRectangle(cornerRadius: 10)
                                         .stroke(themeManager.currentTheme.border, lineWidth: 1)
                                 )
+                                .onChange(of: text) { _, newValue in
+                                    if newValue.count > 2000 { text = String(newValue.prefix(2000)) }
+                                }
+
+                            if text.count > 1800 {
+                                Text("\(text.count)/2000")
+                                    .font(.caption2)
+                                    .foregroundStyle(text.count >= 2000 ? .red : themeManager.currentTheme.textSecondary)
+                                    .frame(maxWidth: .infinity, alignment: .trailing)
+                            }
                         }
                     }
                     .padding(20)
                 }
                 .foregroundStyle(themeManager.currentTheme.text)
+                .scrollDismissesKeyboard(.interactively)
             }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)

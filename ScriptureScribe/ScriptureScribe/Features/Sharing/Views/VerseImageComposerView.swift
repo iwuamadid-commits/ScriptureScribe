@@ -131,17 +131,17 @@ struct VerseImageComposerView: View {
     private var editorToolbar: some View {
         HStack(spacing: 0) {
             // Text size down
-            toolbarButton(icon: "textformat.size.smaller") {
+            toolbarButton(icon: "textformat.size.smaller", label: "Decrease text size") {
                 fontSize = max(16, fontSize - 2)
             }
 
             // Text size up
-            toolbarButton(icon: "textformat.size.larger") {
+            toolbarButton(icon: "textformat.size.larger", label: "Increase text size") {
                 fontSize = min(44, fontSize + 2)
             }
 
             // Text alignment cycle
-            toolbarButton(icon: alignmentIcon) {
+            toolbarButton(icon: alignmentIcon, label: "Change text alignment") {
                 switch textAlignment {
                 case .center:   textAlignment = .leading
                 case .leading:  textAlignment = .trailing
@@ -150,17 +150,17 @@ struct VerseImageComposerView: View {
             }
 
             // Contrast (overlay opacity)
-            toolbarButton(icon: "circle.lefthalf.filled") {
+            toolbarButton(icon: "circle.lefthalf.filled", label: "Adjust contrast") {
                 overlayOpacity = overlayOpacity >= 0.6 ? 0.15 : overlayOpacity + 0.15
             }
 
             // Choose background
-            toolbarButton(icon: "photo.on.rectangle") {
+            toolbarButton(icon: "photo.on.rectangle", label: "Choose background") {
                 showBackgroundPicker = true
             }
 
             // Share
-            toolbarButton(icon: "square.and.arrow.up") {
+            toolbarButton(icon: "square.and.arrow.up", label: "Share image") {
                 showShareSheet = true
             }
         }
@@ -175,7 +175,7 @@ struct VerseImageComposerView: View {
         }
     }
 
-    private func toolbarButton(icon: String, action: @escaping () -> Void) -> some View {
+    private func toolbarButton(icon: String, label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: icon)
                 .font(.system(size: 20))
@@ -183,6 +183,7 @@ struct VerseImageComposerView: View {
                 .frame(maxWidth: .infinity, minHeight: 44)
                 .contentShape(Rectangle())
         }
+        .accessibilityLabel(label)
     }
 
     // MARK: - Image Rendering

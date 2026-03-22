@@ -50,9 +50,12 @@ enum AppConfig {
     }
 
     static let anthropicBaseURL = "https://api.anthropic.com/v1/messages"
+    static let anthropicModel   = "claude-haiku-4-5-20251001"
 
     // MARK: - Legal
 
-    static let privacyPolicyURL  = URL(string: "https://motley-crayon-960.notion.site/Privacy-Policy-3279dcc4e61c80cf967bf7806fa30c61")!
-    static let termsOfServiceURL = URL(string: "https://motley-crayon-960.notion.site/Terms-of-Service-3279dcc4e61c800487f2ef1846f980bf")!
+    static let privacyPolicyURL  = URL(string: "https://motley-crayon-960.notion.site/Privacy-Policy-3279dcc4e61c80cf967bf7806fa30c61")
+        ?? URL(fileURLWithPath: "/")
+    static let termsOfServiceURL = URL(string: "https://motley-crayon-960.notion.site/Terms-of-Service-3279dcc4e61c800487f2ef1846f980bf")
+        ?? URL(fileURLWithPath: "/")
 }

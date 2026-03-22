@@ -49,6 +49,10 @@ final class AuthService {
         try Auth.auth().signOut()
     }
 
+    func resetPassword(email: String) async throws {
+        try await Auth.auth().sendPasswordReset(withEmail: email)
+    }
+
     // MARK: - Sign in with Google
 
     func signInWithGoogle(presenting viewController: UIViewController) async throws -> AppUser {
@@ -135,7 +139,7 @@ final class AuthService {
             let parts = [given, credential.fullName?.familyName].compactMap { $0 }
             displayName = parts.joined(separator: " ")
         } else {
-            displayName = user.displayName?.isEmpty == false ? user.displayName! : "Scribe"
+            displayName = (user.displayName?.isEmpty == false ? user.displayName : nil) ?? "Scribe"
         }
 
         // Check if this user already has a Firestore document (returning user)

@@ -117,6 +117,7 @@ struct BookBrowserView: View {
                     }
                     .padding(.bottom, 40)
                 }
+                .scrollDismissesKeyboard(.interactively)
                 .scrollContentBackground(.hidden)
                 .background(themeManager.currentTheme.background)
                 .onAppear {

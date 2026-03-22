@@ -108,6 +108,22 @@ final class AuthViewModel: ObservableObject {
         isLoading = false
     }
 
+    // MARK: - Password Reset
+
+    @Published var didSendResetEmail = false
+
+    func resetPassword(email: String) async {
+        isLoading = true
+        errorMessage = nil
+        do {
+            try await authService.resetPassword(email: email)
+            didSendResetEmail = true
+        } catch {
+            errorMessage = error.userMessage
+        }
+        isLoading = false
+    }
+
     // MARK: - Sign in with Google
 
     func signInWithGoogle() async {
@@ -173,6 +189,29 @@ final class AuthViewModel: ObservableObject {
             let url = try await authService.uploadProfilePhoto(userId: userId, imageData: imageData)
             try await FirestoreService().updateUserPhoto(userId: userId, photoURL: url)
             currentUser?.photoURL = url
+        } catch {
+            errorMessage = error.userMessage
+        }
+        isLoading = false
+    }
+
+    // MARK: - Update Display Name
+
+    func updateDisplayName(_ newName: String) async {
+        guard let userId = currentUserID else { return }
+        let trimmed = String(newName.trimmingCharacters(in: .whitespacesAndNewlines).prefix(40))
+        guard !trimmed.isEmpty else { return }
+        isLoading = true
+        do {
+            // Update Firestore user doc
+            try await firestoreService.updateUserDisplayName(userId: userId, displayName: trimmed)
+            // Update Firebase Auth profile
+            if let user = Auth.auth().currentUser {
+                let changeRequest = user.createProfileChangeRequest()
+                changeRequest.displayName = trimmed
+                try await changeRequest.commitChanges()
+            }
+            currentUser?.displayName = trimmed
         } catch {
             errorMessage = error.userMessage
         }

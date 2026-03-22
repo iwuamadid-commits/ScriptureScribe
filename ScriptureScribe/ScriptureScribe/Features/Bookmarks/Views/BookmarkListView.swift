@@ -375,6 +375,7 @@ struct BookmarkDetailView: View {
                         Image(systemName: "ellipsis.circle")
                             .font(.system(size: 18))
                     }
+                    .accessibilityLabel("More options")
                 }
             }
         }

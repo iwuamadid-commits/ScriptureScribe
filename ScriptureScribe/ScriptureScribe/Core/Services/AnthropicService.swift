@@ -128,14 +128,17 @@ struct AnthropicService {
     }
 
     private func callClaude(prompt: String, apiKey: String, maxTokens: Int = 1024) async throws -> String {
-        var request        = URLRequest(url: URL(string: AppConfig.anthropicBaseURL)!)
+        guard let url = URL(string: AppConfig.anthropicBaseURL) else {
+            throw URLError(.badURL)
+        }
+        var request        = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue(apiKey,            forHTTPHeaderField: "x-api-key")
         request.setValue("2023-06-01",      forHTTPHeaderField: "anthropic-version")
         request.setValue("application/json", forHTTPHeaderField: "content-type")
 
         let body: [String: Any] = [
-            "model":      "claude-haiku-4-5-20251001",
+            "model":      AppConfig.anthropicModel,
             "max_tokens": maxTokens,
             "messages": [
                 ["role": "user", "content": prompt]

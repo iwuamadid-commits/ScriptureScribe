@@ -18,6 +18,35 @@
 import SwiftUI
 import UIKit
 
+// MARK: - Horizontal Page-Swipe Gesture Recognizer
+
+/// A pan gesture that only activates for clearly horizontal drags.
+/// The scroll view's built-in pan is configured with `require(toFail:)` on this,
+/// so vertical scrolling waits until the system confirms the drag isn't horizontal.
+private class HorizontalPanGestureRecognizer: UIPanGestureRecognizer {
+    private var isLocked = false
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesMoved(touches, with: event)
+        guard !isLocked else { return }
+
+        let v = velocity(in: view)
+        // Decide on the first significant movement
+        if abs(v.x) > 60 || abs(v.y) > 60 {
+            if abs(v.y) > abs(v.x) * 0.8 {
+                // Vertical — fail so the scroll view takes over
+                state = .failed
+            }
+            isLocked = true
+        }
+    }
+
+    override func reset() {
+        super.reset()
+        isLocked = false
+    }
+}
+
 // MARK: - Pencil Pass-Through Container
 
 /// A container view that optionally blocks Apple Pencil touches from reaching
@@ -56,6 +85,15 @@ struct ZoomScrollView<Content: View>: UIViewRepresentable {
     /// Optional callback fired on double-tap. When provided and returning `true`,
     /// the zoom toggle is skipped — used for "double-tap to add note".
     var onDoubleTap:         (() -> Bool)? = nil
+
+    // ── Chapter swipe parameters ─────────────────────────────────────
+    /// When true, horizontal swipe-to-change-chapter is enabled.
+    var swipeEnabled:        Bool = false
+    /// Called every frame during a horizontal drag with the current offset.
+    var onSwipeChanged:      ((CGFloat) -> Void)? = nil
+    /// Called when the drag ends. Receives the final translation width.
+    var onSwipeEnded:        ((CGFloat) -> Void)? = nil
+
     @ViewBuilder let content: () -> Content
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -122,6 +160,17 @@ struct ZoomScrollView<Content: View>: UIViewRepresentable {
         doubleTap.numberOfTapsRequired = 2
         scrollView.addGestureRecognizer(doubleTap)
 
+        // ── Horizontal swipe for chapter change ──────────────────────────
+        let horizontalPan = HorizontalPanGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(Coordinator.handleHorizontalPan(_:))
+        )
+        horizontalPan.isEnabled = swipeEnabled
+        scrollView.addGestureRecognizer(horizontalPan)
+        // Scroll view's pan waits for the horizontal gesture to fail before firing.
+        scrollView.panGestureRecognizer.require(toFail: horizontalPan)
+        context.coordinator.horizontalPan = horizontalPan
+
         return scrollView
     }
 
@@ -153,6 +202,11 @@ struct ZoomScrollView<Content: View>: UIViewRepresentable {
 
         // Keep the double-tap callback in sync with the latest closure.
         context.coordinator.onDoubleTap = onDoubleTap
+
+        // Keep swipe callbacks in sync.
+        context.coordinator.horizontalPan?.isEnabled = swipeEnabled
+        context.coordinator.onSwipeChanged = onSwipeChanged
+        context.coordinator.onSwipeEnded   = onSwipeEnded
 
         // Push updated SwiftUI content to the hosted view
         context.coordinator.hosting?.rootView = content()
@@ -196,6 +250,11 @@ struct ZoomScrollView<Content: View>: UIViewRepresentable {
         var lastResetTrigger: Int = 0
         var onDoubleTap:      (() -> Bool)?
         private var pendingResets: [DispatchWorkItem] = []
+
+        // Chapter swipe
+        fileprivate var horizontalPan: HorizontalPanGestureRecognizer?
+        var onSwipeChanged:   ((CGFloat) -> Void)?
+        var onSwipeEnded:     ((CGFloat) -> Void)?
 
         /// Fires scroll-to-top resets at staggered intervals so at least one
         /// lands after SwiftUI finishes its layout pass. Content is invisible
@@ -255,6 +314,18 @@ struct ZoomScrollView<Content: View>: UIViewRepresentable {
                     height: size.height
                 )
                 scrollView.zoom(to: rect, animated: true)
+            }
+        }
+
+        @objc func handleHorizontalPan(_ recognizer: UIPanGestureRecognizer) {
+            let translation = recognizer.translation(in: recognizer.view).x
+            switch recognizer.state {
+            case .changed:
+                onSwipeChanged?(translation)
+            case .ended, .cancelled:
+                onSwipeEnded?(translation)
+            default:
+                break
             }
         }
     }

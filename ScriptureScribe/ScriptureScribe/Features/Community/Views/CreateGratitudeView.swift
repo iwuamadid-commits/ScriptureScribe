@@ -54,9 +54,19 @@ struct CreateGratitudeView: View {
                                 .frame(minHeight: 140)
                                 .scrollContentBackground(.hidden)
                                 .background(Color.clear)
+                                .onChange(of: postText) { _, newValue in
+                                    if newValue.count > 2000 { postText = String(newValue.prefix(2000)) }
+                                }
                         }
                         .foregroundStyle(themeManager.currentTheme.text)
                         .font(.body)
+
+                        if postText.count > 1800 {
+                            Text("\(postText.count)/2000")
+                                .font(.caption2)
+                                .foregroundStyle(postText.count >= 2000 ? .red : themeManager.currentTheme.textSecondary)
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+                        }
 
                         // ── Photo picker ───────────────────────────────
                         if let preview = previewImage {
@@ -100,6 +110,7 @@ struct CreateGratitudeView: View {
                     .padding(.horizontal, 20)
                     .padding(.bottom, 20)
                 }
+                .scrollDismissesKeyboard(.interactively)
             }
             .navigationTitle("Share Gratitude")
             .navigationBarTitleDisplayMode(.inline)

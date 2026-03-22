@@ -23,11 +23,25 @@ struct EditTextSheet: View {
             ZStack {
                 themeManager.currentTheme.background.ignoresSafeArea()
 
-                TextEditor(text: $text)
-                    .font(.body)
-                    .foregroundStyle(themeManager.currentTheme.text)
-                    .scrollContentBackground(.hidden)
-                    .padding(16)
+                VStack(spacing: 0) {
+                    TextEditor(text: $text)
+                        .font(.body)
+                        .foregroundStyle(themeManager.currentTheme.text)
+                        .scrollContentBackground(.hidden)
+                        .padding(16)
+                        .onChange(of: text) { _, newValue in
+                            if newValue.count > 2000 { text = String(newValue.prefix(2000)) }
+                        }
+
+                    if text.count > 1800 {
+                        Text("\(text.count)/2000")
+                            .font(.caption2)
+                            .foregroundStyle(text.count >= 2000 ? .red : themeManager.currentTheme.textSecondary)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                            .padding(.trailing, 20)
+                            .padding(.bottom, 8)
+                    }
+                }
             }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)

@@ -53,7 +53,7 @@ struct CreatePrayerView: View {
                         // ── Text editor ────────────────────────────────
                         ZStack(alignment: .topLeading) {
                             if requestText.isEmpty {
-                                Text("Share your prayer request…")
+                                Text("Share your prayer request\u{2026}")
                                     .foregroundStyle(themeManager.currentTheme.textSecondary)
                                     .padding(.top, 8)
                                     .padding(.leading, 5)
@@ -62,13 +62,24 @@ struct CreatePrayerView: View {
                                 .frame(minHeight: 160)
                                 .scrollContentBackground(.hidden)
                                 .background(Color.clear)
+                                .onChange(of: requestText) { _, newValue in
+                                    if newValue.count > 2000 { requestText = String(newValue.prefix(2000)) }
+                                }
                         }
                         .foregroundStyle(themeManager.currentTheme.text)
                         .font(.body)
+
+                        if requestText.count > 1800 {
+                            Text("\(requestText.count)/2000")
+                                .font(.caption2)
+                                .foregroundStyle(requestText.count >= 2000 ? .red : themeManager.currentTheme.textSecondary)
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+                        }
                     }
                     .padding(.horizontal, 20)
                     .padding(.bottom, 20)
                 }
+                .scrollDismissesKeyboard(.interactively)
             }
             .navigationTitle("Prayer Request")
             .navigationBarTitleDisplayMode(.inline)

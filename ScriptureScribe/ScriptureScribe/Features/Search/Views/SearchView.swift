@@ -122,6 +122,7 @@ struct SearchView: View {
                                 .padding(.trailing, 16)
                                 .padding(.vertical, 13)
                         }
+                        .accessibilityLabel("Remove search")
                     }
                     Divider().padding(.leading, 48)
                 }
@@ -178,6 +179,7 @@ struct SearchView: View {
                                 .padding(.trailing, 16)
                                 .padding(.vertical, 13)
                         }
+                        .accessibilityLabel("Remove search")
                     }
                     Divider().padding(.leading, 48)
                 }
@@ -203,6 +205,7 @@ struct SearchView: View {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(themeManager.currentTheme.textSecondary)
                 }
+                .accessibilityLabel("Clear search")
             }
         }
         .foregroundStyle(themeManager.currentTheme.text)   // TextField inherits from HStack
@@ -296,6 +299,7 @@ struct SearchView: View {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundStyle(themeManager.currentTheme.textSecondary)
                     }
+                    .accessibilityLabel("Clear search")
                 }
             }
             .foregroundStyle(themeManager.currentTheme.text)   // TextField inherits from HStack

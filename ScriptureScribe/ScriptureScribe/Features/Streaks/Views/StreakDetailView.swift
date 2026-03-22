@@ -23,7 +23,7 @@ struct StreakDetailView: View {
     private var streak: Int { max(streakVM.currentStreak, 1) }
 
     private var nextMilestone: Int {
-        milestones.first { $0 > streak } ?? milestones.last!
+        milestones.first { $0 > streak } ?? milestones.last ?? 365
     }
 
     private var previousMilestone: Int {

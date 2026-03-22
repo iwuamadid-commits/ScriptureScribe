@@ -69,6 +69,7 @@ struct ColorPickerWheelView: View {
                 // ── HSB Square ───────────────────────────────────────────
                 HSBSquareViewFull(hue: $hue, saturation: $saturation, brightness: $brightness)
                     .aspectRatio(1, contentMode: .fit)
+                    .frame(maxHeight: 220)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                     .padding(.horizontal, 20)
 
