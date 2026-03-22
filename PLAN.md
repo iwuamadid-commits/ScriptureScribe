@@ -11,8 +11,8 @@ Derrick and Stephanie (brother and sister) are building a native iOS Bible annot
 - Backend: Firebase (Auth, Firestore, Storage)
 - AI: Anthropic Claude API (daily devotional generation, TTS text reformatting)
 - Monetization: StoreKit 2 (weekly/monthly/yearly/lifetime subscriptions)
-- Offline Bibles: KJV, WEB, ASV downloadable from Firebase Storage
 - API.Bible rate limit: 5,000 queries/day; max 500 consecutive verses per request
+- Disk caching: Translations (7-day TTL), books/chapters (30-day TTL) in Caches/BibleAPICache/
 - Data persistence: User content (bookmarks, notes, habits, saved items) syncs to Firestore per-account. Preferences (theme, font, tool settings) are device-local only (UserDefaults). Annotations (.pkdrawing files) are device-local per-chapter.
 - Sign-out behavior: Local data stays on device. Only account deletion clears everything.
 - Bundle ID: `com.derrickiwuamadi.ScriptureScribe` (Firebase + Xcode + Apple Developer Portal aligned)
@@ -45,15 +45,12 @@ ScriptureScribe/ScriptureScribe/ScriptureScribe/
 │   │   ├── PrayerRequest.swift       ← Prayer requests
 │   │   └── SavedDevotionalItem.swift ← Saved prayers/devotionals/affirmations
 │   ├── Network/
-│   │   └── BibleAPIService.swift     ← API.Bible + in-memory cache + offline fallback
-│   ├── Persistence/
-│   │   ├── OfflineBibleManager.swift ← Download/delete offline translations (Firebase Storage)
-│   │   ├── OfflineBibleStore.swift   ← Local disk read/write for offline chapters
-│   │   └── OfflineTranslationConfig.swift ← KJV/WEB/ASV config mapping
+│   │   └── BibleAPIService.swift     ← API.Bible + disk cache (TTL) + HTML parsing
 │   ├── Services/
 │   │   ├── AdminManager.swift        ← Admin user detection (auto-premium)
 │   │   ├── AnthropicService.swift    ← Claude API for TTS + devotional generation
-│   │   ├── FirestoreService.swift    ← All Firestore reads/writes
+│   │   ├── FirestoreService.swift    ← All Firestore reads/writes + syncData
+│   │   ├── NetworkMonitor.swift     ← Real-time connectivity detection (NWPathMonitor)
 │   │   ├── SubscriptionViewModel.swift ← StoreKit 2 premium management
 │   │   ├── SubscriptionProduct.swift ← Product IDs (weekly/monthly/yearly/lifetime)
 │   │   └── WalkthroughManager.swift  ← Interactive onboarding spotlight system
@@ -91,8 +88,9 @@ ScriptureScribe/ScriptureScribe/ScriptureScribe/
 | Drawing / Annotation | `PencilKit` (PKCanvasView) |
 | Color picker | Custom HSB wheel (Procreate-style) + compact preset picker |
 | Handwriting OCR | `Vision` (VNRecognizeTextRequest) |
-| Offline Bibles | JSON files on disk (Documents/OfflineBibles/) |
 | Bible text | `API.Bible` REST API |
+| Disk caching | FileManager Caches directory with TTL |
+| Network detection | `Network` framework (NWPathMonitor) |
 | Audio playback | `AVFoundation` (AVPlayer for streaming, AVSpeechSynthesizer for TTS) |
 | Auth | `Firebase Auth` + `GoogleSignIn` + `Sign in with Apple` |
 | Community data | `Cloud Firestore` (real-time listeners) |
@@ -112,7 +110,8 @@ users/{uid}/
   ├── notes/{noteId} → { bibleId, bookId, chapterId, verseId, text, xFraction, yFraction, width, height, color, createdAt }
   ├── habits/{habitId} → { name, goal, frequency, timeRange, taskDays[], createdAt }
   ├── habitLogs/{logId} → { habitId, date, value }
-  └── savedItems/{itemId} → { type, date, title, content, verseReference, createdAt }
+  ├── savedItems/{itemId} → { type, date, title, content, verseReference, createdAt }
+  └── syncData/state → { lastBibleId, lastBookId, lastChapterId, myVersionIds[] }
 
 posts/{postId} → { userId, displayName, text, verseRef, verseText, likeCount, commentCount, reportedBy[], adminReviewed }
   └── comments/{commentId} → { postId, userId, displayName, text, likeCount, parentCommentId, reportedBy[], createdAt }
@@ -124,7 +123,6 @@ daily_content/{YYYY-MM-DD} → { verseReference, verseId, prayer, devotion, refl
 
 Firebase Storage paths:
 - `annotations/{uid}/{bibleId}/{chapterId}.pkdrawing`
-- `offline-bibles/KJV.json.gz`, `WEB.json.gz`, `ASV.json.gz`
 - `profilePhotos/{uid}.jpg`
 
 ---
@@ -148,8 +146,7 @@ All defined via `AppTheme` protocol; `ThemeManager` persists selection via `@App
 ### Fully Built
 | Feature | Key Files | Notes |
 |---|---|---|
-| **Bible Reader** | `ReaderView`, `BibleTextView`, `BookBrowserView`, `TranslationBrowserView` | 1,500+ translations, book/chapter nav, font/spacing settings, red-letter support |
-| **Offline Bibles** | `OfflineBibleManager`, `OfflineBibleStore`, `OfflineTranslationConfig` | KJV/WEB/ASV downloadable (~4-6 MB each), transparent fallback in BibleAPIService |
+| **Bible Reader** | `ReaderView`, `BibleTextView`, `BookBrowserView`, `TranslationBrowserView` | 1,500+ translations, book/chapter nav, font/spacing settings, red-letter support, disk caching |
 | **Annotation Engine** | `AnnotationCanvasView`, `AnnotationToolbarView`, `ColorPickerWheelView` | PencilKit overlay, pen/highlighter/eraser/lasso/hand tools, auto-shape detection, saved colors |
 | **Audio Bible** | `AudioPlayerViewModel`, `AudioPlayerView`, `VoiceSelectorView` | Streaming via API.Bible + AVSpeechSynthesizer TTS fallback, verse-by-verse auto-scroll |
 | **Bookmarks** | `BookmarksViewModel`, `BookmarkListView`, `BookmarkPickerView` | 8 ribbon colors, emojis, groups/collections, non-consecutive verse support |
@@ -166,6 +163,15 @@ All defined via `AppTheme` protocol; `ThemeManager` persists selection via `@App
 | **Onboarding** | `OnboardingView`, `WalkthroughOverlayView`, `WalkthroughManager` | First-launch slides + interactive spotlight tour with welcome card |
 | **Library (Saved)** | `SavedView`, `SavedDevotionalsViewModel` | 4 sub-tabs: bookmarks, prayers, devotionals, affirmations |
 | **Admin Dashboard** | `AdminView`, `AdminViewModel` | Flagged content queue, remove/dismiss actions, user count, admin-only in ProfileView |
+
+### Recently Added (March 2026)
+| Feature | Key Files | Notes |
+|---|---|---|
+| **Disk Caching** | `BibleAPIService.swift` | Translations (7d TTL), books/chapters (30d TTL) — instant load on subsequent launches |
+| **Offline Banner** | `NetworkMonitor.swift`, `ContentView.swift` | NWPathMonitor detects connectivity; banner above tab bar when offline |
+| **Camera Permissions** | `AnnotationToolbarView.swift`, `Info.plist` | Checks AVCaptureDevice auth, "Open Settings" alert if denied |
+| **Cross-Device Sync** | `ReaderViewModel.swift`, `StreakViewModel.swift`, `FirestoreService.swift` | Reading position, My Versions, streaks sync to Firestore `syncData/state` |
+| **Chapter Transitions** | `ReaderViewModel.swift` | Separated state updates with 250ms delay for smooth fade-out before content swap |
 
 ### Partially Built
 | Feature | Status | What's Missing |
@@ -198,6 +204,17 @@ All defined via `AppTheme` protocol; `ThemeManager` persists selection via `@App
 | **Report doesn't hide post** | Real-time feed listeners now filter by `reportedBy` (reporter's posts hidden, 5+ hidden from all) |
 | **Preferences sync removed** | Deleted PreferencesManager.swift entirely. Preferences are device-local only. |
 | **Debug premium override** | `-isPremiumCached YES` scheme argument no longer overridden by `checkEntitlement()` |
+
+### Bug Fixes (March 21, 2026)
+| Fix | Details |
+|---|---|
+| **Slow Bible loading** | Added disk caching — translations, books, chapters cached to Caches/ with TTL |
+| **Premium cache overridden** | `#if DEBUG` guard in `checkEntitlement()` prevents StoreKit from clearing debug flag |
+| **Choppy chapter transitions** | Separated `selectedChapter` and `chapterContent` updates with 250ms delay |
+| **App loading deadlock** | `isLoadingTranslations` initial value reverted to false; fallback view shows spinner |
+| **Psalm 119 heading dots** | Strip leading dots/colons from heading buffer in HTML parser |
+| **Calendar duplicate month/year** | Removed `.navigationTitle(monthTitle)` from CalendarSheetView |
+| **Offline Bible download removed** | All references removed from TranslationBrowserView (offlineBibleManager, download UI) |
 
 ---
 
@@ -244,9 +261,11 @@ All defined via `AppTheme` protocol; `ThemeManager` persists selection via `@App
 ### Offline-First + Firebase Sync
 - UserDefaults stores data locally first (bookmarks, notes, habits, streaks)
 - On sign-in, `syncOnSignIn(userId:)` merges local + Firestore
-- App works entirely offline without login
+- App works entirely offline without login (disk-cached Bible content)
 - Every mutation mirrored to Firestore when signed in
+- Cross-device sync: reading position, My Versions, streaks via `syncData/state`
 - Preferences (theme, font, tool settings) stay device-local, never synced
+- Offline banner shown via `NetworkMonitor` when connectivity lost
 
 ### Premium Gating
 ```swift
@@ -288,7 +307,7 @@ if !subscriptionVM.isPremium && count >= PremiumLimits.maxFree* {
 |---|---|---|
 | Translation copyright — strict rules per translation | **Critical** | `copyrightStatement` displayed as footer on every chapter |
 | PencilKit canvas blocks ScrollView touch | **High** | Annotation Mode toggle — canvas only active in drawing mode |
-| API.Bible rate limits (5,000/day) | **High** | In-memory cache + offline Bible downloads for KJV/WEB/ASV |
+| API.Bible rate limits (5,000/day) | **High** | Disk cache with TTL reduces API calls significantly |
 | Firebase costs at scale | **Medium** | Offline-first reduces reads; local caching; Firestore rules |
 | Lasso color picker broken | **Medium** | Needs debugging — sheet may not open or color not applied |
 
@@ -297,13 +316,18 @@ if !subscriptionVM.isPremium && count >= PremiumLimits.maxFree* {
 ## Remaining Work (Pre-App Store)
 
 1. **Fix lasso color picker** — debug sheet presentation and color application
-2. **Test all user POVs** — offline, permissions denied, slow network, accessibility, child/family device, reinstall
-3. **Push notifications** — Firebase Cloud Messaging for daily reminders
-4. **Accessibility audit** — VoiceOver labels on all interactive elements
-5. **App Store assets** — icons, screenshots, metadata
-6. **App Store Connect setup** — create app listing, in-app purchases, pricing
-7. **TestFlight beta testing**
-8. **Archive + submit for review**
+2. **App Store assets** — icons, screenshots, metadata
+3. **App Store Connect setup** — create app listing, in-app purchases, pricing
+4. **TestFlight beta testing**
+5. **Archive + submit for review**
+
+### Completed POVs (no longer needed)
+- ~~Offline experience~~ — DONE (NetworkMonitor + offline banner + disk cache)
+- ~~Permissions denied~~ — DONE (camera permission alert with "Open Settings")
+- ~~Reinstall / new device~~ — DONE (cross-device sync for reading position, My Versions, streaks)
+- ~~Slow network~~ — Skipped (disk cache handles most cases)
+- ~~Accessibility~~ — Deferred (not essential for v1)
+- ~~Child/family device~~ — Deferred (not essential for v1)
 
 ---
 
