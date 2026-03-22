@@ -119,7 +119,7 @@ struct DailyView: View {
                             vm.selectedDate = date
                             Task { await vm.loadContent(for: date) }
                         },
-                        isPremium: subscriptionVM.isPremium
+                        isPremium: subscriptionVM.isPremium || AdminManager.isAdmin(authVM.currentUserID)
                     )
 
                     // "View Calendar" link — right-aligned below the week strip
@@ -294,6 +294,15 @@ struct DailyView: View {
             .toolbarBackground(.visible, for: .navigationBar)
             .sheet(isPresented: $showCalendar) {
                 CalendarSheetView(selectedDate: vm.selectedDate) { date in
+                    // Free (non-admin) users can only view today — show paywall for any other date
+                    let hasFullAccess = subscriptionVM.isPremium || AdminManager.isAdmin(authVM.currentUserID)
+                    if !hasFullAccess && !Calendar.current.isDateInToday(date) {
+                        showCalendar = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                            showPaywall = true
+                        }
+                        return
+                    }
                     vm.selectedDate = date
                     Task { await vm.loadContent(for: date) }
                 }

@@ -95,7 +95,7 @@ struct WeekStripView: View {
                         isSelected: calendar.isDate(day, inSameDayAs: selectedDate),
                         isToday:    calendar.isDateInToday(day),
                         isFuture:   day > Date(),
-                        isLocked:   false,
+                        isLocked:   !isPremium && !calendar.isDateInToday(day),
                         theme:      themeManager.currentTheme
                     )
                     .frame(maxWidth: .infinity)
@@ -128,8 +128,12 @@ struct WeekStripView: View {
                             let index     = min(max(rawIndex, 0), 6)
                             let tappedDay = weekDays[index]
                             guard tappedDay <= Date() else { return }
+                            // Free users can only select today
+                            if !isPremium && !calendar.isDateInToday(tappedDay) { return }
                             onSelectDate(tappedDay)
                         } else if abs(dx) > 40 && abs(dx) > abs(dy) {
+                            // Free users cannot swipe to other weeks
+                            guard isPremium else { return }
                             // Clear horizontal swipe → change week
                             withAnimation(.easeInOut(duration: 0.2)) {
                                 if dx < 0 {
