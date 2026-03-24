@@ -269,31 +269,6 @@ struct WalkthroughControlsOverlay: View {
                     }
                 }
 
-                // TODO: Remove — debug step slider for fast navigation
-                if !manager.showWelcomeCard {
-                    VStack(spacing: 6) {
-                        Text("Step \(manager.currentStepIndex + 1) / \(manager.totalSteps)")
-                            .font(.footnote.bold().monospacedDigit())
-                            .foregroundStyle(Color(theme.text))
-                        Slider(
-                            value: Binding(
-                                get: { Double(manager.currentStepIndex) },
-                                set: { manager.jumpTo(step: Int($0)) }
-                            ),
-                            in: 0...Double(manager.totalSteps - 1),
-                            step: 1
-                        )
-                        .tint(Color(theme.primary))
-                        .scaleEffect(y: 1.3)
-                    }
-                    .padding(10)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
-                    .frame(width: 280)
-                    .position(
-                        x: 160,
-                        y: size.height - bottom - 60
-                    )
-                }
             }
             .ignoresSafeArea()
 
