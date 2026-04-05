@@ -8,6 +8,7 @@
 //
 
 import PhotosUI
+import StoreKit
 import SwiftUI
 import UIKit
 
@@ -155,6 +156,18 @@ struct ProfileView: View {
                                     .foregroundStyle(themeManager.currentTheme.primary)
                                     .frame(width: 24)
                                 Text("Restore Purchases")
+                                    .foregroundStyle(themeManager.currentTheme.text)
+                            }
+                        }
+
+                        Button {
+                            presentRedeemCodeSheet()
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "ticket.fill")
+                                    .foregroundStyle(themeManager.currentTheme.primary)
+                                    .frame(width: 24)
+                                Text("Redeem Code")
                                     .foregroundStyle(themeManager.currentTheme.text)
                             }
                         }
@@ -490,6 +503,17 @@ struct ProfileView: View {
                     .font(.system(size: size * 0.4, weight: .semibold))
                     .foregroundStyle(themeManager.currentTheme.primary)
             )
+    }
+
+    // Presents Apple's built-in offer code redemption sheet
+    private func presentRedeemCodeSheet() {
+        if #available(iOS 16.0, *) {
+            guard let scene = UIApplication.shared.connectedScenes
+                .first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene else { return }
+            Task { try? await AppStore.presentOfferCodeRedeemSheet(in: scene) }
+        } else {
+            SKPaymentQueue.default().presentCodeRedemptionSheet()
+        }
     }
 }
 

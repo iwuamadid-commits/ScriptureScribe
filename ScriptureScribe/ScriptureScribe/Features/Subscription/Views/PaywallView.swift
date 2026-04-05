@@ -44,12 +44,27 @@ struct PaywallView: View {
                     }
                     .buttonStyle(.plain)
 
-                    // Legal
-                    Text("Payment will be charged to your Apple ID account at confirmation of purchase. Subscriptions auto-renew unless cancelled at least 24 hours before the end of the current period.")
-                        .font(.caption2)
-                        .foregroundStyle(themeManager.currentTheme.textSecondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 24)
+                    // Subscription details
+                    VStack(spacing: 8) {
+                        Text("Scripture Scribe Pro unlocks all Bible translations, past daily devotions & prayers, full community access, Audio Bible, watermark-free sharing, unlimited bookmark collections, unlimited saved colors, and unlimited habits for the duration of your subscription.")
+                            .font(.caption2)
+                            .foregroundStyle(themeManager.currentTheme.textSecondary)
+                            .multilineTextAlignment(.center)
+
+                        Text("Payment will be charged to your Apple ID account at confirmation of purchase. Subscriptions auto-renew unless cancelled at least 24 hours before the end of the current period. Manage or cancel anytime in Settings > Apple ID > Subscriptions.")
+                            .font(.caption2)
+                            .foregroundStyle(themeManager.currentTheme.textSecondary)
+                            .multilineTextAlignment(.center)
+
+                        HStack(spacing: 16) {
+                            Link("Privacy Policy", destination: AppConfig.privacyPolicyURL)
+                                .font(.caption2)
+                            Link("Terms of Service", destination: AppConfig.termsOfServiceURL)
+                                .font(.caption2)
+                        }
+                        .padding(.top, 4)
+                    }
+                    .padding(.horizontal, 24)
 
                     if let error = subscriptionVM.errorMessage {
                         Text(error)
@@ -139,7 +154,7 @@ struct PaywallView: View {
                     selectedTier = tier
                 } label: {
                     HStack {
-                        VStack(alignment: .leading, spacing: 2) {
+                        VStack(alignment: .leading, spacing: 4) {
                             HStack(spacing: 6) {
                                 Text(tier.displayName)
                                     .font(.subheadline.weight(.semibold))
@@ -157,15 +172,15 @@ struct PaywallView: View {
                                 }
                             }
 
+                            // Price is the most prominent element (Apple 3.1.2(c))
                             if let product {
-                                if tier == .yearly,
-                                   subscriptionVM.hasFreeTrial(for: product) {
-                                    Text("7-day free trial, then \(product.displayPrice)/year")
-                                        .font(.caption)
-                                        .foregroundStyle(themeManager.currentTheme.textSecondary)
-                                } else {
-                                    Text(priceLabel(for: product, tier: tier))
-                                        .font(.caption)
+                                Text(priceLabel(for: product, tier: tier))
+                                    .font(.title3.weight(.bold))
+                                    .foregroundStyle(themeManager.currentTheme.text)
+
+                                if subscriptionVM.hasFreeTrial(for: product) {
+                                    Text("After 7-day free trial")
+                                        .font(.caption2)
                                         .foregroundStyle(themeManager.currentTheme.textSecondary)
                                 }
                             }
@@ -200,52 +215,58 @@ struct PaywallView: View {
 
     private func priceLabel(for product: Product, tier: SubscriptionProduct) -> String {
         switch tier {
-        case .weekly:   return "\(product.displayPrice)/week"
         case .monthly:  return "\(product.displayPrice)/month"
         case .yearly:   return "\(product.displayPrice)/year"
-        case .lifetime: return "\(product.displayPrice) one-time"
         }
     }
 
     // MARK: - Subscribe Button
 
     private var subscribeButton: some View {
-        Button {
-            guard let product = subscriptionVM.product(for: selectedTier) else { return }
-            Task { await subscriptionVM.purchase(product) }
-        } label: {
-            Group {
-                if subscriptionVM.isLoading {
-                    ProgressView()
-                        .tint(.white)
-                } else {
-                    if selectedTier == .yearly,
-                       let product = subscriptionVM.product(for: .yearly),
-                       subscriptionVM.hasFreeTrial(for: product) {
-                        Text("Start Free Trial")
+        VStack(spacing: 6) {
+            Button {
+                guard let product = subscriptionVM.product(for: selectedTier) else { return }
+                Task { await subscriptionVM.purchase(product) }
+            } label: {
+                Group {
+                    if subscriptionVM.isLoading {
+                        ProgressView()
+                            .tint(.white)
+                    } else if let product = subscriptionVM.product(for: selectedTier) {
+                        // Button always shows the billed price prominently (Apple 3.1.2(c))
+                        Text("Subscribe — \(priceLabel(for: product, tier: selectedTier))")
                     } else {
                         Text("Subscribe Now")
                     }
                 }
-            }
-            .font(.headline)
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 16)
-            .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(
-                        LinearGradient(
-                            colors: [themeManager.currentTheme.primary,
-                                     themeManager.currentTheme.accent],
-                            startPoint: .leading,
-                            endPoint: .trailing
+                .font(.headline)
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 16)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(
+                            LinearGradient(
+                                colors: [themeManager.currentTheme.primary,
+                                         themeManager.currentTheme.accent],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
                         )
-                    )
-            )
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(subscriptionVM.isLoading)
+
+            // Free trial note shown below the button in smaller text
+            if let product = subscriptionVM.product(for: selectedTier),
+               subscriptionVM.hasFreeTrial(for: product) {
+                Text("7-day free trial included. You won't be charged until the trial ends.")
+                    .font(.caption2)
+                    .foregroundStyle(themeManager.currentTheme.textSecondary)
+                    .multilineTextAlignment(.center)
+            }
         }
-        .buttonStyle(.plain)
-        .disabled(subscriptionVM.isLoading)
         .padding(.horizontal, 20)
     }
 }

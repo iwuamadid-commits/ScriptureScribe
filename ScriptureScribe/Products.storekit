@@ -75,44 +75,24 @@
           "codeOffers" : [
 
           ],
-          "displayPrice" : "1.99",
+          "displayPrice" : "9.99",
           "familyShareable" : false,
           "groupNumber" : 1,
-          "internalID" : "weekly",
-          "introductoryOffer" : null,
-          "localizations" : [
-            {
-              "description" : "Premium access, billed weekly",
-              "displayName" : "Weekly",
-              "locale" : "en_US"
-            }
-          ],
-          "productID" : "com.scripturescribe.premium.weekly",
-          "recurringSubscriptionPeriod" : "P1W",
-          "referenceName" : "Weekly",
-          "subscriptionGroupID" : "scripturescribe_premium",
-          "type" : "RecurringSubscription"
-        },
-        {
-          "adHocOffers" : [
-
-          ],
-          "codeOffers" : [
-
-          ],
-          "displayPrice" : "5.99",
-          "familyShareable" : false,
-          "groupNumber" : 2,
           "internalID" : "monthly",
-          "introductoryOffer" : null,
+          "introductoryOffer" : {
+            "internalID" : "monthly_trial",
+            "paymentMode" : "free",
+            "numberOfPeriods" : 1,
+            "subscriptionPeriod" : "P1W"
+          },
           "localizations" : [
             {
-              "description" : "Premium access, billed monthly",
+              "description" : "Premium access, billed monthly. Includes 7-day free trial.",
               "displayName" : "Monthly",
               "locale" : "en_US"
             }
           ],
-          "productID" : "com.scripturescribe.premium.monthly",
+          "productID" : "com.scripturescribe.premium.month",
           "recurringSubscriptionPeriod" : "P1M",
           "referenceName" : "Monthly",
           "subscriptionGroupID" : "scripturescribe_premium",
@@ -125,9 +105,9 @@
           "codeOffers" : [
 
           ],
-          "displayPrice" : "39.99",
+          "displayPrice" : "69.99",
           "familyShareable" : false,
-          "groupNumber" : 3,
+          "groupNumber" : 2,
           "internalID" : "yearly",
           "introductoryOffer" : {
             "internalID" : "yearly_trial",
@@ -147,31 +127,6 @@
           "referenceName" : "Yearly",
           "subscriptionGroupID" : "scripturescribe_premium",
           "type" : "RecurringSubscription"
-        },
-        {
-          "adHocOffers" : [
-
-          ],
-          "codeOffers" : [
-
-          ],
-          "displayPrice" : "79.99",
-          "familyShareable" : false,
-          "groupNumber" : 4,
-          "internalID" : "lifetime",
-          "introductoryOffer" : null,
-          "localizations" : [
-            {
-              "description" : "Lifetime premium access, one-time purchase",
-              "displayName" : "Lifetime",
-              "locale" : "en_US"
-            }
-          ],
-          "productID" : "com.scripturescribe.premium.lifetime",
-          "recurringSubscriptionPeriod" : "P0D",
-          "referenceName" : "Lifetime",
-          "subscriptionGroupID" : "scripturescribe_premium",
-          "type" : "NonRenewingSubscription"
         }
       ]
     }
