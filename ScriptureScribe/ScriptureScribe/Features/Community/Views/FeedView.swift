@@ -33,10 +33,11 @@ private enum CommunityTab: Int, CaseIterable, Identifiable {
 
 struct FeedView: View {
 
-    @EnvironmentObject var authVM:         AuthViewModel
-    @EnvironmentObject var themeManager:   ThemeManager
-    @EnvironmentObject var appNav:         AppNavigation
-    @EnvironmentObject var subscriptionVM: SubscriptionViewModel
+    @EnvironmentObject var authVM:              AuthViewModel
+    @EnvironmentObject var themeManager:        ThemeManager
+    @EnvironmentObject var appNav:              AppNavigation
+    @EnvironmentObject var subscriptionVM:      SubscriptionViewModel
+    @EnvironmentObject var walkthroughManager:  WalkthroughManager
 
     // ViewModels — one per section
     @StateObject private var communityVM  = CommunityViewModel()
@@ -196,16 +197,20 @@ struct FeedView: View {
                 Text(errorAlertMessage)
             }
             .onChange(of: communityVM.errorMessage) { _, msg in
-                if let msg { errorAlertMessage = msg; showErrorAlert = true; communityVM.errorMessage = nil }
+                guard let msg, !walkthroughManager.isActive else { communityVM.errorMessage = nil; return }
+                errorAlertMessage = msg; showErrorAlert = true; communityVM.errorMessage = nil
             }
             .onChange(of: gratitudeVM.errorMessage) { _, msg in
-                if let msg { errorAlertMessage = msg; showErrorAlert = true; gratitudeVM.errorMessage = nil }
+                guard let msg, !walkthroughManager.isActive else { gratitudeVM.errorMessage = nil; return }
+                errorAlertMessage = msg; showErrorAlert = true; gratitudeVM.errorMessage = nil
             }
             .onChange(of: prayerVM.errorMessage) { _, msg in
-                if let msg { errorAlertMessage = msg; showErrorAlert = true; prayerVM.errorMessage = nil }
+                guard let msg, !walkthroughManager.isActive else { prayerVM.errorMessage = nil; return }
+                errorAlertMessage = msg; showErrorAlert = true; prayerVM.errorMessage = nil
             }
             .onChange(of: dailyVM.errorMessage) { _, msg in
-                if let msg { errorAlertMessage = msg; showErrorAlert = true; dailyVM.errorMessage = nil }
+                guard let msg, !walkthroughManager.isActive else { dailyVM.errorMessage = nil; return }
+                errorAlertMessage = msg; showErrorAlert = true; dailyVM.errorMessage = nil
             }
             .onChange(of: authVM.isSignedIn) { _, signedIn in
                 if !signedIn {
