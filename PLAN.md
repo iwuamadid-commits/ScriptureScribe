@@ -246,6 +246,7 @@ All defined via `AppTheme` protocol; `ThemeManager` persists selection via `@App
 | **Force unwraps (final)** | All remaining force unwraps eliminated: URL safe fallbacks, `guard let` for API URLs, `.first` for array accesses |
 | **StoreKit error logging** | Verification failures now logged instead of silently swallowed |
 | **Anthropic model config** | Moved from hardcoded string to `AppConfig.anthropicModel` |
+| **Share links → App Store** | Replaced all `scripturescribe://` deep links in share text with App Store URL (`https://apps.apple.com/us/app/the-scripture-scribe/id6761033279`) across 8 files — recipients without the app are directed to download |
 
 ---
 

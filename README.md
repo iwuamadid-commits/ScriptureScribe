@@ -57,6 +57,8 @@ A native iOS Bible annotation app built with SwiftUI. Read the Bible in 1,500+ t
 
 ### Sharing
 - Verse image composer with custom backgrounds and fonts for social sharing
+- All shared content includes App Store link for recipients to download the app
+- Share posts, prayers, gratitude entries, devotionals, bookmarks, and comments via system share sheet
 
 ### Premium (StoreKit 2)
 - Monthly and yearly subscription tiers
