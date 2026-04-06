@@ -25,7 +25,7 @@ struct DailyAnswerCardView: View {
     @State private var showHeartAnimation = false
 
     private var shareText: String {
-        let link = "scripturescribe://answer/\(answer.id)"
+        let link = "https://apps.apple.com/us/app/the-scripture-scribe/id6761033279"
         let limit = 200
         if answer.text.count > limit {
             let trimmed = String(answer.text.prefix(limit))
