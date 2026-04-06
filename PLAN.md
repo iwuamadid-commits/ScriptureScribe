@@ -179,6 +179,9 @@ All defined via `AppTheme` protocol; `ThemeManager` persists selection via `@App
 | **Profile** | Basic UI | Settings page exists; could be expanded with more user stats |
 | **Lasso Color Picker** | Broken | `LassoOverlayView.swift` — sheet may not open, `recolorLassoSelection` needs debugging |
 
+### App Store Status
+**App is live on the App Store.** All compliance items, bug fixes, and audit items completed.
+
 ### App Store Compliance (DONE)
 | Feature | Status |
 |---|---|
@@ -231,6 +234,18 @@ All defined via `AppTheme` protocol; `ThemeManager` persists selection via `@App
 | **Orphaned files removed** | Deleted unused CompactColorPickerView.swift and empty Core/Persistence/ directory |
 | **Build error fixes** | Fixed `ColorWheelView` reference (now uses HSBSquareViewFull + HueSliderViewFull), removed `@retroactive` on Habit (same module) |
 | **Verse picker UX** | Book suggestions no longer reappear after tapping; hint "Type chapter:verse" shown after book selection |
+
+### Post-Launch Fixes (April 2026)
+| Fix | Details |
+|---|---|
+| **Walkthrough demo errors** | FeedView error alerts suppressed during walkthrough — all 4 `onChange(of: *VM.errorMessage)` handlers check `walkthroughManager.isActive` so new users don't see Firestore errors on Community tab steps 18-22 |
+| **Book chip overlap** | Replaced `scaleEffect(1.12)` with layout-based padding increase so long names like "Acts of the Apostles" don't overlap neighbors |
+| **Unified undo/redo** | Single snapshot-based stack for all annotation operations (pen, eraser, highlighter, lasso). PencilKit undoManager disabled. |
+| **Chapter swipe scroll fix** | UIKit `HorizontalPanGestureRecognizer` with `require(toFail:)` replaces SwiftUI `simultaneousGesture` — vertical scroll no longer hijacked during chapter swipe |
+| **PencilKit edit menu disabled** | `canPerformAction` returns false + finger-only tap gesture swallows taps before `UIEditMenuInteraction` fires |
+| **Force unwraps (final)** | All remaining force unwraps eliminated: URL safe fallbacks, `guard let` for API URLs, `.first` for array accesses |
+| **StoreKit error logging** | Verification failures now logged instead of silently swallowed |
+| **Anthropic model config** | Moved from hardcoded string to `AppConfig.anthropicModel` |
 
 ---
 
@@ -329,13 +344,9 @@ if !subscriptionVM.isPremium && count >= PremiumLimits.maxFree* {
 
 ---
 
-## Remaining Work (Pre-App Store)
+## Remaining Work
 
 1. **Fix lasso color picker** — debug sheet presentation and color application
-2. **App Store assets** — icons, screenshots, metadata
-3. **App Store Connect setup** — create app listing, in-app purchases, pricing
-4. **TestFlight beta testing**
-5. **Archive + submit for review**
 
 ### Completed POVs (no longer needed)
 - ~~Offline experience~~ — DONE (NetworkMonitor + offline banner + disk cache)
