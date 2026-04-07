@@ -248,6 +248,9 @@ All defined via `AppTheme` protocol; `ThemeManager` persists selection via `@App
 | **Anthropic model config** | Moved from hardcoded string to `AppConfig.anthropicModel` |
 | **Share links → App Store** | Replaced all `scripturescribe://` deep links in share text with App Store URL (`https://apps.apple.com/us/app/the-scripture-scribe/id6761033279`) across 8 files — recipients without the app are directed to download |
 | **Smart search "Go to"** | Typing a book name or reference (e.g. "Psa", "Psalm 23", "John 3:16") shows tappable "Go to" suggestions above search results. Navigates directly to chapter/verse in Reader. API search skipped for book names to prevent decoding errors. Suggestions and result taps save to recent searches. |
+| **Color picker "Done" saves from "+"** | Tapping "Done" after opening via "+" now saves the color to the toolbar (previously only "Save Color" did). Free-tier limit enforced. Applies to both toolbar and Saved Colors manager. |
+| **Saved colors visibility animation** | Toggling color visibility smoothly scales + fades swatches in/out with spring animation (0.4s response). Remaining swatches slide together. |
+| **Saved Colors manager navigation fix** | Fixed double-pop when tapping "Done" after "+" in Saved Colors list — now correctly returns to the list instead of swiping through to the color picker. |
 
 ---
 
