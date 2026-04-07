@@ -64,6 +64,10 @@ struct SearchView: View {
     private var textSearchTab: some View {
         VStack(spacing: 0) {
             searchBar
+            // "Go to" book/chapter suggestions above results
+            if !vm.goToSuggestions.isEmpty {
+                goToSuggestionsSection
+            }
             // Show recent searches when idle; results otherwise
             if vm.query.isEmpty && vm.results.isEmpty && !vm.isLoading && !vm.recentSearches.isEmpty {
                 recentSearchesSection
@@ -96,7 +100,12 @@ struct SearchView: View {
                     HStack(spacing: 0) {
                         Button {
                             vm.query = term
-                            Task { await vm.search() }
+                            vm.updateGoToSuggestions()
+                            // If the term is a book/reference, just show "Go to" suggestions
+                            // instead of hitting the API (which would error on book names).
+                            if vm.goToSuggestions.isEmpty {
+                                Task { await vm.search() }
+                            }
                         } label: {
                             HStack(spacing: 12) {
                                 Image(systemName: "clock.arrow.circlepath")
@@ -188,6 +197,49 @@ struct SearchView: View {
         .scrollDismissesKeyboard(.immediately)
     }
 
+    // MARK: - Go-To Suggestions
+
+    private var goToSuggestionsSection: some View {
+        VStack(spacing: 0) {
+            ForEach(vm.goToSuggestions) { suggestion in
+                Button {
+                    if let chapId = suggestion.chapterId {
+                        if let verse = suggestion.verseNum {
+                            appNav.pendingVerseNumber = verse
+                        }
+                        appNav.pendingChapterId = chapId
+                        appNav.selectedTab = 0
+                        vm.addRecentSearch(suggestion.label)
+                        dismiss()
+                    }
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "book.fill")
+                            .foregroundStyle(themeManager.currentTheme.primary)
+                            .font(.subheadline)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Go to \(suggestion.label)")
+                                .font(.body.weight(.medium))
+                                .foregroundStyle(themeManager.currentTheme.text)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .foregroundStyle(themeManager.currentTheme.textSecondary)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                Divider().padding(.leading, 48)
+            }
+        }
+        .background(themeManager.currentTheme.surface.opacity(0.5))
+    }
+
+    // MARK: - Search Bar
+
     private var searchBar: some View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
@@ -198,9 +250,10 @@ struct SearchView: View {
                 .onChange(of: vm.query) { _, _ in vm.liveSearch() }
             if !vm.query.isEmpty {
                 Button {
-                    vm.query    = ""
-                    vm.results  = []
-                    vm.errorMessage = nil
+                    vm.query           = ""
+                    vm.results         = []
+                    vm.errorMessage    = nil
+                    vm.goToSuggestions = []
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(themeManager.currentTheme.textSecondary)
@@ -377,7 +430,7 @@ struct SearchView: View {
             Spacer()
             emptyState(icon: "exclamationmark.triangle", message: error)
             Spacer()
-        } else if vm.results.isEmpty && !vm.query.isEmpty {
+        } else if vm.results.isEmpty && !vm.query.isEmpty && vm.goToSuggestions.isEmpty {
             Spacer()
             emptyState(
                 icon: "doc.text.magnifyingglass",
@@ -396,6 +449,7 @@ struct SearchView: View {
                                     appNav.pendingVerseNumber = parts[2]
                                 }
                                 appNav.pendingChapterId = "\(parts[0]).\(parts[1])"
+                                vm.addRecentSearch(vm.query)
                                 dismiss()
                             }
                         } label: {
