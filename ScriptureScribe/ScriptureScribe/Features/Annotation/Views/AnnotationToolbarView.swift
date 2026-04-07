@@ -390,7 +390,8 @@ struct AnnotationToolbarView: View {
     @ViewBuilder
     private func colorSwatch(visibleIdx: Int, item: (realIndex: Int, color: SavedColor)) -> some View {
         let isBeingEdited: Bool   = vm.pendingEditColorIndex == item.realIndex
-        let isSelected:   Bool    = isBeingEdited || item.color.colorHex == vm.selectedColor.hexString
+        let selectedAlpha: CGFloat = { var a: CGFloat = 0; vm.selectedColor.getRed(nil, green: nil, blue: nil, alpha: &a); return a }()
+        let isSelected:   Bool    = isBeingEdited || (item.color.colorHex == vm.selectedColor.hexString && item.color.alpha == selectedAlpha)
         let isDragged:    Bool    = draggedVisibleIndex == visibleIdx
         let displacement: CGFloat = isDragged ? dragOffset : colorDisplacement(for: visibleIdx)
         let displayColor: Color   = isBeingEdited ? Color(vm.selectedColor) : Color(item.color.uiColor)
