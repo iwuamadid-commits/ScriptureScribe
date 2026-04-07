@@ -51,6 +51,7 @@ A native iOS Bible annotation app built with SwiftUI. Read the Bible in 1,500+ t
 - Content reporting and admin moderation dashboard
 
 ### Search
+- Smart "Go to" navigation: type a book name or reference (e.g. "Psalm 23", "John 3:16") to jump directly to that chapter
 - Bible text search across translations
 - Topic-based search
 - Handwriting OCR search (GoodNotes-style index via Vision framework)

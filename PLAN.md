@@ -247,6 +247,7 @@ All defined via `AppTheme` protocol; `ThemeManager` persists selection via `@App
 | **StoreKit error logging** | Verification failures now logged instead of silently swallowed |
 | **Anthropic model config** | Moved from hardcoded string to `AppConfig.anthropicModel` |
 | **Share links → App Store** | Replaced all `scripturescribe://` deep links in share text with App Store URL (`https://apps.apple.com/us/app/the-scripture-scribe/id6761033279`) across 8 files — recipients without the app are directed to download |
+| **Smart search "Go to"** | Typing a book name or reference (e.g. "Psa", "Psalm 23", "John 3:16") shows tappable "Go to" suggestions above search results. Navigates directly to chapter/verse in Reader. API search skipped for book names to prevent decoding errors. Suggestions and result taps save to recent searches. |
 
 ---
 
