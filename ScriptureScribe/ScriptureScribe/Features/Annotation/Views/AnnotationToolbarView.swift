@@ -151,7 +151,7 @@ struct AnnotationToolbarView: View {
                             }
                             return
                         }
-                        vm.addSavedColor(color)
+                        vm.addSavedColor(color, isPremium: subscriptionVM.isPremium)
                         vm.saveCurrentToolSettings()
                     },
                     onDone: { color in

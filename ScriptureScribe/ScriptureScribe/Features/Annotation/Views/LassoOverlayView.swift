@@ -283,7 +283,7 @@ struct LassoOverlayView: View {
                         }
                         return
                     }
-                    annotationVM.addSavedColor(color)
+                    annotationVM.addSavedColor(color, isPremium: subscriptionVM.isPremium)
                     annotationVM.saveCurrentToolSettings()
                 },
                 onDone: { color in

@@ -89,7 +89,7 @@ struct SavedColorsManagerView: View {
             ColorPickerWheelView(
                 selectedColor: .constant(vm.selectedColor),
                 onAdd: { newColor in
-                    vm.addSavedColor(newColor)
+                    vm.addSavedColor(newColor, isPremium: subscriptionVM.isPremium)
                 },
                 onDone: { _ in }
             )

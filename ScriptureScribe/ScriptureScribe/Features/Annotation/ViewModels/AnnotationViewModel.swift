@@ -612,12 +612,14 @@ final class AnnotationViewModel: ObservableObject {
         }
     }
 
-    /// Add a color to saved favorites (limit enforced at call site).
-    func addSavedColor(_ color: UIColor) {
+    /// Add a color to saved favorites. Pro users have no cap; free users are
+    /// capped at `maxSavedColors` here as a safety net (UI also blocks them at
+    /// `PremiumLimits.maxFreeSavedColors`).
+    func addSavedColor(_ color: UIColor, isPremium: Bool = false) {
         let newColor = SavedColor(color: color)
         savedColors.removeAll { $0.colorHex == newColor.colorHex && $0.alpha == newColor.alpha }
         savedColors.append(newColor)
-        if savedColors.count > maxSavedColors {
+        if !isPremium, savedColors.count > maxSavedColors {
             savedColors = Array(savedColors.suffix(maxSavedColors))
         }
         persistColors()
