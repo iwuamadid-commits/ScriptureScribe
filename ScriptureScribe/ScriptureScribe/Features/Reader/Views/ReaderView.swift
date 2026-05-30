@@ -802,7 +802,7 @@ struct ReaderView: View {
             ZoomScrollView(
                 minScale:            0.5,
                 maxScale:            4.0,
-                isScrollingDisabled:  annotationVM.isDrawingTool || annotationVM.isLassoActive,
+                isScrollingDisabled:  (annotationVM.isDrawingTool || annotationVM.isLassoActive) && annotationVM.allowFingerDrawing,
                 isContentInteractive: annotationVM.selectedTool != .hand,
                 scrollToOffset:      $verseScrollOffset,
                 resetTrigger:        scrollViewReset,
