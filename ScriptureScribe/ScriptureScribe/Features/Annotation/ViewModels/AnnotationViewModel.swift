@@ -1030,7 +1030,11 @@ final class AnnotationViewModel: ObservableObject {
         case .pen:
             return PKInkingTool(penStyle.inkType, color: selectedColor, width: strokeWidth)
         case .highlighter:
-            return PKInkingTool(.marker, color: selectedColor.withAlphaComponent(0.35), width: strokeWidth)
+            // .monoline instead of .marker: the marker's chisel tip rotates with the
+            // pencil's azimuth, so both the hover cursor and the stroke changed shape
+            // depending on how the pencil was held. Monoline has no angle sensitivity,
+            // giving an even-width highlight and a hover cursor that never rotates.
+            return PKInkingTool(.monoline, color: selectedColor.withAlphaComponent(0.35), width: strokeWidth)
         case .eraser:
             if eraserType == .wholeLine {
                 return PKEraserTool(.vector)
