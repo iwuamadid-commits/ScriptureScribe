@@ -19,6 +19,12 @@ struct VerseImageComposerView: View {
     @EnvironmentObject var subscriptionVM: SubscriptionViewModel
     @Environment(\.dismiss) private var dismiss
 
+    // ImageRenderer starts from a fresh environment rather than inheriting this
+    // view's, so the current Dynamic Type size is captured here and re-injected
+    // into the rendered card. Without it the preview honours the device's text
+    // size setting while the saved image always renders at the default.
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     // Customization state
     @State private var selectedBackground: VerseBackground = .defaultBackground
     @State private var selectedFont:       String          = "Georgia"
@@ -35,7 +41,33 @@ struct VerseImageComposerView: View {
     // Rendered image cache
     @State private var renderedImage: UIImage?
 
+    /// Actual on-screen side length (points) of the preview card. The export is
+    /// laid out at this exact size so every fixed constant inside VerseImageCard
+    /// (padding, watermark, spacing, shadows) keeps identical proportions;
+    /// resolution comes purely from the raster scale.
+    @State private var previewSide: CGFloat = 0
+
+    /// Ensures the starting font size is scaled to the card only once, on first layout.
+    @State private var didInitFontSize = false
+
     private var needsWatermark: Bool { !subscriptionVM.isPremium }
+
+    // MARK: - Text size range
+    //
+    // The 16–44 pt range was tuned against an iPhone-sized card. An iPad's preview
+    // is roughly twice as wide, so those literals top out far too small there —
+    // and now that the saved image matches the preview, that ceiling would show up
+    // in the saved picture too. Scale the range by the measured card size, clamped
+    // at 1 so iPhone behaviour is unchanged.
+
+    private let referenceSide: CGFloat = 360
+
+    private var sizeScale: CGFloat {
+        previewSide > 0 ? max(1, previewSide / referenceSide) : 1
+    }
+    private var minFontSize: CGFloat { 16 * sizeScale }
+    private var maxFontSize: CGFloat { 44 * sizeScale }
+    private var fontStep:    CGFloat {  2 * sizeScale }
 
     var body: some View {
         NavigationStack {
@@ -104,6 +136,19 @@ struct VerseImageComposerView: View {
                 overlayOpacity: overlayOpacity,
                 showWatermark:  needsWatermark
             )
+            // Record the card's resolved size so renderImage() can lay the export
+            // out identically. Placed before .clipShape so it measures the card
+            // itself, not the styled preview chrome. Purely observational —
+            // it has no effect on layout.
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                min(proxy.size.width, proxy.size.height)
+            } action: { newSide in
+                previewSide = newSide
+                if !didInitFontSize, newSide > 0 {
+                    didInitFontSize = true
+                    fontSize = 26 * sizeScale
+                }
+            }
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .shadow(color: .black.opacity(0.5), radius: 12, y: 4)
             .contentShape(Rectangle())
@@ -132,12 +177,12 @@ struct VerseImageComposerView: View {
         HStack(spacing: 0) {
             // Text size down
             toolbarButton(icon: "textformat.size.smaller", label: "Decrease text size") {
-                fontSize = max(16, fontSize - 2)
+                fontSize = max(minFontSize, fontSize - fontStep)
             }
 
             // Text size up
             toolbarButton(icon: "textformat.size.larger", label: "Increase text size") {
-                fontSize = min(44, fontSize + 2)
+                fontSize = min(maxFontSize, fontSize + fontStep)
             }
 
             // Text alignment cycle
@@ -189,21 +234,45 @@ struct VerseImageComposerView: View {
     // MARK: - Image Rendering
 
     private func renderImage() -> UIImage? {
+        // Lay the card out at exactly the preview's point size rather than at
+        // 1080. VerseImageCard's padding, watermark, stack spacing and shadows
+        // are fixed point values, so sizing the card differently from the preview
+        // silently changes every proportion — the text column widens and the
+        // verse rewraps, which is what made saved images look different. Matching
+        // the point geometry keeps all of it identical; the 1080x1080 output comes
+        // from the raster scale instead.
+        let side = previewSide > 0 ? previewSide : referenceSide
+
         let card = VerseImageCard(
             verseText:      verseText,
             verseReference: verseReference,
             background:     selectedBackground,
             fontName:       selectedFont,
-            fontSize:       fontSize * 2,           // 2x for high-res
+            fontSize:       fontSize,
             textAlignment:  textAlignment,
             overlayOpacity: overlayOpacity,
             showWatermark:  needsWatermark
         )
-        .frame(width: 1080, height: 1080)
+        .frame(width: side, height: side)
+        .environment(\.dynamicTypeSize, dynamicTypeSize)
 
         let renderer = ImageRenderer(content: card)
-        renderer.scale = 1   // already sized at 1080x1080
-        return renderer.uiImage
+        renderer.scale = 1080 / side
+        guard let image = renderer.uiImage else { return nil }
+
+        // A fractional scale can round the backing bitmap to 1081 px. Rare, but
+        // redraw once at exact dimensions when it happens so output is always 1080².
+        guard let cg = image.cgImage, cg.width == 1080, cg.height == 1080 else {
+            let format = UIGraphicsImageRendererFormat()
+            format.scale  = 1
+            format.opaque = true
+            return UIGraphicsImageRenderer(
+                size: CGSize(width: 1080, height: 1080), format: format
+            ).image { _ in
+                image.draw(in: CGRect(x: 0, y: 0, width: 1080, height: 1080))
+            }
+        }
+        return image
     }
 
     private func saveToPhotos() {
