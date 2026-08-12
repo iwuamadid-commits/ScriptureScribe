@@ -28,7 +28,7 @@ struct PostCardView: View {
     @State private var showHeartAnimation = false
 
     private var postShareText: String {
-        let link = "scripturescribe://post/\(post.id)"
+        let link = "https://apps.apple.com/us/app/the-scripture-scribe/id6761033279"
         var parts: [String] = []
         if !post.verseRef.isEmpty { parts.append(post.verseRef) }
         if !post.verseText.isEmpty { parts.append("\"\(post.verseText)\"") }

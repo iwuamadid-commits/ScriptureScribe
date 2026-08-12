@@ -44,8 +44,7 @@ struct BookmarkPickerView: View {
         var parts: [String] = [chapterReference]
         if !verseText.isEmpty { parts.append("\"\(verseText)\"") }
         parts.append("Shared from Scripture Scribe")
-        let encodedRef = chapterReference.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? chapterReference
-        parts.append("scripturescribe://verse/\(encodedRef)")
+        parts.append("https://apps.apple.com/us/app/the-scripture-scribe/id6761033279")
         return parts.joined(separator: "\n\n")
     }
 

@@ -27,7 +27,7 @@ struct GratitudeCardView: View {
     @State private var cachedImage: UIImage?
 
     private var shareText: String {
-        let link = "scripturescribe://gratitude/\(post.id)"
+        let link = "https://apps.apple.com/us/app/the-scripture-scribe/id6761033279"
         let limit = 200
         if post.text.count > limit {
             let trimmed = String(post.text.prefix(limit))

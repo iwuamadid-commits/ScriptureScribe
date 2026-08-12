@@ -25,7 +25,7 @@ struct PrayerCardView: View {
     @State private var showPrayAnimation  = false
 
     private var shareText: String {
-        let link = "scripturescribe://prayer/\(request.id)"
+        let link = "https://apps.apple.com/us/app/the-scripture-scribe/id6761033279"
         let limit = 200
         if request.text.count > limit {
             let trimmed = String(request.text.prefix(limit))

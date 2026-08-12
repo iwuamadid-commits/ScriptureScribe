@@ -657,7 +657,7 @@ struct DailyView: View {
     @ViewBuilder
     private func verseCard(entry: DailyEntry) -> some View {
         let verseShareText: String = {
-            let link = "scripturescribe://daily/\(entry.date)"
+            let link = "https://apps.apple.com/us/app/the-scripture-scribe/id6761033279"
             if let text = vm.verseText, !text.isEmpty {
                 return "\(entry.verseReference)\n\n\"\(text)\"\n\nShared from Scripture Scribe\n\n\(link)"
             }
@@ -732,7 +732,7 @@ struct DailyView: View {
         entry:    DailyEntry
     ) -> some View {
         let sectionShareText: String = {
-            let link = "scripturescribe://daily/\(entry.date)"
+            let link = "https://apps.apple.com/us/app/the-scripture-scribe/id6761033279"
             let limit = 200
             if body.count <= limit {
                 return "Today's \(title) from Scripture Scribe:\n\n\(body)\n\n\(link)"
@@ -800,7 +800,7 @@ struct DailyView: View {
     @ViewBuilder
     private func reflectionCard(entry: DailyEntry) -> some View {
         let reflectionShareText: String = {
-            let link = "scripturescribe://daily/\(entry.date)"
+            let link = "https://apps.apple.com/us/app/the-scripture-scribe/id6761033279"
             if let q = entry.reflectionQuestions.first {
                 return "Reflection Question:\n\n\(q)\n\nShared from Scripture Scribe\n\n\(link)"
             }

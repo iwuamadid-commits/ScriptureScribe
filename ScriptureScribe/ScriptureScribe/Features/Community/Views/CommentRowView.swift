@@ -45,7 +45,7 @@ struct CommentRowView: View {
     @State private var showHeartAnimation = false
 
     private var shareText: String {
-        "\(comment.text)\n\nShared by \(comment.displayName) on Scripture Scribe\n\nscripturescribe://comment/\(comment.postId)"
+        "\(comment.text)\n\nShared by \(comment.displayName) on Scripture Scribe\n\nhttps://apps.apple.com/us/app/the-scripture-scribe/id6761033279"
     }
 
     private var avatarSize: CGFloat { isReply ? 22 : 28 }

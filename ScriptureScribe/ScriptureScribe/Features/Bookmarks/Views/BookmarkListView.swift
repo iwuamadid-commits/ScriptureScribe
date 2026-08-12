@@ -168,7 +168,7 @@ struct BookmarkListView: View {
             parts.append("\"\(bookmark.verseText)\"")
         }
         parts.append("Shared from Scripture Scribe")
-        parts.append("scripturescribe://verse/\(bookmark.chapterId)")
+        parts.append("https://apps.apple.com/us/app/the-scripture-scribe/id6761033279")
         return parts.joined(separator: "\n\n")
     }
 
@@ -486,7 +486,7 @@ struct BookmarkDetailView: View {
             parts.append("\"\(currentBookmark.verseText)\"")
         }
         parts.append("Shared from Scripture Scribe")
-        parts.append("scripturescribe://verse/\(currentBookmark.chapterId)")
+        parts.append("https://apps.apple.com/us/app/the-scripture-scribe/id6761033279")
         return parts.joined(separator: "\n\n")
     }
 }

@@ -62,6 +62,57 @@ final class SearchViewModel: ObservableObject {
 
     @AppStorage("lastBibleId") private var lastBibleId: String = ""
 
+    // MARK: - Go-To Reference Suggestions
+
+    /// Book or chapter suggestions shown above search results when the query
+    /// looks like a Bible reference (e.g. "Psa" → Psalms, "Psalm 23" → Psalm 23).
+    struct GoToSuggestion: Identifiable {
+        let id = UUID()
+        let label:     String   // Display text, e.g. "Psalms" or "Psalm 23"
+        let chapterId: String?  // API chapter ID if available, e.g. "PSA.23"
+        let bookApiId: String   // API book ID, e.g. "PSA"
+        let verseNum:  String?  // Verse number if present, e.g. "16"
+    }
+
+    @Published var goToSuggestions: [GoToSuggestion] = []
+
+    /// Checks if the current query looks like a Bible reference and populates suggestions.
+    func updateGoToSuggestions() {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { goToSuggestions = []; return }
+
+        // First check: does the full input parse as a "Book Chapter" or "Book Chapter:Verse"?
+        if let chapId = BibleReferenceParser.chapterId(from: trimmed) {
+            let rawVerse = BibleReferenceParser.verseNumber(from: trimmed)
+            let verseNum = (rawVerse?.isEmpty == false) ? rawVerse : nil
+            // Build a clean label: "Luke 17" or "Luke 17:5" (strip trailing colon if no verse)
+            let label = trimmed.trimmingCharacters(in: CharacterSet(charactersIn: ":"))
+            goToSuggestions = [GoToSuggestion(
+                label: label,
+                chapterId: chapId,
+                bookApiId: String(chapId.components(separatedBy: ".").first ?? ""),
+                verseNum: verseNum
+            )]
+            return
+        }
+
+        // Second check: partial book name match (e.g. "Psa" → Psalms, "Jo" → Job, Joel, John, etc.)
+        let bookMatches = BibleReferenceParser.bookSuggestions(for: trimmed)
+        if !bookMatches.isEmpty {
+            goToSuggestions = bookMatches.prefix(5).map { match in
+                GoToSuggestion(
+                    label: match.name,
+                    chapterId: "\(match.apiId).1",
+                    bookApiId: match.apiId,
+                    verseNum: nil
+                )
+            }
+            return
+        }
+
+        goToSuggestions = []
+    }
+
     private let api = BibleAPIService()
     private var searchTask: Task<Void, Never>?
 
@@ -69,6 +120,9 @@ final class SearchViewModel: ObservableObject {
 
     /// Called on every keystroke — waits 400 ms after the user stops typing, then searches.
     func liveSearch() {
+        // Update "Go to" suggestions immediately (no debounce needed — it's local)
+        updateGoToSuggestions()
+
         searchTask?.cancel()
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard q.count >= 2 else {
@@ -76,6 +130,16 @@ final class SearchViewModel: ObservableObject {
             errorMessage = nil
             return
         }
+
+        // If the query matches a book name or Bible reference, the "Go to" suggestions
+        // handle navigation. Skip the API text search to avoid decoding errors from
+        // partial queries like "Psa", "Luke 1", or "John 3:".
+        if !goToSuggestions.isEmpty || q.hasSuffix(":") {
+            results      = []
+            errorMessage = nil
+            return
+        }
+
         searchTask = Task {
             try? await Task.sleep(for: .milliseconds(400))
             guard !Task.isCancelled else { return }
@@ -181,7 +245,7 @@ final class SearchViewModel: ObservableObject {
 
     // MARK: - Recent Searches
 
-    private func addRecentSearch(_ query: String) {
+    func addRecentSearch(_ query: String) {
         var updated = recentSearches
         updated.removeAll { $0.lowercased() == query.lowercased() }
         updated.insert(query, at: 0)
@@ -220,12 +284,13 @@ final class SearchViewModel: ObservableObject {
     // MARK: - Utilities
 
     func clearResults() {
-        results        = []
-        errorMessage   = nil
-        selectedTopic  = nil
-        recognizedText = ""
-        showOCRConfirm = false
-        hwResults      = []
-        hwQuery        = ""
+        results         = []
+        errorMessage    = nil
+        selectedTopic   = nil
+        recognizedText  = ""
+        showOCRConfirm  = false
+        hwResults       = []
+        hwQuery         = ""
+        goToSuggestions = []
     }
 }

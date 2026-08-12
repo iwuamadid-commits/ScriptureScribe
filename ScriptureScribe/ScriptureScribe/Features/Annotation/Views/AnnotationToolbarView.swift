@@ -73,6 +73,10 @@ struct AnnotationToolbarView: View {
                 HStack(spacing: 6) {
                     ForEach(Array(visibleColors.enumerated()), id: \.element.color.stringValue) { visibleIdx, item in
                         colorSwatch(visibleIdx: visibleIdx, item: item)
+                            .transition(.asymmetric(
+                                insertion: .scale.combined(with: .opacity),
+                                removal:   .scale.combined(with: .opacity)
+                            ))
                     }
 
                     // "+" button → paywall if at free limit, otherwise open picker
@@ -97,6 +101,7 @@ struct AnnotationToolbarView: View {
                     .accessibilityLabel("Add new color")
                     .coachMark("reader-color-swatches")
                 }
+                .animation(.spring(response: 0.4, dampingFraction: 0.85), value: vm.savedColors.map(\.isHidden))
                 .padding(.horizontal, 4)
                 .padding(.vertical, 6)
             }
@@ -156,8 +161,14 @@ struct AnnotationToolbarView: View {
                     },
                     onDone: { color in
                         if let idx = vm.pendingEditColorIndex {
+                            // Editing an existing swatch — replace it
                             vm.replaceColor(at: idx, with: color)
+                        } else if !isAtFreeLimit {
+                            // Opened from "+" — save the color to the toolbar
+                            vm.addSavedColor(color, isPremium: subscriptionVM.isPremium)
+                            vm.selectedColor = color
                         } else {
+                            // Free user hit the limit during this session
                             vm.selectedColor = color
                         }
                         vm.pendingEditColorIndex = nil
@@ -379,7 +390,8 @@ struct AnnotationToolbarView: View {
     @ViewBuilder
     private func colorSwatch(visibleIdx: Int, item: (realIndex: Int, color: SavedColor)) -> some View {
         let isBeingEdited: Bool   = vm.pendingEditColorIndex == item.realIndex
-        let isSelected:   Bool    = isBeingEdited || item.color.colorHex == vm.selectedColor.hexString
+        let selectedAlpha: CGFloat = { var a: CGFloat = 0; vm.selectedColor.getRed(nil, green: nil, blue: nil, alpha: &a); return a }()
+        let isSelected:   Bool    = isBeingEdited || (item.color.colorHex == vm.selectedColor.hexString && item.color.alpha == selectedAlpha)
         let isDragged:    Bool    = draggedVisibleIndex == visibleIdx
         let displacement: CGFloat = isDragged ? dragOffset : colorDisplacement(for: visibleIdx)
         let displayColor: Color   = isBeingEdited ? Color(vm.selectedColor) : Color(item.color.uiColor)

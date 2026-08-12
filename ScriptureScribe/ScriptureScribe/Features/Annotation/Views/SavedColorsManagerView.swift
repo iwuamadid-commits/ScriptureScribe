@@ -91,7 +91,12 @@ struct SavedColorsManagerView: View {
                 onAdd: { newColor in
                     vm.addSavedColor(newColor, isPremium: subscriptionVM.isPremium)
                 },
-                onDone: { _ in }
+                onDone: { newColor in
+                    if !isAtFreeLimit {
+                        vm.addSavedColor(newColor, isPremium: subscriptionVM.isPremium)
+                    }
+                    // dismiss() in ColorPickerWheelView handles the navigation pop
+                }
             )
         }
         // "..." → Edit → replace existing swatch in-place
