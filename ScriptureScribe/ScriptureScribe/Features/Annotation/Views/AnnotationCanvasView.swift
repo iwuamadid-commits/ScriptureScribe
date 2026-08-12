@@ -173,8 +173,12 @@ struct AnnotationCanvasView: UIViewRepresentable {
             DispatchQueue.main.async { [weak canvas] in
                 guard let canvas = canvas else { return }
                 coord.isRewriting = true
-                let d = canvas.drawing
-                canvas.drawing = d
+                // Assigning the identical drawing back can be optimised away, leaving
+                // the hit-test index stale and the strokes un-erasable. Go via an empty
+                // drawing and rebuild from the strokes so the value genuinely changes.
+                let strokes = canvas.drawing.strokes
+                canvas.drawing = PKDrawing()
+                canvas.drawing = PKDrawing(strokes: strokes)
                 coord.isRewriting = false
                 canvas.undoManager?.removeAllActions()
             }
@@ -250,8 +254,11 @@ struct AnnotationCanvasView: UIViewRepresentable {
                 let coord = context.coordinator
                 DispatchQueue.main.async {
                     coord.isRewriting = true
-                    let d = canvas.drawing
-                    canvas.drawing = d
+                    // Same reasoning as in makeUIView: round-trip through an empty
+                    // drawing so PencilKit actually rebuilds its hit-test index.
+                    let strokes = canvas.drawing.strokes
+                    canvas.drawing = PKDrawing()
+                    canvas.drawing = PKDrawing(strokes: strokes)
                     coord.isRewriting = false
                     canvas.undoManager?.removeAllActions()
                 }
