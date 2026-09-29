@@ -110,17 +110,32 @@ final class ReaderViewModel: ObservableObject {
         try? await firestore.saveSyncData(data, userId: userId)
     }
 
-    func restoreFromCloud(userId: String) async {
-        guard let data = try? await firestore.fetchSyncData(userId: userId) else { return }
+    /// The account whose cloud data has already been restored. ReaderView's .task
+    /// re-runs every time the Reader tab reappears, so without this the restore
+    /// would repeat on every tab switch.
+    private var restoredCloudUserId: String?
 
-        if let bibleId = data["lastBibleId"] as? String, !bibleId.isEmpty {
-            lastBibleId = bibleId
-        }
-        if let bookId = data["lastBookId"] as? String, !bookId.isEmpty {
-            lastBookId = bookId
-        }
-        if let chapterId = data["lastChapterId"] as? String, !chapterId.isEmpty {
-            lastChapterId = chapterId
+    func restoreFromCloud(userId: String) async {
+        guard restoredCloudUserId != userId else { return }
+        guard let data = try? await firestore.fetchSyncData(userId: userId) else { return }
+        restoredCloudUserId = userId
+
+        // The cloud reading position is only a starting point for a fresh launch.
+        // Once the reader has started loading, lastBookId/lastChapterId must keep
+        // matching the chapter on screen, because selectTranslation reopens them.
+        // Overwriting them with the older cloud copy would send a version switch
+        // back to that older chapter.
+        let readerHasStarted = !translations.isEmpty || isLoadingTranslations
+        if !readerHasStarted {
+            if let bibleId = data["lastBibleId"] as? String, !bibleId.isEmpty {
+                lastBibleId = bibleId
+            }
+            if let bookId = data["lastBookId"] as? String, !bookId.isEmpty {
+                lastBookId = bookId
+            }
+            if let chapterId = data["lastChapterId"] as? String, !chapterId.isEmpty {
+                lastChapterId = chapterId
+            }
         }
         if let versions = data["myVersionIds"] as? [String], !versions.isEmpty {
             // Merge cloud versions with local (preserve order, no duplicates)
