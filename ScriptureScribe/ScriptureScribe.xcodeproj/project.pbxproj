@@ -444,8 +444,8 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ScriptureScribe/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Scripture Scribe";
-				INFOPLIST_KEY_NSCameraUsageDescription = "Scripture Scribe needs camera access to add photos to your Bible annotations.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Scripture Scribe needs photo library access to add photos to your Bible annotations.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Scripture Scribe uses your camera to take photos for annotations.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Scripture Scribe uses your photo library to set a profile picture, add images to gratitude posts, and customize verse backgrounds.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -492,8 +492,8 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ScriptureScribe/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Scripture Scribe";
-				INFOPLIST_KEY_NSCameraUsageDescription = "Scripture Scribe needs camera access to add photos to your Bible annotations.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Scripture Scribe needs photo library access to add photos to your Bible annotations.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Scripture Scribe uses your camera to take photos for annotations.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Scripture Scribe uses your photo library to set a profile picture, add images to gratitude posts, and customize verse backgrounds.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
