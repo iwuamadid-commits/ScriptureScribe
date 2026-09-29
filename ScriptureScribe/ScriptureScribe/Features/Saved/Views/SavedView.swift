@@ -42,7 +42,7 @@ struct SavedView: View {
     @State private var collectionPath: [CollectionDestination] = []
     @State private var showPaywall = false
     @State private var editingGroup: BookmarkGroup?
-    @State private var sortOrder: CollectionSortOrder = .lastAdded
+    @AppStorage("librarySortOrder") private var sortOrder: CollectionSortOrder = .lastAdded
 
     enum SavedTab: Int, CaseIterable {
         case bookmarks, prayers, devotionals, affirmations

@@ -39,9 +39,13 @@ final class ReaderViewModel: ObservableObject {
     /// ReaderView watches this instead of chapterContent?.id so the animation always fires.
     @Published var contentLoadCounter:   Int = 0
     @Published var showTranslationBrowser = false
-    @Published var bookSortOrder:        SortOrder = .canonical
+    /// Persisted so the user's choice survives the app being relaunched.
+    @Published var bookSortOrder: SortOrder =
+        SortOrder(rawValue: UserDefaults.standard.string(forKey: "bookSortOrder") ?? "") ?? .canonical {
+        didSet { UserDefaults.standard.set(bookSortOrder.rawValue, forKey: "bookSortOrder") }
+    }
 
-    enum SortOrder { case canonical, alphabetical }
+    enum SortOrder: String { case canonical, alphabetical }
 
     // MARK: - Reading Preferences (persist across app launches)
 

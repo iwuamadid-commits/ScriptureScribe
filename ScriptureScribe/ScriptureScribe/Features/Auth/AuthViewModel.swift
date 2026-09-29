@@ -293,6 +293,8 @@ final class AuthViewModel: ObservableObject {
             "isLeftHanded", "allowFingerDrawing", "useDoubleTapForNote",
             // Reading preferences
             "fontSize", "lineSpacing", "fontChoice", "showRedLetters", "textAlignment",
+            // Sort orders
+            "bookSortOrder", "librarySortOrder",
             // Last reading position
             "lastBibleId", "lastBookId", "lastChapterId",
             // Audio
