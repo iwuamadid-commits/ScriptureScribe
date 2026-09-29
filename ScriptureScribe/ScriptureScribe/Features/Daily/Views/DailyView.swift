@@ -10,8 +10,11 @@
 //  Prayer + Devotion cards: heart button to save/unsave to Firebase.
 //  Reflection card: questions + a button to jump to the Community Daily Question.
 //
-//  Section order is customizable — tap the toolbar button to rearrange.
+//  Section order is customizable — long-press a section to rearrange.
 //  Order persists in AppStorage across sessions.
+//
+//  Reminders: the bell button opens the notification settings, and a one-time popup
+//  offers to turn reminders on. Tapping a reminder opens today at that section.
 //
 
 import SwiftUI
@@ -77,6 +80,14 @@ struct DailyView: View {
     @State private var sectionDragOffset: CGFloat = 0
     @State private var sectionSizes: [String: CGFloat] = [:]
     @State private var sectionSourceIndex: Int = 0
+
+    // ── Reminders ──────────────────────────────────────────────────────────
+    @ObservedObject private var notifications = NotificationManager.shared
+    @AppStorage("hasDismissedReminderPrompt") private var hasDismissedReminderPrompt = false
+    @State private var showReminderPrompt   = false
+    @State private var showReminderSettings = false
+    /// Section to scroll to once today's content is on screen (from a tapped reminder).
+    @State private var pendingScrollSection: DailySection?
 
     // MARK: - Section Order (persisted)
 
@@ -282,6 +293,20 @@ struct DailyView: View {
                                 scrollToWalkthroughSection(proxy: scrollProxy)
                             }
                         }
+                        // Scroll to a tapped reminder's section. `initial: true` covers the
+                        // case where the content was still loading when the reminder was tapped.
+                        .onChange(of: pendingScrollSection, initial: true) { _, section in
+                            guard let section else { return }
+                            pendingScrollSection = nil
+                            // Short delay so the tab switch and layout settle first.
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                                withAnimation(.easeInOut(duration: 0.3)) {
+                                    scrollProxy.scrollTo("daily-\(section.rawValue)", anchor: .top)
+                                }
+                            }
+                        }
+                        // Offer reminders once the day's content is on screen.
+                        .onAppear { offerRemindersIfNeeded() }
                         } // closes ScrollViewReader
                     }
                 }   // closes ZStack (content area)
@@ -292,6 +317,41 @@ struct DailyView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(themeManager.currentTheme.surface, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showReminderSettings = true
+                    } label: {
+                        Image(systemName: notifications.isDelivering ? "bell.fill" : "bell")
+                            .foregroundStyle(themeManager.currentTheme.primary)
+                    }
+                    .accessibilityLabel("Reminder settings")
+                }
+            }
+            .sheet(isPresented: $showReminderSettings) {
+                NavigationStack {
+                    NotificationSettingsView()
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("Done") { showReminderSettings = false }
+                            }
+                        }
+                }
+                .environmentObject(themeManager)
+            }
+            // One-time offer to turn on reminders. iOS's own permission popup only
+            // appears if the user taps Turn On here.
+            .alert("Get Daily Reminders?", isPresented: $showReminderPrompt) {
+                Button("Not Now", role: .cancel) {
+                    hasDismissedReminderPrompt = true
+                }
+                Button("Turn On") {
+                    Task { await turnOnReminders() }
+                }
+                .keyboardShortcut(.defaultAction)
+            } message: {
+                Text("We'll remind you each morning to spend time with your verse of the day. You can add more reminders or change the time anytime with the bell button.")
+            }
             .sheet(isPresented: $showCalendar) {
                 CalendarSheetView(selectedDate: vm.selectedDate) { date in
                     // Free (non-admin) users can only view today — show paywall for any other date
@@ -348,6 +408,59 @@ struct DailyView: View {
                 Task { await vm.loadContent(for: date) }
             }
         }
+        // Tapped reminder: make sure today is showing, then scroll to its section.
+        // `initial: true` covers the Daily tab being opened for the first time by the tap.
+        .onChange(of: appNav.pendingDailySection, initial: true) { _, section in
+            guard let section else { return }
+            appNav.pendingDailySection = nil
+            Task {
+                if !Calendar.current.isDateInToday(vm.selectedDate) {
+                    vm.selectedDate = Date()
+                    await vm.loadContent(for: vm.selectedDate)
+                }
+                pendingScrollSection = section
+            }
+        }
+        // Turning reminders on by any route (bell, Profile, or the popup) counts as
+        // answering the offer, so it never shows up later for someone who chose to
+        // turn them back off.
+        .onChange(of: notifications.settings.isEnabled, initial: true) { _, isEnabled in
+            if isEnabled { hasDismissedReminderPrompt = true }
+        }
+    }
+
+    // MARK: - Reminder Offer
+
+    /// The offer is made once: until the user answers it, and only while reminders
+    /// are off, not blocked in iOS Settings, and the first-launch walkthrough isn't running.
+    private var shouldOfferReminders: Bool {
+        !hasDismissedReminderPrompt
+            && !notifications.settings.isEnabled
+            && !notifications.isBlocked
+            && !walkthroughManager.isActive
+    }
+
+    /// Shows the reminder popup after a short pause, so it doesn't appear the instant
+    /// the tab opens. Skipped if the user has left the Daily tab or opened another
+    /// screen by then.
+    private func offerRemindersIfNeeded() {
+        guard shouldOfferReminders else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            let anotherScreenOpen = showReminderSettings || showCalendar || showPaywall
+                || showAuth || imageComposerPayload != nil
+            guard shouldOfferReminders, appNav.selectedTab == 1, !anotherScreenOpen else { return }
+            showReminderPrompt = true
+        }
+    }
+
+    /// Asks iOS for permission and turns on the verse reminder. If it worked, opens the
+    /// reminder settings so the user sees the time and can add more reminders.
+    private func turnOnReminders() async {
+        hasDismissedReminderPrompt = true
+        guard await notifications.setEnabled(true) else { return }
+        // Let the popup finish closing before the settings sheet slides up.
+        try? await Task.sleep(for: .milliseconds(400))
+        showReminderSettings = true
     }
 
     // MARK: - Section Router

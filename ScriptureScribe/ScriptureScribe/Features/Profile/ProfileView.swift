@@ -17,6 +17,7 @@ struct ProfileView: View {
     @EnvironmentObject var themeManager:   ThemeManager
     @EnvironmentObject var authVM:        AuthViewModel
     @EnvironmentObject var subscriptionVM: SubscriptionViewModel
+    @ObservedObject private var notifications = NotificationManager.shared
     @State private var showThemePicker = false
     @State private var showAuth        = false
     @State private var showPaywall     = false
@@ -199,6 +200,29 @@ struct ProfileView: View {
                         }
                     } header: {
                         Text("Appearance")
+                            .foregroundStyle(themeManager.currentTheme.textSecondary)
+                    }
+                    .listRowBackground(themeManager.currentTheme.surface)
+
+                    // ── Notifications ────────────────────────────────────────
+                    Section {
+                        NavigationLink {
+                            NotificationSettingsView()
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "bell.fill")
+                                    .foregroundStyle(themeManager.currentTheme.primary)
+                                    .frame(width: 24)
+                                Text("Daily Reminders")
+                                    .foregroundStyle(themeManager.currentTheme.text)
+                                Spacer()
+                                Text(notifications.isDelivering ? "On" : "Off")
+                                    .foregroundStyle(themeManager.currentTheme.textSecondary)
+                                    .font(.subheadline)
+                            }
+                        }
+                    } header: {
+                        Text("Notifications")
                             .foregroundStyle(themeManager.currentTheme.textSecondary)
                     }
                     .listRowBackground(themeManager.currentTheme.surface)

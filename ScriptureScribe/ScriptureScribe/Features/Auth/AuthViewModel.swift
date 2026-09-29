@@ -295,6 +295,8 @@ final class AuthViewModel: ObservableObject {
             "fontSize", "lineSpacing", "fontChoice", "showRedLetters", "textAlignment",
             // Sort orders
             "bookSortOrder", "librarySortOrder",
+            // Daily reminders
+            "dailyReminderSettings", "hasDismissedReminderPrompt",
             // Last reading position
             "lastBibleId", "lastBookId", "lastChapterId",
             // Audio
@@ -309,6 +311,9 @@ final class AuthViewModel: ObservableObject {
         for key in keys {
             UserDefaults.standard.removeObject(forKey: key)
         }
+
+        // Cancel any scheduled Daily reminders (the settings keys were removed above).
+        NotificationManager.shared.resetAll()
 
         // ── 2. Clear per-chapter photo metadata (ss_photos_*) ──
 

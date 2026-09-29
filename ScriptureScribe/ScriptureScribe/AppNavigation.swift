@@ -24,4 +24,5 @@ final class AppNavigation: ObservableObject {
     @Published var pendingCommunityTab:   Int?    = nil   // Community sub-tab to open (3 = Daily Question)
     @Published var pendingSavedTab:       Int?    = nil   // Library sub-tab to open (0=Bookmarks 1=Prayers 2=Devotionals 3=Affirmations)
     @Published var pendingDailyDate:      String? = nil   // "YYYY-MM-DD" — Daily tab loads this date when set
+    @Published var pendingDailySection:   DailySection? = nil   // Daily tab shows today and scrolls here (tapped reminder)
 }

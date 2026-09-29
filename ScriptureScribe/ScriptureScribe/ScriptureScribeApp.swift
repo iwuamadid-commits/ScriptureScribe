@@ -24,6 +24,7 @@ struct ScriptureScribeApp: App {
     @StateObject private var streakVM         = StreakViewModel()
     @StateObject private var walkthroughManager  = WalkthroughManager()
     @StateObject private var networkMonitor       = NetworkMonitor()
+    @StateObject private var notificationManager  = NotificationManager.shared
 
     init() {
         FirebaseApp.configure()
@@ -31,6 +32,9 @@ struct ScriptureScribeApp: App {
         if let clientID = FirebaseApp.app()?.options.clientID {
             GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: clientID)
         }
+        // Daily reminders: must be set up before launch finishes so that tapping a
+        // reminder while the app is closed still opens the right section.
+        NotificationManager.shared.setUp()
     }
 
     // MARK: - Deep Link Handling
@@ -94,6 +98,14 @@ struct ScriptureScribeApp: App {
             }
             .onChange(of: authViewModel.currentUserID) { _, uid in
                 subscriptionVM.configureForUser(uid)
+            }
+            // Tapping a Daily reminder opens the Daily tab at that reminder's section.
+            // `initial: true` also covers a tap that launched the app.
+            .onChange(of: notificationManager.tappedSection, initial: true) { _, section in
+                guard let section else { return }
+                notificationManager.tappedSection = nil
+                appNav.pendingDailySection = section
+                appNav.selectedTab         = 1
             }
             // Required for Google Sign-In: handles the redirect after the user picks their account
             .onOpenURL { url in
