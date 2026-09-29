@@ -204,7 +204,11 @@ struct AnnotationCanvasView: UIViewRepresentable {
         vm.setDrawingAction  = { [weak canvas, weak coordinator] drawing in
             guard let canvas = canvas else { return }
             coordinator?.isRewriting = true
-            canvas.drawing = drawing
+            // Rebuild from the strokes rather than assigning the snapshot directly.
+            // A PKDrawing carries PencilKit's internal version history, so restoring
+            // an older snapshot (undo) could get merged with the canvas's newer state
+            // on the next stroke, making the undone strokes reappear.
+            canvas.drawing = PKDrawing(strokes: drawing.strokes)
             coordinator?.previousStrokeCount = drawing.strokes.count
             coordinator?.isRewriting = false
         }
