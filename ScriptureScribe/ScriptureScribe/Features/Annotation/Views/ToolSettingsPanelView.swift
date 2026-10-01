@@ -11,12 +11,14 @@
 //
 //  Size section layout:
 //    ┌──────────────────────────────────────────┐
-//    │  [ ] [ ] [ ] [ ] [ ]  ← 5 favorite slots │
+//    │  SIZE                            Reset   │
+//    │  [•] [•] [•] [•] [•]  ← 5 saved sizes    │
+//    │  Adjusting size 3              2.5       │
 //    │  ──────────────────── ← drag slider       │
 //    └──────────────────────────────────────────┘
-//  • Tap an EMPTY slot  → saves the current size into that slot
-//  • Tap a FILLED slot  → instantly applies that saved size
-//  • Long-press a slot  → clears it (back to empty)
+//  • Every slot always has a size. Tap one to pick it and switch to that size.
+//  • The slider changes the picked size, and it's saved automatically.
+//  • Reset puts all five back to the defaults (after confirming).
 //
 
 import SwiftUI
@@ -32,35 +34,21 @@ struct ToolSettingsPanelView: View {
 
     @Environment(\.dismiss) private var dismiss
 
+    @State private var showResetSizes = false
+
     // MARK: - Computed helpers
-
-    private var sliderRange: ClosedRange<CGFloat> {
-        switch tool {
-        case .pen:         return 1...20
-        case .highlighter: return 4...80
-        case .eraser:      return 3...60
-        default:           return 1...20
-        }
-    }
-
-    /// The size value that should be read/written for this tool.
-    private var sizeBinding: Binding<CGFloat> {
-        tool == .eraser
-            ? Binding(get: { self.vm.eraserSize },   set: { self.vm.eraserSize   = $0 })
-            : Binding(get: { self.vm.strokeWidth },  set: { self.vm.strokeWidth  = $0 })
-    }
-
-    private var currentToolSize: CGFloat {
-        tool == .eraser ? vm.eraserSize : vm.strokeWidth
-    }
 
     private var sheetHeight: CGFloat {
         switch tool {
-        case .pen:         return 620
-        case .highlighter: return 460
-        case .eraser:      return 420
-        default:           return 460
+        case .pen:         return 650
+        case .highlighter: return 490
+        case .eraser:      return 450
+        default:           return 490
         }
+    }
+
+    private var toolName: String {
+        tool == .pen ? "pen" : tool == .highlighter ? "highlighter" : "eraser"
     }
 
     // MARK: - Body
@@ -353,88 +341,72 @@ struct ToolSettingsPanelView: View {
     // MARK: - Size Section
 
     private var sizeSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // For the eraser in whole-line mode, note that size only applies to pixel mode
-            if tool == .eraser && vm.eraserType == .wholeLine {
-                sectionLabel("Size  ·  applies in Pixel mode")
-            } else {
-                sectionLabel("Size")
+        // For the eraser in whole-line mode, sizes only apply in Pixel mode
+        let dimmed = tool == .eraser && vm.eraserType == .wholeLine
+
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                sectionLabel(dimmed ? "Size  ·  applies in Pixel mode" : "Size")
+                Spacer()
+                Button("Reset") { showResetSizes = true }
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color(white: 0.65))
+                    .accessibilityLabel("Reset sizes to default")
             }
 
-            favoritesRow
-                .opacity(tool == .eraser && vm.eraserType == .wholeLine ? 0.45 : 1.0)
+            sizeSlotsRow
+                .opacity(dimmed ? 0.45 : 1.0)
 
-            Slider(value: sizeBinding, in: sliderRange,
-                   step: tool == .pen ? 0.5 : 1)
-                .tint(tool == .eraser ? Color(white: 0.60) : Color(vm.selectedColor))
-                .opacity(tool == .eraser && vm.eraserType == .wholeLine ? 0.45 : 1.0)
+            SizeAdjuster(
+                vm:         vm,
+                tool:       tool,
+                labelColor: Color(white: 0.55),
+                valueColor: .white,
+                tint:       tool == .eraser ? Color(white: 0.60) : Color(vm.selectedColor)
+            )
+            .opacity(dimmed ? 0.45 : 1.0)
+        }
+        .alert("Reset Sizes?", isPresented: $showResetSizes) {
+            Button("Reset", role: .destructive) {
+                vm.resetSizesToDefaults(for: tool)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Your five saved \(toolName) sizes will go back to the defaults.")
         }
     }
 
-    // MARK: - Favorites Row
+    // MARK: - Size Slots Row
 
-    private var favoritesRow: some View {
-        let favorites: [Double?] = {
-            switch tool {
-            case .pen:         return vm.penFavoriteSizes
-            case .highlighter: return vm.highlighterFavoriteSizes
-            case .eraser:      return vm.eraserFavoriteSizes
-            default:           return vm.penFavoriteSizes
-            }
-        }()
+    private var sizeSlotsRow: some View {
+        let sizes    = vm.favoriteSizes(for: tool)
+        let selected = vm.selectedSizeSlot(for: tool)
+        let range    = AnnotationViewModel.sizeRange(for: tool)
 
         return HStack(spacing: 6) {
-            ForEach(0..<5, id: \.self) { idx in
-                favSlotButton(index: idx, storedSize: favorites[idx].map { CGFloat($0) })
+            ForEach(sizes.indices, id: \.self) { idx in
+                let isSelected = idx == selected
+                Button {
+                    vm.selectSizeSlot(idx, for: tool)
+                } label: {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(isSelected ? Color(white: 0.32) : Color(white: 0.20))
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(isSelected ? Color.white.opacity(0.55) : Color.clear, lineWidth: 1.5)
+                        SizeDot(size: sizes[idx], range: range,
+                                minDiameter: 4, maxDiameter: 28,
+                                color: Color.white.opacity(isSelected ? 1.0 : 0.72))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                    .contentShape(RoundedRectangle(cornerRadius: 10))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Size \(idx + 1), \(SizeFormat.string(sizes[idx]))")
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
         }
-    }
-
-    private func favSlotButton(index: Int, storedSize: CGFloat?) -> some View {
-        let isActive = storedSize.map { abs(currentToolSize - $0) < 0.5 } ?? false
-
-        return ZStack {
-            RoundedRectangle(cornerRadius: 10)
-                .fill(isActive ? Color(white: 0.32) : Color(white: 0.20))
-
-            if let size = storedSize {
-                Circle()
-                    .fill(Color.white.opacity(isActive ? 1.0 : 0.72))
-                    .frame(width: dotDiameter(for: size), height: dotDiameter(for: size))
-            } else {
-                RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(Color(white: 0.38),
-                                  style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
-                Image(systemName: "plus")
-                    .font(.system(size: 12, weight: .light))
-                    .foregroundStyle(Color(white: 0.42))
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: 50)
-        .contentShape(RoundedRectangle(cornerRadius: 10))
-        .onTapGesture {
-            if let size = storedSize {
-                sizeBinding.wrappedValue = size
-            } else {
-                vm.setFavoriteSize(currentToolSize, at: index, for: tool)
-            }
-        }
-        .onLongPressGesture(minimumDuration: 0.5) {
-            if storedSize != nil {
-                vm.clearFavoriteSize(at: index, for: tool)
-            }
-        }
-    }
-
-    /// Dot diameter scaled proportionally to the current tool's slider range.
-    private func dotDiameter(for size: CGFloat) -> CGFloat {
-        let minDot: CGFloat = 4
-        let maxDot: CGFloat = 28
-        let lo = sliderRange.lowerBound
-        let hi = sliderRange.upperBound
-        let t  = max(0, min(1, (size - lo) / (hi - lo)))
-        return minDot + t * (maxDot - minDot)
     }
 
     // MARK: - Options Section (Highlighter only)

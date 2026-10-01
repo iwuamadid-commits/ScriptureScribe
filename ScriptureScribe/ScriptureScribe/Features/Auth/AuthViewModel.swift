@@ -295,6 +295,7 @@ final class AuthViewModel: ObservableObject {
             "ss_layoutMode", "ss_eraserType", "ss_eraserSize",
             "ss_selectedTool", "ss_showGuidelines", "ss_guideSpacing",
             "ss_toolSettings", "ss_penFavSizes", "ss_hlFavSizes", "ss_eraserFavSizes",
+            "ss_penSelectedSize", "ss_hlSelectedSize", "ss_eraserSelectedSize",
             // Annotation toggles
             "isLeftHanded", "allowFingerDrawing", "useDoubleTapForNote",
             // Reading preferences

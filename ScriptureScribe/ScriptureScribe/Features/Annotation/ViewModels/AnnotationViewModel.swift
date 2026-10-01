@@ -225,10 +225,17 @@ final class AnnotationViewModel: ObservableObject {
     // Stored on the ViewModel so closures always read the live value.
     var pendingEditColorIndex: Int? = nil
 
-    // Favorite stroke sizes per tool (5 slots; nil = empty)
-    @Published var penFavoriteSizes:         [Double?] = Array(repeating: nil, count: 5)
-    @Published var highlighterFavoriteSizes: [Double?] = Array(repeating: nil, count: 5)
-    @Published var eraserFavoriteSizes:      [Double?] = Array(repeating: nil, count: 5)
+    // Saved stroke sizes per tool: 5 slots, always filled (Noteful-style).
+    // Picking a slot switches to its size; adjusting the size changes the picked slot.
+    @Published private(set) var penFavoriteSizes:         [Double] = AnnotationViewModel.defaultPenSizes
+    @Published private(set) var highlighterFavoriteSizes: [Double] = AnnotationViewModel.defaultHighlighterSizes
+    @Published private(set) var eraserFavoriteSizes:      [Double] = AnnotationViewModel.defaultEraserSizes
+    /// Which of the five slots is picked, per tool.
+    @Published private(set) var selectedSizeIndex: [DrawingTool: Int] = [:]
+
+    nonisolated static let defaultPenSizes:         [Double] = [1.5, 3, 5, 8, 12]
+    nonisolated static let defaultHighlighterSizes: [Double] = [10, 20, 30, 45, 60]
+    nonisolated static let defaultEraserSizes:      [Double] = [5, 10, 15, 25, 40]
 
     // MARK: - Persisted Preferences
 
@@ -244,6 +251,9 @@ final class AnnotationViewModel: ObservableObject {
     private let penFavSizesKey    = "ss_penFavSizes"
     private let hlFavSizesKey     = "ss_hlFavSizes"
     private let eraserFavSizesKey = "ss_eraserFavSizes"
+    private let penSelectedSizeKey    = "ss_penSelectedSize"
+    private let hlSelectedSizeKey     = "ss_hlSelectedSize"
+    private let eraserSelectedSizeKey = "ss_eraserSelectedSize"
     private let maxSavedColors    = 8
 
     // MARK: - Combine persistence subscriptions
@@ -675,62 +685,162 @@ final class AnnotationViewModel: ObservableObject {
         persistColors()
     }
 
-    // MARK: - Favorite Sizes Management
+    // MARK: - Saved Sizes (5 per tool)
+    //
+    // Every slot always has a size. The picked slot always matches the size the tool
+    // is drawing with: picking a slot switches to its size, and adjusting the size
+    // (slider) changes the picked slot. There's no separate "save" step.
 
+    static func defaultFavoriteSizes(for tool: DrawingTool) -> [Double] {
+        switch tool {
+        case .highlighter: return defaultHighlighterSizes
+        case .eraser:      return defaultEraserSizes
+        default:           return defaultPenSizes
+        }
+    }
+
+    /// Slider range for each tool's size.
+    static func sizeRange(for tool: DrawingTool) -> ClosedRange<CGFloat> {
+        switch tool {
+        case .pen:         return 1...20
+        case .highlighter: return 4...80
+        case .eraser:      return 3...60
+        default:           return 1...20
+        }
+    }
+
+    /// Slider step for each tool's size.
+    static func sizeStep(for tool: DrawingTool) -> CGFloat {
+        tool == .pen ? 0.5 : 1
+    }
+
+    /// The five saved sizes for a tool.
+    func favoriteSizes(for tool: DrawingTool) -> [Double] {
+        switch tool {
+        case .highlighter: return highlighterFavoriteSizes
+        case .eraser:      return eraserFavoriteSizes
+        default:           return penFavoriteSizes
+        }
+    }
+
+    /// Index (0–4) of the picked slot for a tool.
+    func selectedSizeSlot(for tool: DrawingTool) -> Int {
+        selectedSizeIndex[tool] ?? 0
+    }
+
+    /// Picks one of the five saved sizes and switches the tool to it.
+    func selectSizeSlot(_ index: Int, for tool: DrawingTool) {
+        let sizes = favoriteSizes(for: tool)
+        guard sizes.indices.contains(index) else { return }
+        selectedSizeIndex[tool] = index
+        UserDefaults.standard.set(index, forKey: selectedSizeKey(for: tool))
+        applySize(CGFloat(sizes[index]), for: tool)
+    }
+
+    /// Changes the picked slot to `size` (from the slider). Saved automatically.
+    func adjustSelectedSize(to size: CGFloat, for tool: DrawingTool) {
+        var sizes = favoriteSizes(for: tool)
+        let index = selectedSizeSlot(for: tool)
+        guard sizes.indices.contains(index) else { return }
+        sizes[index] = Double(size)
+        storeFavoriteSizes(sizes, for: tool)
+        applySize(size, for: tool)
+    }
+
+    /// Puts a tool's five sizes back to the defaults, keeping the same slot picked.
+    func resetSizesToDefaults(for tool: DrawingTool) {
+        let defaults = Self.defaultFavoriteSizes(for: tool)
+        storeFavoriteSizes(defaults, for: tool)
+        applySize(CGFloat(defaults[selectedSizeSlot(for: tool)]), for: tool)
+    }
+
+    /// Loads each tool's five sizes and picked slot. Earlier versions allowed empty
+    /// slots and had no picked slot, so those are filled in here: empty slots get the
+    /// default sizes, and the picked slot is the one matching the size the tool is
+    /// already drawing with. If none matches, the closest slot takes that size
+    /// (preferring a default-filled slot over one the user saved), so no tool
+    /// changes size after the update.
     func loadFavoriteSizes() {
-        if let data = UserDefaults.standard.data(forKey: penFavSizesKey),
-           let v = try? JSONDecoder().decode([Double?].self, from: data) {
-            penFavoriteSizes = v
-        }
-        if let data = UserDefaults.standard.data(forKey: hlFavSizesKey),
-           let v = try? JSONDecoder().decode([Double?].self, from: data) {
-            highlighterFavoriteSizes = v
-        }
-        if let data = UserDefaults.standard.data(forKey: eraserFavSizesKey),
-           let v = try? JSONDecoder().decode([Double?].self, from: data) {
-            eraserFavoriteSizes = v
+        for tool in [DrawingTool.pen, .highlighter, .eraser] {
+            let defaults = Self.defaultFavoriteSizes(for: tool)
+            var stored: [Double?] = defaults
+            if let data = UserDefaults.standard.data(forKey: favSizesKey(for: tool)),
+               let decoded = try? JSONDecoder().decode([Double?].self, from: data) {
+                stored = (0..<defaults.count).map { $0 < decoded.count ? decoded[$0] : nil }
+            }
+            let userSaved = Set(stored.indices.filter { stored[$0] != nil })
+            var sizes = stored.enumerated().map { $0.element ?? defaults[$0.offset] }
+
+            let current = Double(savedDrawingSize(for: tool))
+            let index: Int
+            if let saved = UserDefaults.standard.object(forKey: selectedSizeKey(for: tool)) as? Int,
+               sizes.indices.contains(saved) {
+                index = saved
+            } else if let match = sizes.firstIndex(where: { abs($0 - current) < 0.25 }) {
+                index = match
+            } else {
+                let defaultFilled = sizes.indices.filter { !userSaved.contains($0) }
+                let candidates = defaultFilled.isEmpty ? Array(sizes.indices) : defaultFilled
+                index = candidates.min(by: { abs(sizes[$0] - current) < abs(sizes[$1] - current) }) ?? 0
+                sizes[index] = current
+            }
+
+            storeFavoriteSizes(sizes, for: tool)
+            selectedSizeIndex[tool] = index
+            UserDefaults.standard.set(index, forKey: selectedSizeKey(for: tool))
         }
     }
 
-    func setFavoriteSize(_ size: CGFloat, at index: Int, for tool: DrawingTool) {
+    /// The size a tool was last drawing with, from saved settings (used at launch).
+    private func savedDrawingSize(for tool: DrawingTool) -> CGFloat {
+        tool == .eraser ? eraserSize : (toolSettings[tool] ?? defaultSettings(for: tool)).strokeWidth
+    }
+
+    /// Makes `size` the tool's live drawing size and remembers it.
+    private func applySize(_ size: CGFloat, for tool: DrawingTool) {
         switch tool {
-        case .pen:
-            penFavoriteSizes[index] = Double(size)
-            if let data = try? JSONEncoder().encode(penFavoriteSizes) {
-                UserDefaults.standard.set(data, forKey: penFavSizesKey)
-            }
-        case .highlighter:
-            highlighterFavoriteSizes[index] = Double(size)
-            if let data = try? JSONEncoder().encode(highlighterFavoriteSizes) {
-                UserDefaults.standard.set(data, forKey: hlFavSizesKey)
-            }
         case .eraser:
-            eraserFavoriteSizes[index] = Double(size)
-            if let data = try? JSONEncoder().encode(eraserFavoriteSizes) {
-                UserDefaults.standard.set(data, forKey: eraserFavSizesKey)
+            eraserSize = size   // persisted by the eraserSize subscription
+        case .pen, .highlighter:
+            if tool == selectedTool {
+                strokeWidth = size
+                saveCurrentToolSettings()
+            } else {
+                var settings = toolSettings[tool] ?? defaultSettings(for: tool)
+                settings.strokeWidth = size
+                toolSettings[tool] = settings
+                persistToolSettings()
             }
-        default: break
+        default:
+            break
         }
     }
 
-    func clearFavoriteSize(at index: Int, for tool: DrawingTool) {
+    private func storeFavoriteSizes(_ sizes: [Double], for tool: DrawingTool) {
         switch tool {
-        case .pen:
-            penFavoriteSizes[index] = nil
-            if let data = try? JSONEncoder().encode(penFavoriteSizes) {
-                UserDefaults.standard.set(data, forKey: penFavSizesKey)
-            }
-        case .highlighter:
-            highlighterFavoriteSizes[index] = nil
-            if let data = try? JSONEncoder().encode(highlighterFavoriteSizes) {
-                UserDefaults.standard.set(data, forKey: hlFavSizesKey)
-            }
-        case .eraser:
-            eraserFavoriteSizes[index] = nil
-            if let data = try? JSONEncoder().encode(eraserFavoriteSizes) {
-                UserDefaults.standard.set(data, forKey: eraserFavSizesKey)
-            }
-        default: break
+        case .pen:         penFavoriteSizes         = sizes
+        case .highlighter: highlighterFavoriteSizes = sizes
+        case .eraser:      eraserFavoriteSizes      = sizes
+        default:           return
+        }
+        if let data = try? JSONEncoder().encode(sizes) {
+            UserDefaults.standard.set(data, forKey: favSizesKey(for: tool))
+        }
+    }
+
+    private func favSizesKey(for tool: DrawingTool) -> String {
+        switch tool {
+        case .highlighter: return hlFavSizesKey
+        case .eraser:      return eraserFavSizesKey
+        default:           return penFavSizesKey
+        }
+    }
+
+    private func selectedSizeKey(for tool: DrawingTool) -> String {
+        switch tool {
+        case .highlighter: return hlSelectedSizeKey
+        case .eraser:      return eraserSelectedSizeKey
+        default:           return penSelectedSizeKey
         }
     }
 

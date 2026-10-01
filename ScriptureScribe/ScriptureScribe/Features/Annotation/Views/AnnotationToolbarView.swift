@@ -13,6 +13,11 @@
 //  "+" button → opens color picker (add new color via "+" inside picker).
 //  Hidden colors are excluded from the toolbar but managed in Favorites.
 //
+//  Saved sizes (pen, highlighter, and eraser in Pixel mode) follow the same rule:
+//    • Wide toolbar   → five size dots. Tap to pick; tap the picked one again to
+//                       open the size slider.
+//    • Narrow toolbar → one size button that opens the five sizes + slider.
+//
 
 import AVFoundation
 import Photos
@@ -42,6 +47,25 @@ struct AnnotationToolbarView: View {
     @State private var dragOffset:            CGFloat = 0
     @State private var dragSourceVisibleIndex: Int    = 0
 
+    // Saved sizes
+    @State private var toolbarWidth:    CGFloat = 0
+    @State private var sizeEditorIndex: Int?    = nil   // inline dot whose slider popup is open
+    @State private var showSizePopover          = false // single size button's popup
+
+    /// The tool whose saved sizes the toolbar shows, or nil for tools without a size
+    /// (lasso, hand, and the eraser in Whole Line mode).
+    private var sizeTool: AnnotationViewModel.DrawingTool? {
+        switch vm.selectedTool {
+        case .pen, .highlighter: return vm.selectedTool
+        case .eraser:            return vm.eraserType == .pixel ? .eraser : nil
+        default:                 return nil
+        }
+    }
+
+    /// Wide toolbars show all five sizes; narrower ones show a single size button so
+    /// the saved colors keep their room.
+    private var showsInlineSizes: Bool { !isCompact && toolbarWidth >= 960 }
+
     var body: some View {
         HStack(spacing: isCompact ? 4 : 8) {
 
@@ -64,11 +88,24 @@ struct AnnotationToolbarView: View {
             }
             .coachMark("reader-annotation-toolbar")
 
-            // ── Saved Colors (inline, always visible, scrollable) ────────
             Divider()
                 .frame(height: isCompact ? 22 : 28)
                 .padding(.horizontal, 2)
 
+            // ── Saved sizes for the current tool ─────────────────────────
+            if let tool = sizeTool {
+                if showsInlineSizes {
+                    inlineSizeDots(for: tool)
+                } else {
+                    sizeButton(for: tool)
+                }
+
+                Divider()
+                    .frame(height: isCompact ? 22 : 28)
+                    .padding(.horizontal, 2)
+            }
+
+            // ── Saved Colors (inline, always visible, scrollable) ────────
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
                     ForEach(Array(visibleColors.enumerated()), id: \.element.color.stringValue) { visibleIdx, item in
@@ -131,6 +168,12 @@ struct AnnotationToolbarView: View {
         .padding(.horizontal, isCompact ? 8 : 16)
         .padding(.vertical, isCompact ? 4 : 8)
         .background(themeManager.currentTheme.surface)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { toolbarWidth = $0 }
+        // Close any size popup if the tool changes underneath it (e.g. Pencil double-tap)
+        .onChange(of: vm.selectedTool) { _, _ in
+            sizeEditorIndex = nil
+            showSizePopover = false
+        }
         // Tool settings panel — pen style, eraser type, size favorites
         .sheet(isPresented: $showToolSettings) {
             ToolSettingsPanelView(
@@ -250,6 +293,84 @@ struct AnnotationToolbarView: View {
         } message: {
             Text(permissionAlertMessage)
         }
+    }
+
+    // MARK: - Saved Sizes
+
+    /// Five size dots. Tap one to pick it; tap the picked one again for the slider.
+    private func inlineSizeDots(for tool: AnnotationViewModel.DrawingTool) -> some View {
+        let sizes    = vm.favoriteSizes(for: tool)
+        let selected = vm.selectedSizeSlot(for: tool)
+        let range    = AnnotationViewModel.sizeRange(for: tool)
+        let theme    = themeManager.currentTheme
+
+        return HStack(spacing: 2) {
+            ForEach(sizes.indices, id: \.self) { idx in
+                let isSelected = idx == selected
+                Button {
+                    if isSelected {
+                        sizeEditorIndex = idx
+                    } else {
+                        vm.selectSizeSlot(idx, for: tool)
+                    }
+                } label: {
+                    ZStack {
+                        Circle()
+                            .fill(isSelected ? theme.primary.opacity(0.14) : Color.clear)
+                        Circle()
+                            .stroke(isSelected ? theme.primary : Color.clear, lineWidth: 2)
+                        SizeDot(size: sizes[idx], range: range,
+                                minDiameter: 3, maxDiameter: 16,
+                                color: theme.text.opacity(isSelected ? 1 : 0.6))
+                    }
+                    .frame(width: 30, height: 30)
+                    .frame(width: 34, height: 44)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .popover(isPresented: Binding(
+                    get: { sizeEditorIndex == idx },
+                    set: { if !$0 { sizeEditorIndex = nil } }
+                )) {
+                    SizePopoverView(vm: vm, tool: tool, showsSlots: false, theme: theme)
+                }
+                .accessibilityLabel("Size \(idx + 1), \(SizeFormat.string(sizes[idx]))")
+                .accessibilityHint(isSelected ? "Opens the size slider" : "")
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
+            }
+        }
+    }
+
+    /// One button showing the current size; opens the five sizes and the slider.
+    private func sizeButton(for tool: AnnotationViewModel.DrawingTool) -> some View {
+        let sizes    = vm.favoriteSizes(for: tool)
+        let selected = vm.selectedSizeSlot(for: tool)
+        let theme    = themeManager.currentTheme
+        let side: CGFloat = isCompact ? 32 : 44
+
+        return Button {
+            showSizePopover = true
+        } label: {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(theme.border, lineWidth: 1)
+                    .frame(width: side - 6, height: side - 6)
+                if sizes.indices.contains(selected) {
+                    SizeDot(size: sizes[selected],
+                            range: AnnotationViewModel.sizeRange(for: tool),
+                            minDiameter: 3, maxDiameter: isCompact ? 14 : 18,
+                            color: theme.text)
+                }
+            }
+            .frame(width: side, height: side)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: $showSizePopover) {
+            SizePopoverView(vm: vm, tool: tool, showsSlots: true, theme: theme)
+        }
+        .accessibilityLabel("Size \(selected + 1) of \(sizes.count)")
+        .accessibilityHint("Opens the saved sizes")
     }
 
     // MARK: - Tool Button
