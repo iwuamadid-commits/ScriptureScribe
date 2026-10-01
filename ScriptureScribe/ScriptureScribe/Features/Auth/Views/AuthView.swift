@@ -35,6 +35,11 @@ struct AuthView: View {
     // Controls whether the password field hides its text
     @State private var showPassword  = false
 
+    /// - Parameter startsInSignUp: open on "Create your account" instead of "Sign In".
+    init(startsInSignUp: Bool = false) {
+        _isSignUp = State(initialValue: startsInSignUp)
+    }
+
     var body: some View {
         NavigationStack {
             ZStack {

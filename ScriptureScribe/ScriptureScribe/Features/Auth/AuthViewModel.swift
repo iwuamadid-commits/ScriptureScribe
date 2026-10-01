@@ -27,6 +27,11 @@ final class AuthViewModel: ObservableObject {
     @Published var errorMessage: String?  = nil
     @Published var isLoading:    Bool     = false
 
+    /// True at launch while Firebase restores a saved sign-in, before `isSignedIn`
+    /// becomes true (that waits for the profile to load). Lets screens show a loading
+    /// state instead of briefly treating a signed-in user as a guest.
+    @Published private(set) var isRestoringSession = Auth.auth().currentUser != nil
+
     /// Convenience: returns the Firebase UID of the signed-in user, or nil.
     var currentUserID: String? { currentUser?.id }
 
@@ -71,6 +76,7 @@ final class AuthViewModel: ObservableObject {
                     self.isSignedIn  = false
                     self.currentUser = nil
                 }
+                if self.isRestoringSession { self.isRestoringSession = false }
             }
         }
     }

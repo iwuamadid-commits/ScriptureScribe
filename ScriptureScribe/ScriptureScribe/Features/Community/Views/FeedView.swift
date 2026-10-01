@@ -8,10 +8,23 @@
 //    • Prayer       — prayer requests with 🙏 button and comments
 //    • Daily        — open-ended question tied to today's devotion
 //
-//  Anyone can browse all sections. An account is required to post or reply.
+//  Access:
+//    • No account — a "Join the Community" screen in each section. Community posts
+//      can only be read by signed-in users (see firestore.rules), so the feeds aren't
+//      loaded at all; loading them would just fail with a permission error.
+//    • Free account — a preview of each section plus an upgrade banner.
+//    • Pro — everything.
 //
 
 import SwiftUI
+
+// MARK: - Auth Sheet Mode
+
+/// Which way the sign-in sheet opens from the guest screen.
+private enum AuthSheetMode: String, Identifiable {
+    case signIn, signUp
+    var id: String { rawValue }
+}
 
 // MARK: - Tab Enum
 
@@ -56,6 +69,7 @@ struct FeedView: View {
     @State private var editingPost:   Post?     = nil   // opens edit sheet
     @State private var showErrorAlert = false
     @State private var errorAlertMessage = ""
+    @State private var authSheetMode: AuthSheetMode? = nil   // sign-in sheet from the guest screen
 
     var body: some View {
         NavigationStack {
@@ -68,26 +82,34 @@ struct FeedView: View {
 
                     // ── Content ────────────────────────────────────────
                     ZStack {
-                        switch selectedTab {
-                        case .reflections:
-                            reflectionsContent
+                        if authVM.isSignedIn {
+                            switch selectedTab {
+                            case .reflections:
+                                reflectionsContent
 
-                        case .gratitude:
-                            GratitudeFeedView(vm: gratitudeVM, isPremium: subscriptionVM.isPremium, onCompose: {
-                                guard subscriptionVM.isPremium else { showPaywall = true; return }
-                                if authVM.isSignedIn { showGratitude = true }
-                                else                 { showAuth      = true }
-                            }, onUpgrade: { showPaywall = true })
+                            case .gratitude:
+                                GratitudeFeedView(vm: gratitudeVM, isPremium: subscriptionVM.isPremium, onCompose: {
+                                    guard subscriptionVM.isPremium else { showPaywall = true; return }
+                                    if authVM.isSignedIn { showGratitude = true }
+                                    else                 { showAuth      = true }
+                                }, onUpgrade: { showPaywall = true })
 
-                        case .prayer:
-                            PrayerFeedView(vm: prayerVM, isPremium: subscriptionVM.isPremium, onCompose: {
-                                guard subscriptionVM.isPremium else { showPaywall = true; return }
-                                if authVM.isSignedIn { showPrayer = true }
-                                else                 { showAuth   = true }
-                            }, onUpgrade: { showPaywall = true })
+                            case .prayer:
+                                PrayerFeedView(vm: prayerVM, isPremium: subscriptionVM.isPremium, onCompose: {
+                                    guard subscriptionVM.isPremium else { showPaywall = true; return }
+                                    if authVM.isSignedIn { showPrayer = true }
+                                    else                 { showAuth   = true }
+                                }, onUpgrade: { showPaywall = true })
 
-                        case .daily:
-                            DailyQuestionView(vm: dailyVM, isPremium: subscriptionVM.isPremium, onUpgrade: { showPaywall = true })
+                            case .daily:
+                                DailyQuestionView(vm: dailyVM, isPremium: subscriptionVM.isPremium, onUpgrade: { showPaywall = true })
+                            }
+                        } else if authVM.isRestoringSession {
+                            // Signed in, but the profile is still loading at launch
+                            ProgressView()
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        } else {
+                            guestContent(for: selectedTab)
                         }
                     }
                     .animation(.easeInOut(duration: 0.2), value: selectedTab)
@@ -132,6 +154,9 @@ struct FeedView: View {
             // ── Sheets ─────────────────────────────────────────────────
             .sheet(isPresented: $showPaywall) { PaywallView() }
             .sheet(isPresented: $showAuth) { AuthView() }
+            .sheet(item: $authSheetMode) { mode in
+                AuthView(startsInSignUp: mode == .signUp)
+            }
             .sheet(isPresented: $showCreate) {
                 if let user = authVM.currentUser {
                     CreatePostView(currentUser: user) { text, verseRef, verseText in
@@ -267,12 +292,13 @@ struct FeedView: View {
 
     // MARK: - Section Header
 
-    private func sectionHeader(icon: String, title: String, description: String) -> some View {
+    private func sectionHeader(icon: String, title: String, description: String,
+                               iconColor: Color? = nil) -> some View {
         VStack(alignment: .center, spacing: 6) {
             HStack(spacing: 8) {
                 Image(systemName: icon)
                     .font(.title3)
-                    .foregroundStyle(themeManager.currentTheme.primary)
+                    .foregroundStyle(iconColor ?? themeManager.currentTheme.primary)
                 Text(title)
                     .font(.title3.weight(.bold))
                     .foregroundStyle(themeManager.currentTheme.primary)
@@ -420,9 +446,148 @@ struct FeedView: View {
         .onDisappear { communityVM.stopListening() }
     }
 
+    // MARK: - Guest Content (no account)
+
+    /// What someone without an account sees in each section: the section's heading,
+    /// a blurred post-shaped placeholder (no real or made-up content), and an
+    /// invitation to create a free account.
+    private func guestContent(for tab: CommunityTab) -> some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                switch tab {
+                case .reflections:
+                    sectionHeader(
+                        icon:        "quote.bubble.fill",
+                        title:       "Insights",
+                        description: "Share what God is teaching you through Scripture."
+                    )
+                case .gratitude:
+                    sectionHeader(
+                        icon:        "leaf.fill",
+                        title:       "Gratitude",
+                        description: "Celebrate God's goodness. Share what you're grateful for today, big or small, and encourage others along the way.",
+                        iconColor:   .green
+                    )
+                case .prayer:
+                    sectionHeader(
+                        icon:        "hands.sparkles.fill",
+                        title:       "Prayer Requests",
+                        description: "Share what's on your heart and let the community stand with you."
+                    )
+                case .daily:
+                    sectionHeader(
+                        icon:        "sparkles",
+                        title:       "Daily Question",
+                        description: "A new question tied to today's devotion. Share your answer and see how others are hearing from God."
+                    )
+                }
+
+                placeholderPostCard
+                    .padding(.horizontal, 16)
+
+                joinCommunityCard
+            }
+            .padding(.bottom, 24)
+        }
+    }
+
+    /// A blurred card shaped like a post, so the section doesn't look empty.
+    private var placeholderPostCard: some View {
+        let theme = themeManager.currentTheme
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Circle()
+                    .fill(theme.border)
+                    .frame(width: 36, height: 36)
+                VStack(alignment: .leading, spacing: 6) {
+                    Capsule().fill(theme.border).frame(width: 110, height: 10)
+                    Capsule().fill(theme.border.opacity(0.7)).frame(width: 70, height: 8)
+                }
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                Capsule().fill(theme.border).frame(height: 10)
+                Capsule().fill(theme.border).frame(height: 10)
+                Capsule().fill(theme.border).frame(width: 180, height: 10)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(theme.border.opacity(0.5), lineWidth: 1)
+        )
+        .blur(radius: 2)
+        .accessibilityHidden(true)
+    }
+
+    private var joinCommunityCard: some View {
+        let theme = themeManager.currentTheme
+        return VStack(spacing: 12) {
+            Image(systemName: "person.2.fill")
+                .font(.title2)
+                .foregroundStyle(theme.primary)
+
+            Text("Join the Community")
+                .font(.headline)
+                .foregroundStyle(theme.text)
+
+            // Pro is tied to the Apple ID, so someone can have Pro without an account.
+            Text(subscriptionVM.isPremium
+                 ? "Create a free account or sign in to see every post and share your own with Pro."
+                 : "Create a free account to preview what other believers are sharing. Upgrade to Pro anytime to see every post and share your own.")
+                .font(.subheadline)
+                .foregroundStyle(theme.textSecondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 8)
+
+            Button {
+                authSheetMode = .signUp
+            } label: {
+                Text("Create a Free Account")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 13)
+                    .background(theme.primary)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                authSheetMode = .signIn
+            } label: {
+                Text("Already have an account? Sign In")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(theme.primary)
+                    .frame(minHeight: 44)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(theme.surface)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20)
+                .stroke(theme.border.opacity(0.5), lineWidth: 1)
+        )
+        .padding(.horizontal, 16)
+    }
+
     // MARK: - Compose Action (routes to the right sheet for each tab)
 
     private func handleComposeAction() {
+        // Posting needs an account before anything else, so guests are asked to
+        // create one (or sign in) rather than being shown the paywall.
+        guard authVM.isSignedIn else {
+            if !authVM.isRestoringSession { authSheetMode = .signUp }
+            return
+        }
         guard subscriptionVM.isPremium else {
             showPaywall = true
             return
