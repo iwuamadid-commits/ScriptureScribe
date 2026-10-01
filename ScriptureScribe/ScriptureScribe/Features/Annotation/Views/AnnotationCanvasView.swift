@@ -10,9 +10,11 @@
 //    The result is stored in HandwritingIndexService, making every chapter's
 //    handwriting instantly searchable from the Search tab.
 //
-//  Auto-shape (pen tool):
-//    Draw a shape, hold still at the end for ~0.5 s, then lift.
-//    The stroke snaps to a clean line, circle, or rectangle.
+//  Auto Shapes (pen tool, when turned on):
+//    Draw a shape and keep the pencil still at the end for ~0.5 s. While the pencil
+//    is still down, the stroke is replaced by a clean line, circle, oval, triangle,
+//    square, rectangle, other straight-sided shape, or straight zig-zag
+//    (see ShapeRecognizer). Strokes that aren't a shape stay hand-drawn.
 //
 //  Straight-line (highlighter tool):
 //    Every committed stroke is straightened when the toggle is on.
@@ -30,38 +32,11 @@ final class PassThroughPKCanvasView: PKCanvasView {
     var isDrawingToolActive: Bool = false
     var isLassoActive:       Bool = false
 
-    // MARK: Auto-shape hold detection
+    // MARK: Auto Shapes
 
+    /// Pen tool with Auto Shapes on. The hold is detected by the Coordinator, which
+    /// watches PencilKit's drawing gesture.
     var autoShapeEnabled: Bool = false
-    var didHoldAtEnd:     Bool = false
-    private var lastMoveTime: Date = .distantPast
-
-    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        lastMoveTime = Date()
-        didHoldAtEnd = false
-        super.touchesBegan(touches, with: event)
-    }
-
-    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        if autoShapeEnabled, let t = touches.first {
-            let cur  = t.location(in: self)
-            let prev = t.previousLocation(in: self)
-            if hypot(cur.x - prev.x, cur.y - prev.y) > 3 { lastMoveTime = Date() }
-        }
-        super.touchesMoved(touches, with: event)
-    }
-
-    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        if autoShapeEnabled {
-            didHoldAtEnd = Date().timeIntervalSince(lastMoveTime) >= 0.5
-        }
-        super.touchesEnded(touches, with: event)
-    }
-
-    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-        didHoldAtEnd = false
-        super.touchesCancelled(touches, with: event)
-    }
 
     // MARK: Disable PencilKit edit menu (Select All / Insert Space)
 
@@ -126,6 +101,11 @@ struct AnnotationCanvasView: UIViewRepresentable {
         canvas.isUserInteractionEnabled = vm.isDrawingTool || vm.isLassoActive
         canvas.delegate        = context.coordinator
         applyFingerPolicy(to: canvas)
+
+        // Auto Shapes: watch the pencil while it's down to spot a hold at the end of a
+        // stroke. Adding a target only observes the gesture; drawing is unaffected.
+        canvas.drawingGestureRecognizer.addTarget(context.coordinator,
+                                                  action: #selector(Coordinator.handleDrawingGesture(_:)))
 
         // Disable PKCanvasView's own scrolling and zoom so it doesn't
         // conflict with the parent ZoomScrollView. Without this, the canvas
@@ -361,6 +341,8 @@ struct AnnotationCanvasView: UIViewRepresentable {
         // MARK: Drawing delegate
 
         func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
+            // A new stroke: anything added from here on is the user's, not a cut-off one.
+            cutOff = nil
             // Capture the full annotation state before a stroke/erase begins.
             // This snapshot will be committed to the unified undo stack when
             // canvasViewDrawingDidChange fires with the completed stroke.
@@ -382,6 +364,21 @@ struct AnnotationCanvasView: UIViewRepresentable {
             let currentCount = canvasView.drawing.strokes.count
             let strokeAdded  = currentCount > previousStrokeCount
             previousStrokeCount = currentCount
+
+            // Auto Shapes: if PencilKit still commits the hand-drawn stroke that was cut
+            // off when it snapped, drop it. The clean shape is what stays.
+            if strokeAdded, let cutOff,
+               Date().timeIntervalSince(cutOff.snappedAt) < 2,
+               let last = canvasView.drawing.strokes.last,
+               last.path.creationDate != cutOff.shapeDate {
+                var strokes = canvasView.drawing.strokes
+                strokes.removeLast()
+                isRewriting = true
+                canvasView.drawing = PKDrawing(strokes: strokes)
+                isRewriting = false
+                previousStrokeCount = strokes.count
+                return
+            }
 
             // Lasso mode: capture the drawn stroke as a lasso path, then remove it.
             // The canvas renders the blue lasso line in real-time via PencilKit;
@@ -426,26 +423,136 @@ struct AnnotationCanvasView: UIViewRepresentable {
                 return
             }
 
-            if strokeAdded && vm.highlighterStraightLines {
-                switch vm.selectedTool {
-                case .pen:
-                    if let pcv = canvasView as? PassThroughPKCanvasView,
-                       pcv.didHoldAtEnd,
-                       snapToShape(in: canvasView) {
-                        vm.commitPreStrokeUndo()
-                        canvasView.undoManager?.removeAllActions()
-                        save(canvasView.drawing)
-                        return
-                    }
-                default: break
-                }
-            }
-
             // Commit the pre-stroke snapshot to the undo stack for strokes and erases.
             vm.commitPreStrokeUndo()
             canvasView.undoManager?.removeAllActions()
 
             save(canvasView.drawing)
+        }
+
+        // MARK: - Auto Shapes (pen)
+
+        /// Points of the stroke in progress, in canvas coordinates.
+        private var shapePoints: [CGPoint] = []
+        /// Where and when the pencil last moved noticeably (window coordinates).
+        private var holdAnchor: CGPoint = .zero
+        private var lastMoveTime = Date.distantPast
+        /// A single pending check for "has the pencil been still long enough?".
+        private var holdTask: Task<Void, Never>?
+        /// Set when a stroke has just been snapped to a shape, so PencilKit committing the
+        /// cut-off hand-drawn stroke afterwards can be told apart from the shape and
+        /// dropped. Cleared when the next stroke begins.
+        private var cutOff: (shapeDate: Date, snappedAt: Date)?
+
+        private static let holdDuration: TimeInterval = 0.5
+        /// Screen points of drift still counted as holding still.
+        private static let holdTolerance: CGFloat = 4
+
+        /// Called by PencilKit's drawing gesture as the pencil moves. Only does anything
+        /// for the pen with Auto Shapes on.
+        @objc func handleDrawingGesture(_ gesture: UIGestureRecognizer) {
+            guard let canvas = canvas as? PassThroughPKCanvasView, canvas.autoShapeEnabled else {
+                cancelHold()
+                shapePoints = []
+                return
+            }
+            switch gesture.state {
+            case .began:
+                shapePoints  = [gesture.location(in: canvas)]
+                holdAnchor   = gesture.location(in: nil)
+                lastMoveTime = Date()
+                scheduleHoldCheck(after: Self.holdDuration)
+            case .changed:
+                let point = gesture.location(in: canvas)
+                if let last = shapePoints.last, hypot(point.x - last.x, point.y - last.y) >= 0.5 {
+                    shapePoints.append(point)
+                }
+                let screen = gesture.location(in: nil)
+                if hypot(screen.x - holdAnchor.x, screen.y - holdAnchor.y) > Self.holdTolerance {
+                    holdAnchor   = screen
+                    lastMoveTime = Date()
+                }
+                if holdTask == nil { scheduleHoldCheck(after: Self.holdDuration) }
+            default:   // ended, cancelled, failed
+                cancelHold()
+                shapePoints = []
+            }
+        }
+
+        /// Checks once the pencil may have been still long enough; if it moved in the
+        /// meantime, checks again when it could be.
+        private func scheduleHoldCheck(after delay: TimeInterval) {
+            holdTask?.cancel()
+            holdTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(delay))
+                guard !Task.isCancelled, let self else { return }
+                self.holdTask = nil
+                let still = Date().timeIntervalSince(self.lastMoveTime)
+                if still >= Self.holdDuration {
+                    self.snapHeldStrokeToShape()
+                } else {
+                    self.scheduleHoldCheck(after: Self.holdDuration - still)
+                }
+            }
+        }
+
+        private func cancelHold() {
+            holdTask?.cancel()
+            holdTask = nil
+        }
+
+        /// The pencil has held still. If the stroke so far is a shape, swap it for a
+        /// clean one right away, while the pencil is still down.
+        private func snapHeldStrokeToShape() {
+            guard let canvas,
+                  (canvas as? PassThroughPKCanvasView)?.autoShapeEnabled == true,
+                  [.began, .changed].contains(canvas.drawingGestureRecognizer.state),
+                  let shape = ShapeRecognizer.recognize(shapePoints),
+                  let tool = canvas.tool as? PKInkingTool
+            else { return }
+
+            let shapeDate = Date()
+            let shapeStroke = Self.makeStroke(for: shape, ink: tool.ink, width: tool.width, date: shapeDate)
+            let snapPoint = shapePoints.last ?? .zero
+            shapePoints = []
+            cutOff = (shapeDate: shapeDate, snappedAt: shapeDate)
+
+            // End the hand-drawn stroke in progress. PencilKit drops it (or, if it commits
+            // it, canvasViewDrawingDidChange removes it) and the clean shape takes its place.
+            canvas.drawingGestureRecognizer.isEnabled = false
+            canvas.drawingGestureRecognizer.isEnabled = true
+
+            var strokes = canvas.drawing.strokes
+            strokes.append(shapeStroke)
+            isRewriting = true
+            canvas.drawing = PKDrawing(strokes: strokes)
+            isRewriting = false
+            previousStrokeCount = strokes.count
+
+            // One undo removes the shape, same as any other stroke.
+            vm.commitPreStrokeUndo()
+            canvas.undoManager?.removeAllActions()
+            save(canvas.drawing)
+
+            // A light tap on Apple Pencil Pro to confirm the snap.
+            UICanvasFeedbackGenerator(view: canvas).pathCompleted(at: snapPoint)
+        }
+
+        /// A stroke tracing `shape` with the pen's current ink and width.
+        private static func makeStroke(for shape: RecognizedShape, ink: PKInk,
+                                       width: CGFloat, date: Date) -> PKStroke {
+            let points = ShapeRecognizer.outline(of: shape).enumerated().map { i, location in
+                PKStrokePoint(location:   location,
+                              timeOffset: TimeInterval(i) * 0.005,
+                              size:       CGSize(width: width, height: width),
+                              opacity:    1,
+                              force:      1,
+                              azimuth:    0,
+                              altitude:   .pi / 2)
+            }
+            return PKStroke(ink: ink,
+                            path: PKStrokePath(controlPoints: points, creationDate: date),
+                            transform: .identity)
         }
 
         // MARK: - Save + background OCR
@@ -561,164 +668,6 @@ struct AnnotationCanvasView: UIViewRepresentable {
                                        creationDate: last.path.creationDate)
             let stroke = PKStroke(ink: last.ink, path: path, transform: last.transform)
             rewrite(canvasView: canvasView, replacing: strokes.count - 1, with: stroke)
-        }
-
-        // MARK: - Auto-shape recognition (pen)
-
-        @discardableResult
-        private func snapToShape(in canvasView: PKCanvasView) -> Bool {
-            let strokes = canvasView.drawing.strokes
-            guard let last = strokes.last, last.path.count >= 3 else { return false }
-            let pts = (0..<last.path.count).map { last.path[$0].location }
-            guard let shaped = recognizeShape(points: pts, template: last) else { return false }
-            rewrite(canvasView: canvasView, replacing: strokes.count - 1, with: shaped)
-            return true
-        }
-
-        private func recognizeShape(points: [CGPoint], template: PKStroke) -> PKStroke? {
-            guard points.count >= 3,
-                  let first = points.first, let last = points.last else { return nil }
-            if straightnessRatio(points) > 0.88 {
-                return lineStroke(from: first, to: last, template: template)
-            }
-            let span = boundingSpan(points)
-            guard span > 20 else { return nil }
-            let gap = hypot(first.x - last.x, first.y - last.y)
-            guard gap / span < 0.30 else { return nil }
-            if let (center, radius) = fitCircle(points) {
-                return circleStroke(center: center, radius: radius, template: template)
-            }
-            if let rect = fitRectangle(points) {
-                return rectangleStroke(rect: rect, template: template)
-            }
-            return nil
-        }
-
-        // MARK: Shape geometry
-
-        private func straightnessRatio(_ pts: [CGPoint]) -> CGFloat {
-            guard let first = pts.first, let last = pts.last else { return 0 }
-            let arc = zip(pts, pts.dropFirst())
-                .reduce(CGFloat(0)) { $0 + hypot($1.1.x - $1.0.x, $1.1.y - $1.0.y) }
-            guard arc > 0 else { return 0 }
-            return hypot(last.x - first.x, last.y - first.y) / arc
-        }
-
-        private func boundingSpan(_ pts: [CGPoint]) -> CGFloat {
-            guard let minX = pts.map(\.x).min(), let maxX = pts.map(\.x).max(),
-                  let minY = pts.map(\.y).min(), let maxY = pts.map(\.y).max()
-            else { return 0 }
-            return hypot(maxX - minX, maxY - minY)
-        }
-
-        private func fitCircle(_ pts: [CGPoint]) -> (CGPoint, CGFloat)? {
-            let n  = CGFloat(pts.count)
-            let cx = pts.map(\.x).reduce(0, +) / n
-            let cy = pts.map(\.y).reduce(0, +) / n
-            let radii  = pts.map { hypot($0.x - cx, $0.y - cy) }
-            let mean   = radii.reduce(0, +) / n
-            guard mean > 10 else { return nil }
-            let stdDev = sqrt(radii.map { pow($0 - mean, 2) }.reduce(0, +) / n)
-            guard stdDev / mean < 0.18 else { return nil }
-            return (CGPoint(x: cx, y: cy), mean)
-        }
-
-        private func fitRectangle(_ pts: [CGPoint]) -> CGRect? {
-            guard let minX = pts.map(\.x).min(), let maxX = pts.map(\.x).max(),
-                  let minY = pts.map(\.y).min(), let maxY = pts.map(\.y).max()
-            else { return nil }
-            let w = maxX - minX, h = maxY - minY
-            guard w > 20, h > 20 else { return nil }
-            let thr  = min(w, h) * 0.22
-            let near = pts.filter {
-                abs($0.x - minX) < thr || abs($0.x - maxX) < thr ||
-                abs($0.y - minY) < thr || abs($0.y - maxY) < thr
-            }
-            guard CGFloat(near.count) / CGFloat(pts.count) > 0.72 else { return nil }
-            return CGRect(x: minX, y: minY, width: w, height: h)
-        }
-
-        // MARK: Shape stroke builders
-
-        private func lineStroke(from start: CGPoint, to end: CGPoint,
-                                template: PKStroke) -> PKStroke {
-            let n  = template.path.count
-            let t0 = template.path[0], t1 = template.path[n - 1]
-            let mid = PKStrokePoint(
-                location:   CGPoint(x: (start.x + end.x) / 2, y: (start.y + end.y) / 2),
-                timeOffset: (t0.timeOffset + t1.timeOffset) / 2,
-                size:       CGSize(width:  (t0.size.width  + t1.size.width)  / 2,
-                                   height: (t0.size.height + t1.size.height) / 2),
-                opacity:    (t0.opacity  + t1.opacity)  / 2,
-                force:      (t0.force    + t1.force)    / 2,
-                azimuth:    (t0.azimuth  + t1.azimuth)  / 2,
-                altitude:   (t0.altitude + t1.altitude) / 2
-            )
-            let path = PKStrokePath(controlPoints: [t0, mid, t1],
-                                    creationDate: template.path.creationDate)
-            return PKStroke(ink: template.ink, path: path, transform: template.transform)
-        }
-
-        private func circleStroke(center: CGPoint, radius: CGFloat,
-                                  template: PKStroke) -> PKStroke {
-            let t0 = template.path[0]
-            let avgSize  = averageSize(template.path)
-            let avgProps = averageProps(template.path)
-            var cpts: [PKStrokePoint] = []
-            for i in 0...32 {
-                let angle = CGFloat(i) / 32 * 2 * .pi
-                cpts.append(PKStrokePoint(
-                    location:   CGPoint(x: center.x + radius * cos(angle),
-                                        y: center.y + radius * sin(angle)),
-                    timeOffset: t0.timeOffset + Double(i) * 0.01,
-                    size: avgSize, opacity: avgProps.opacity, force: avgProps.force,
-                    azimuth: t0.azimuth, altitude: t0.altitude
-                ))
-            }
-            let path = PKStrokePath(controlPoints: cpts, creationDate: template.path.creationDate)
-            return PKStroke(ink: template.ink, path: path, transform: template.transform)
-        }
-
-        private func rectangleStroke(rect: CGRect, template: PKStroke) -> PKStroke {
-            let t0       = template.path[0]
-            let avgSize  = averageSize(template.path)
-            let avgProps = averageProps(template.path)
-            let corners: [CGPoint] = [
-                CGPoint(x: rect.minX, y: rect.minY), CGPoint(x: rect.maxX, y: rect.minY),
-                CGPoint(x: rect.maxX, y: rect.maxY), CGPoint(x: rect.minX, y: rect.maxY),
-                CGPoint(x: rect.minX, y: rect.minY)
-            ]
-            var locs: [CGPoint] = []
-            for i in 0..<4 {
-                locs.append(corners[i])
-                locs.append(CGPoint(x: (corners[i].x + corners[i+1].x) / 2,
-                                    y: (corners[i].y + corners[i+1].y) / 2))
-            }
-            locs.append(corners[0])
-            let cpts = locs.enumerated().map { i, loc in
-                PKStrokePoint(location: loc, timeOffset: t0.timeOffset + Double(i) * 0.01,
-                              size: avgSize, opacity: avgProps.opacity, force: avgProps.force,
-                              azimuth: t0.azimuth, altitude: t0.altitude)
-            }
-            let path = PKStrokePath(controlPoints: cpts, creationDate: template.path.creationDate)
-            return PKStroke(ink: template.ink, path: path, transform: template.transform)
-        }
-
-        // MARK: Stroke attribute helpers
-
-        private func averageSize(_ path: PKStrokePath) -> CGSize {
-            let n = CGFloat(path.count)
-            let w = (0..<path.count).map { path[$0].size.width  }.reduce(0, +) / n
-            let h = (0..<path.count).map { path[$0].size.height }.reduce(0, +) / n
-            return CGSize(width: w, height: h)
-        }
-
-        private struct StrokeProps { let opacity: CGFloat; let force: CGFloat }
-        private func averageProps(_ path: PKStrokePath) -> StrokeProps {
-            let n = CGFloat(path.count)
-            let o = (0..<path.count).map { path[$0].opacity }.reduce(0, +) / n
-            let f = (0..<path.count).map { path[$0].force   }.reduce(0, +) / n
-            return StrokeProps(opacity: o, force: f)
         }
 
         // MARK: Write-back helper

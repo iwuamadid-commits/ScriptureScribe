@@ -421,7 +421,7 @@ struct ToolSettingsPanelView: View {
                         .font(.subheadline)
                         .foregroundStyle(.white)
                     Text(tool == .pen
-                         ? "Draw, then hold still at the end to snap to a line, circle, or rectangle."
+                         ? "Draw a shape and hold still at the end. It snaps into a clean line, circle, oval, triangle, square, or other shape."
                          : "Every stroke snaps to a straight line.")
                         .font(.caption)
                         .foregroundStyle(Color(white: 0.55))
