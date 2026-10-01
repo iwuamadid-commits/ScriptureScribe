@@ -15,10 +15,15 @@ service cloud.firestore {
     }
 
     // ── Daily content cache ────────────────────────────────────────────────
-    // Any signed-in user can read and write daily entries.
-    // (The first user each day caches the AI-generated entry for everyone else.)
+    // Anyone can read daily entries, including people without an account: the
+    // devotional is the same for everyone and contains nothing personal. Without
+    // this, guests can't see the saved entry and the app generates a new one
+    // with the AI every time they open the Daily tab.
+    // Only signed-in users can write (the first user each day caches the
+    // AI-generated entry for everyone else).
     match /dailyContent/{date} {
-      allow read, write: if request.auth != null;
+      allow read: if true;
+      allow write: if request.auth != null;
     }
 
     // ── Community: Scripture posts ─────────────────────────────────────────
