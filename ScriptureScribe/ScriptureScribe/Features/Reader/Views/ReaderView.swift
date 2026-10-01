@@ -84,6 +84,12 @@ struct ReaderView: View {
     /// Fades the content area out when a chapter switch starts and back in when
     /// new content arrives. Avoids the double-render choppiness caused by .id().
     @State private var contentOpacity:  Double = 1.0
+    /// Hides the drawing, photo and note layers while a chapter change is in progress.
+    /// Those layers switch to the new chapter the moment it's tapped, but the old
+    /// chapter's text is still fading out, so without this the new chapter's
+    /// annotations flash over the old text. Shown again when the new text arrives.
+    @State private var hideAnnotationsDuringTransition = false
+    private var annotationLayerOpacity: Double { hideAnnotationsDuringTransition ? 0 : 1 }
     /// Incremented each time a new chapter loads (without a verse target) to tell
     /// ZoomScrollView to snap to the top and reset zoom — invisible because
     /// contentOpacity is 0 during the snap.
@@ -300,6 +306,10 @@ struct ReaderView: View {
         // We watch contentLoadCounter (not chapterContent?.id) so the animation
         // also fires when the user navigates to a verse in the *already-open* chapter.
         .onChange(of: vm.contentLoadCounter) { _, _ in
+            // The new chapter's text is in place, so its annotations can show again
+            // (the page is still invisible here and fades in below).
+            hideAnnotationsDuringTransition = false
+
             // ── Swipe-to-turn slide-in ──────────────────────────────────────
             if isSwipeTransitioning {
                 // New content starts slightly off to the opposite side, then slides to center
@@ -441,6 +451,9 @@ struct ReaderView: View {
         // so the old text is invisible while the new chapter loads in the background.
         .onChange(of: vm.selectedChapter) { _, newChapter in
             guard newChapter != nil else { return }
+            // Hide annotations instantly: they already belong to the new chapter,
+            // while the old chapter's text below is still fading out.
+            hideAnnotationsDuringTransition = true
             // Reset overlay height so it doesn't carry over from a longer chapter
             // (invisible — contentOpacity is about to go to 0).
             contentHeight = 100
@@ -667,6 +680,7 @@ struct ReaderView: View {
                             }
                         }
                         .frame(height: contentHeight)
+                        .opacity(annotationLayerOpacity)
 
                         // ── Drawing canvas (spans the full page width) ─────
                         AnnotationCanvasView(
@@ -679,6 +693,7 @@ struct ReaderView: View {
                         .frame(height: contentHeight)
                         .id(vm.selectedChapter?.id ?? "")
                         .allowsHitTesting(annotationVM.isDrawingTool || annotationVM.isLassoActive)
+                        .opacity(annotationLayerOpacity)
 
                         // ── Gold verse accent bar (above annotation canvas) ─
                         if let iy = navIndicatorY {
@@ -733,6 +748,7 @@ struct ReaderView: View {
                                 )
                             }
                             .frame(height: contentHeight)
+                            .opacity(annotationLayerOpacity)
                         }
 
                         // ── Note tiles (above canvas so taps reach them) ──
@@ -759,6 +775,7 @@ struct ReaderView: View {
                             }
                         }
                         .frame(height: contentHeight)
+                        .opacity(annotationLayerOpacity)
                         // Note tiles are always hittable so the user can drag them
                         // with a finger regardless of the active annotation tool.
                         // The Color.clear background already guards its own hit testing
@@ -773,6 +790,7 @@ struct ReaderView: View {
                                 areaSize:     CGSize(width: geo.size.width, height: contentHeight)
                             )
                             .frame(height: contentHeight)
+                            .opacity(annotationLayerOpacity)
                         }
 
                         // ── Bible-side guide lines ──────────────────────────
@@ -863,6 +881,7 @@ struct ReaderView: View {
                         }
                     }
                     .frame(height: contentHeight)
+                    .opacity(annotationLayerOpacity)
 
                     // Layer 3 — Drawing canvas
                     AnnotationCanvasView(
@@ -875,6 +894,7 @@ struct ReaderView: View {
                     .frame(height: contentHeight)
                     .id(vm.selectedChapter?.id ?? "")
                     .allowsHitTesting(annotationVM.isDrawingTool || annotationVM.isLassoActive)
+                    .opacity(annotationLayerOpacity)
 
                     // Layer 3.5 — Gold verse accent bar
                     if let iy = navIndicatorY {
@@ -929,6 +949,7 @@ struct ReaderView: View {
                             )
                         }
                         .frame(height: contentHeight)
+                        .opacity(annotationLayerOpacity)
                     }
 
                     // Layer 4 — Draggable note tiles (above canvas so taps reach them)
@@ -955,6 +976,7 @@ struct ReaderView: View {
                         }
                     }
                     .frame(height: contentHeight)
+                    .opacity(annotationLayerOpacity)
                     // Note tiles are always hittable so the user can drag them
                     // with a finger regardless of the active annotation tool.
 
@@ -967,6 +989,7 @@ struct ReaderView: View {
                             areaSize:     CGSize(width: geo.size.width, height: contentHeight)
                         )
                         .frame(height: contentHeight)
+                        .opacity(annotationLayerOpacity)
                     }
 
                     // Layer 5 — Guide lines
