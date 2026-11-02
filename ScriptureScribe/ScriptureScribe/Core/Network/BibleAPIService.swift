@@ -224,14 +224,43 @@ final class BibleAPIService {
         // Save accumulated text as a segment.
         // forceRedLetter: pass true when closing a "wj" span — the span was already
         // popped from the stack before this is called, so we can't rely on spanStack.
+        /// True when the previous segment already ends in a space, so adding
+        /// another would double it up.
+        func previousSegmentEndsWithSpace() -> Bool {
+            currentSegments.last?.text.hasSuffix(" ") ?? true
+        }
+
         func flushBuffer(forceRedLetter: Bool = false) {
             let isRL       = forceRedLetter || spanStack.contains("wj")
             let normalized = currentBuffer.replacingOccurrences(of: "\n", with: " ")
             let trimmed    = normalized.trimmingCharacters(in: .whitespaces)
-            guard !trimmed.isEmpty else { currentBuffer = ""; return }
-            // Keep a trailing space so words at segment boundaries don't run together.
-            let text = normalized.hasSuffix(" ") ? trimmed + " " : trimmed
-            currentSegments.append(VerseSegment(text: text, isRedLetter: isRL))
+
+            guard !trimmed.isEmpty else {
+                // A whitespace-only buffer is not nothing — it is the space
+                // BETWEEN two segments. Dropping it is what made adjacent spans
+                // run together, e.g. API.Bible emits
+                //     ...three measures</span> <span class="wj">of meal...
+                // and the lone space between the spans was discarded here,
+                // rendering "measuresof meal". Carry it onto the previous
+                // segment instead.
+                if !normalized.isEmpty, !previousSegmentEndsWithSpace(),
+                   let lastIndex = currentSegments.indices.last {
+                    let last = currentSegments[lastIndex]
+                    currentSegments[lastIndex] = VerseSegment(text: last.text + " ",
+                                                              isRedLetter: last.isRedLetter)
+                }
+                currentBuffer = ""
+                return
+            }
+
+            // Keep spaces at both edges so words at segment boundaries don't run
+            // together. The leading one is skipped when the previous segment
+            // already supplies it, or when this is the first segment of a verse.
+            let leading  = (normalized.hasPrefix(" ") && !previousSegmentEndsWithSpace()
+                            && !currentSegments.isEmpty) ? " " : ""
+            let trailing = normalized.hasSuffix(" ") ? " " : ""
+            currentSegments.append(VerseSegment(text: leading + trimmed + trailing,
+                                                isRedLetter: isRL))
             currentBuffer = ""
         }
 
