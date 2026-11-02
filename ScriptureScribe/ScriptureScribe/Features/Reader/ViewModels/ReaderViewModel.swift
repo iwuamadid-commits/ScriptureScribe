@@ -190,6 +190,67 @@ final class ReaderViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Chapter History (back / forward)
+    //
+    // Records only deliberate jumps — tapping a book or chapter, opening a search
+    // result, or picking from the book browser. Swiping between consecutive
+    // chapters is NOT recorded, so Back stays useful instead of just repeating
+    // what a swipe already does.
+
+    @Published private(set) var backStack:    [String] = []
+    @Published private(set) var forwardStack: [String] = []
+
+    private let maxHistoryDepth = 50
+
+    var canGoBack:    Bool { !backStack.isEmpty }
+    var canGoForward: Bool { !forwardStack.isEmpty }
+
+    /// Readable label for where Back would take the reader, e.g. "John 4".
+    var backDestination:    String? { backStack.last.flatMap(displayReference(forChapterId:)) }
+    /// Readable label for where Forward would take the reader.
+    var forwardDestination: String? { forwardStack.last.flatMap(displayReference(forChapterId:)) }
+
+    /// Turns a chapter id ("JHN.4") into a human reference ("John 4"). Uses the
+    /// loaded chapter when it's in the current book, otherwise builds the label
+    /// from the book list so cross-book destinations still read properly.
+    func displayReference(forChapterId chapterId: String) -> String? {
+        if let chapter = chapters.first(where: { $0.id == chapterId }) {
+            return chapter.reference
+        }
+        let parts = chapterId.components(separatedBy: ".")
+        guard parts.count >= 2,
+              let book = books.first(where: { $0.id == parts[0] })
+        else { return nil }
+        let number = parts[1]
+        return number.caseInsensitiveCompare("intro") == .orderedSame
+            ? "\(book.name) Intro"
+            : "\(book.name) \(number)"
+    }
+
+    /// Pushes the chapter being left onto the back stack. Passing the destination
+    /// avoids recording a "jump" that lands on the chapter already being shown.
+    private func recordDeparture(to destinationId: String?) {
+        guard let current = selectedChapter?.id, current != destinationId else { return }
+        backStack.append(current)
+        if backStack.count > maxHistoryDepth { backStack.removeFirst() }
+        // Any new jump invalidates the forward trail, exactly like a browser.
+        forwardStack.removeAll()
+    }
+
+    /// Returns to the chapter visited before the current one.
+    func goBack() async {
+        guard let target = backStack.popLast() else { return }
+        if let current = selectedChapter?.id { forwardStack.append(current) }
+        await navigateTo(chapterId: target, recordHistory: false)
+    }
+
+    /// Returns to the chapter left behind by `goBack()`.
+    func goForward() async {
+        guard let target = forwardStack.popLast() else { return }
+        if let current = selectedChapter?.id { backStack.append(current) }
+        await navigateTo(chapterId: target, recordHistory: false)
+    }
+
     func selectTranslation(_ translation: BibleTranslation) async {
         selectedTranslation = translation
         lastBibleId = translation.id
@@ -200,13 +261,20 @@ final class ReaderViewModel: ObservableObject {
         chapterContent  = nil
         books           = []
         chapters        = []
+        // Chapter ids are translation-specific, so a trail from the previous
+        // translation would point at chapters that no longer resolve.
+        backStack.removeAll()
+        forwardStack.removeAll()
         showTranslationBrowser = false
         await loadBooks(for: translation)
     }
 
-    func selectBook(_ book: BibleBook) async {
+    /// - Parameter recordHistory: false when called as part of a larger navigation
+    ///   that has already recorded the departure (or when stepping back/forward).
+    func selectBook(_ book: BibleBook, recordHistory: Bool = true) async {
         navigationTask?.cancel()
         guard let translation = selectedTranslation else { return }
+        if recordHistory { recordDeparture(to: nil) }
         lastBookId   = book.id
         selectedBook = book     // update book selector highlight immediately
 
@@ -264,8 +332,11 @@ final class ReaderViewModel: ObservableObject {
         await task.value
     }
 
-    func selectChapter(_ chapter: BibleChapter) async {
+    /// - Parameter recordHistory: false for swipes between consecutive chapters and
+    ///   for internal steps of a jump whose departure was already recorded.
+    func selectChapter(_ chapter: BibleChapter, recordHistory: Bool = true) async {
         navigationTask?.cancel()
+        if recordHistory { recordDeparture(to: chapter.id) }
         selectedChapter = chapter
         lastChapterId   = chapter.id
 
@@ -284,7 +355,8 @@ final class ReaderViewModel: ObservableObject {
               let idx = chapters.firstIndex(where: { $0.id == current.id }),
               idx + 1 < chapters.count
         else { return }
-        await selectChapter(chapters[idx + 1])
+        // Page-turning, not a jump — deliberately not recorded in history.
+        await selectChapter(chapters[idx + 1], recordHistory: false)
     }
 
     func goToPreviousChapter() async {
@@ -292,12 +364,15 @@ final class ReaderViewModel: ObservableObject {
               let idx = chapters.firstIndex(where: { $0.id == current.id }),
               idx > 0
         else { return }
-        await selectChapter(chapters[idx - 1])
+        // Page-turning, not a jump — deliberately not recorded in history.
+        await selectChapter(chapters[idx - 1], recordHistory: false)
     }
 
     /// Navigates to the chapter identified by `chapterId` (e.g. "GEN.1").
     /// Called by ReaderView when the user taps "Open Chapter" from a handwriting search result.
-    func navigateTo(chapterId: String) async {
+    /// - Parameter recordHistory: false when stepping through the back/forward trail,
+    ///   so the step itself isn't recorded as a new jump.
+    func navigateTo(chapterId: String, recordHistory: Bool = true) async {
         let parts  = chapterId.components(separatedBy: ".")
         guard !parts.isEmpty else { return }
         let bookId = parts[0]
@@ -306,14 +381,15 @@ final class ReaderViewModel: ObservableObject {
             await loadBooks(for: translation)
         }
         guard let book = books.first(where: { $0.id == bookId }) else { return }
+        if recordHistory { recordDeparture(to: chapterId) }
         if selectedBook?.id != bookId {
             // Switching books: pre-set lastChapterId so selectBook's prefetch loads
             // the exact target chapter rather than the previously viewed chapter.
             lastChapterId = chapterId
-            await selectBook(book)
+            await selectBook(book, recordHistory: false)
         } else if let chapter = chapters.first(where: { $0.id == chapterId }) {
             // Same book: just switch to the target chapter.
-            await selectChapter(chapter)
+            await selectChapter(chapter, recordHistory: false)
         }
     }
 
@@ -328,17 +404,18 @@ final class ReaderViewModel: ObservableObject {
 
     /// Navigates directly to a specific book and chapter. Used by the book browser.
     func selectBookAndChapter(bookId: String, chapterId: String) async {
-        lastChapterId = chapterId
         guard let book = books.first(where: { $0.id == bookId }) else { return }
+        recordDeparture(to: chapterId)
+        lastChapterId = chapterId
 
         if selectedBook?.id == bookId {
             // Same book — just switch to the target chapter directly.
             if let chapter = chapters.first(where: { $0.id == chapterId }) {
-                await selectChapter(chapter)
+                await selectChapter(chapter, recordHistory: false)
             }
         } else {
             // Different book — selectBook will use lastChapterId to pick the right chapter.
-            await selectBook(book)
+            await selectBook(book, recordHistory: false)
         }
     }
 

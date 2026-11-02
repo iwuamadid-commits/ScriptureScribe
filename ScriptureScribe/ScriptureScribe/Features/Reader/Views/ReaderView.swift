@@ -65,6 +65,13 @@ struct ReaderView: View {
     @State private var showSearch                = false
     @State private var showPaywall               = false
     @State private var contentHeight: CGFloat    = 800
+    /// Footer positions, shared by reference with BibleTextView. The page content
+    /// lives inside ZoomScrollView's UIHostingController and SwiftUI preferences
+    /// cannot cross that boundary, so measurements are published through this
+    /// object instead of `.preference`.
+    @StateObject private var footerMetrics = ReaderFooterMetrics()
+    /// Visible page area in screen coordinates.
+    @State private var pageAreaGlobalFrame: CGRect = .zero
 
     // ── Community verse navigation ────────────────────────────────────────────
     /// The verse number (e.g. "16") to scroll to and flash when arriving from Community.
@@ -189,6 +196,11 @@ struct ReaderView: View {
                         }
                     }
                 }
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
+                    pageAreaGlobalFrame = $0
+                }
+                .overlay { footerTapTargets }
+                .overlay(alignment: .bottomLeading) { historyNavButtons }
 
             }
             .navigationTitle(vm.selectedChapter?.reference ?? "Scripture Scribe")
@@ -519,6 +531,138 @@ struct ReaderView: View {
         annotationVM.selectedTool == .hand && annotationVM.selectedPhotoId == nil
     }
 
+    // MARK: - History navigation (floating, bottom-left)
+
+    /// Back / forward through chapters the reader actually jumped to. Appears only
+    /// when there is somewhere to go, so it stays out of the way during normal
+    /// reading. Sits above the page so it never covers the annotation toolbar.
+    @ViewBuilder
+    private var historyNavButtons: some View {
+        if vm.canGoBack || vm.canGoForward {
+            HStack(spacing: 8) {
+                if vm.canGoBack {
+                    historyButton(icon: "chevron.left",
+                                  destination: vm.backDestination,
+                                  label: "Back to \(vm.backDestination ?? "previous chapter")") {
+                        Task { await vm.goBack() }
+                    }
+                }
+                if vm.canGoForward {
+                    historyButton(icon: "chevron.right",
+                                  destination: vm.forwardDestination,
+                                  label: "Forward to \(vm.forwardDestination ?? "next chapter")") {
+                        Task { await vm.goForward() }
+                    }
+                }
+            }
+            // Docked: line up with "Previous Page" (24pt inset). Floating: 16pt.
+            .padding(.leading, isFooterOnScreen ? 24 : 16)
+            .padding(.bottom, historyButtonsBottomPadding)
+            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: vm.canGoBack)
+            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: vm.canGoForward)
+            .animation(.spring(response: 0.3, dampingFraction: 0.85), value: isFooterOnScreen)
+        }
+    }
+
+    /// Invisible stand-ins for the footer's Previous / Next buttons, drawn in the
+    /// top overlay so they sit above the drawing canvas. The real buttons are in
+    /// the page content *underneath* the canvas, which swallows finger touches
+    /// while a pen tool is selected; these duplicates are what keep them working.
+    /// They only exist while the footer is actually on screen.
+    @ViewBuilder
+    private var footerTapTargets: some View {
+        let strip = footerMetrics.globalFrame
+        if isFooterOnScreen, pageAreaGlobalFrame.width > 0, strip != .zero {
+            // Convert the footer strip into this overlay's own coordinate space.
+            let local = strip.offsetBy(dx: -pageAreaGlobalFrame.minX,
+                                       dy: -pageAreaGlobalFrame.minY)
+            // Previous sits at the leading edge of the strip, Next at the trailing
+            // edge, both inside the strip's horizontal padding. Generous widths —
+            // a roomy target is easier to hit than a label-tight one.
+            let inset  = ReaderFooterMetrics.horizontalInset
+            let zone   = min(170, max(80, (local.width - inset * 2) * 0.4))
+
+            ZStack(alignment: .topLeading) {
+                Color.clear
+                    .frame(width: zone, height: local.height)
+                    .fingerTappable(passPencilThrough: annotationVM.isDrawingTool,
+                                    label: "Previous Page") {
+                        Task { await vm.goToPreviousChapter() }
+                    }
+                    .offset(x: local.minX + inset, y: local.minY)
+
+                Color.clear
+                    .frame(width: zone, height: local.height)
+                    .fingerTappable(passPencilThrough: annotationVM.isDrawingTool,
+                                    label: "Next Page") {
+                        Task { await vm.goToNextChapter() }
+                    }
+                    .offset(x: local.maxX - inset - zone, y: local.minY)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+    }
+
+    /// True once the Prev/Next footer has scrolled into view at the end of the page.
+    private var isFooterOnScreen: Bool {
+        pageAreaGlobalFrame.height > 0
+            && footerMetrics.globalMaxY < .greatestFiniteMagnitude
+            && footerMetrics.globalMaxY <= pageAreaGlobalFrame.maxY
+    }
+
+    /// Normally the buttons float just above the bottom edge. Once the footer is
+    /// on screen they drop to sit directly beneath it, so the end of the page
+    /// reads as one group: "Previous Page" with the back button tucked under it.
+    private var historyButtonsBottomPadding: CGFloat {
+        let floating: CGFloat = 16
+        guard isFooterOnScreen else { return floating }
+        let gapBelowFooter: CGFloat = 22
+        let buttonHeight:   CGFloat = 40
+        let docked = pageAreaGlobalFrame.maxY - footerMetrics.globalMaxY - gapBelowFooter - buttonHeight
+        // Never let it slide off the bottom of the visible page.
+        return max(floating, docked)
+    }
+
+    /// The circle stays tappable by finger at all times, including while a drawing
+    /// tool is selected. Apple Pencil touches fall through to the canvas underneath
+    /// whenever a drawing tool is active, so drawing across this corner still draws
+    /// instead of navigating. In hand/lasso mode the pencil can tap it normally.
+    private func historyButton(icon: String,
+                               destination: String?,
+                               label: String,
+                               action: @escaping () -> Void) -> some View {
+        // Leading chevron for Back, trailing for Forward, so the arrow always
+        // points away from the destination name the way a breadcrumb reads.
+        let isBack = icon == "chevron.left"
+        return HStack(spacing: 5) {
+            if isBack {
+                Image(systemName: icon).font(.system(size: 13, weight: .bold))
+            }
+            if let destination {
+                Text(destination)
+                    .font(.footnote.weight(.semibold))
+                    .lineLimit(1)
+            }
+            if !isBack {
+                Image(systemName: icon).font(.system(size: 13, weight: .bold))
+            }
+        }
+        .foregroundStyle(themeManager.currentTheme.primary)
+        .padding(.horizontal, destination == nil ? 0 : 12)
+        .frame(minWidth: 40, minHeight: 40)
+        .background(
+            Capsule()
+                .fill(themeManager.currentTheme.surface)
+                .shadow(color: .black.opacity(0.18), radius: 5, y: 2)
+        )
+        .overlay(Capsule().stroke(themeManager.currentTheme.border, lineWidth: 0.5))
+        .fingerTappable(passPencilThrough: annotationVM.isDrawingTool,
+                        label: label,
+                        clipTo: Capsule(),
+                        action: action)
+        .transition(.scale.combined(with: .opacity))
+    }
+
     /// Peeking chapter number on the edge during a swipe drag (e.g. "14" on the right).
     @ViewBuilder
     private var swipeChapterLabel: some View {
@@ -626,7 +770,9 @@ struct ReaderView: View {
                                     chapterRef:   vm.selectedChapter?.reference ?? ""
                                 )
                             },
-                            highlightedVerses: highlightedVerses
+                            highlightedVerses: highlightedVerses,
+                            isDrawingToolActive: annotationVM.isDrawingTool,
+                            footerMetrics: footerMetrics
                         )
                         .frame(width: bibleWidth)
                         .background(
@@ -638,8 +784,6 @@ struct ReaderView: View {
                             }
                         )
                         .offset(x: bibleOffset)
-                        // Allow verse long-press for bookmarks; disable only during drawing
-                        .allowsHitTesting(!annotationVM.isDrawingTool)
 
                         // ── Margin guide lines (always visible) ───────────
                         // These ruled lines give the margin a notebook-paper
@@ -688,7 +832,8 @@ struct ReaderView: View {
                             chapterId:        vm.selectedChapter?.id ?? "",
                             chapterReference: vm.selectedChapter?.reference ?? "",
                             contentHeight:    contentHeight,
-                            containerWidth:   geo.size.width
+                            containerWidth:   geo.size.width,
+                            footerPassThroughHeight: footerMetrics.height
                         )
                         .frame(height: contentHeight)
                         .id(vm.selectedChapter?.id ?? "")
@@ -850,7 +995,9 @@ struct ReaderView: View {
                                 chapterRef:   vm.selectedChapter?.reference ?? ""
                             )
                         },
-                        highlightedVerses: highlightedVerses
+                        highlightedVerses: highlightedVerses,
+                        isDrawingToolActive: annotationVM.isDrawingTool,
+                            footerMetrics: footerMetrics
                     )
                     .background(
                         GeometryReader { g in
@@ -858,8 +1005,6 @@ struct ReaderView: View {
                                                    value: g.size.height)
                         }
                     )
-                    // Allow verse long-press for bookmarks; disable only during drawing
-                    .allowsHitTesting(!annotationVM.isDrawingTool)
 
                     // Layer 2 — Photo annotations (below canvas so strokes draw on top)
                     // Unselected photos stay here; selected photo is promoted above canvas.
@@ -889,7 +1034,8 @@ struct ReaderView: View {
                         chapterId:        vm.selectedChapter?.id ?? "",
                         chapterReference: vm.selectedChapter?.reference ?? "",
                         contentHeight:    contentHeight,
-                        containerWidth:   geo.size.width
+                        containerWidth:   geo.size.width,
+                        footerPassThroughHeight: footerMetrics.height
                     )
                     .frame(height: contentHeight)
                     .id(vm.selectedChapter?.id ?? "")

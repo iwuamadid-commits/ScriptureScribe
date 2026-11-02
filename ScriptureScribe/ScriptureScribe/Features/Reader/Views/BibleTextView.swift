@@ -7,6 +7,7 @@
 //  which allows the annotation canvas to scroll with the text.
 //
 
+import Combine
 import SwiftUI
 
 // MARK: - Preference key (locates the first selected verse for bubble positioning)
@@ -34,6 +35,12 @@ struct BibleTextView: View {
     var highlightedVerses:  Set<String> = []
     /// The verse currently being narrated by the audio player ("" when not playing).
     var playingVerse:       String      = ""
+    /// True while a drawing tool is selected. Switches off verse taps so strokes
+    /// aren't intercepted, while leaving the Prev/Next footer tappable by finger.
+    var isDrawingToolActive: Bool       = false
+    /// Shared with ReaderView so footer positions escape the scroll view's
+    /// UIHostingController, which preferences cannot cross.
+    @ObservedObject var footerMetrics: ReaderFooterMetrics
 
     @EnvironmentObject var themeManager: ThemeManager
 
@@ -102,6 +109,9 @@ struct BibleTextView: View {
                 .anchorPreference(key: FirstSelectedVerseAnchorKey.self, value: .bounds) {
                     firstSelectedIndex == index ? $0 : nil
                 }
+                // Verse taps/long-presses are off while drawing, but the Prev/Next
+                // footer below stays live so it can still be tapped by finger.
+                .allowsHitTesting(!isDrawingToolActive)
             }
 
             Divider()
@@ -119,7 +129,16 @@ struct BibleTextView: View {
             }
 
             // Previous / Next chapter navigation
-            ChapterNavigationFooter(vm: vm)
+            ChapterNavigationFooter(vm: vm,
+                                    isDrawingToolActive: isDrawingToolActive,
+                                    metrics: footerMetrics)
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
+                    footerMetrics.globalFrame = $0
+                }
+
+            // Run-out below the footer so the docked history pills have room to
+            // sit underneath "Previous Page" instead of landing on top of it.
+            Color.clear.frame(height: 72)
         }
         // Float a compact action bubble just below the first selected verse.
         // GeometryReader is always present so the bubble can animate in/out via transition.
@@ -478,6 +497,33 @@ private struct VerseRow: View {
     }
 }
 
+// MARK: - Footer Geometry
+
+/// Where the Prev/Next footer and its two buttons are on screen.
+///
+/// This is a reference type on purpose. The page content is hosted inside
+/// ZoomScrollView's UIHostingController, and SwiftUI **preferences do not cross a
+/// UIHostingController boundary** — anything reported with `.preference` from in
+/// here is discarded before ReaderView can read it. A shared object does cross,
+/// because both sides hold the same instance.
+///
+/// ReaderView uses these to put tap targets over the buttons (so a finger can
+/// reach them while the drawing canvas is on top) and to tuck the history pills
+/// in underneath the footer.
+final class ReaderFooterMetrics: ObservableObject {
+    /// The whole footer strip in screen coordinates. This single measurement is
+    /// enough: the strip's own padding fixes where Previous and Next sit inside
+    /// it, so ReaderView can place tap targets without measuring each button.
+    @Published var globalFrame: CGRect = .zero
+
+    /// Horizontal inset of the buttons inside the strip — must match the
+    /// `.padding(.horizontal, …)` on ChapterNavigationFooter below.
+    static let horizontalInset: CGFloat = 24
+
+    var height:     CGFloat { globalFrame.height }
+    var globalMaxY: CGFloat { globalFrame == .zero ? .greatestFiniteMagnitude : globalFrame.maxY }
+}
+
 // MARK: - Prev / Next Footer
 
 private struct ChapterNavigationFooter: View {
@@ -485,13 +531,22 @@ private struct ChapterNavigationFooter: View {
     @ObservedObject var vm: ReaderViewModel
     @EnvironmentObject var themeManager: ThemeManager
 
+    /// True while a drawing tool is selected. Pencil touches then fall through to
+    /// the canvas above these buttons so drawing across them still draws, while a
+    /// finger can still tap them.
+    var isDrawingToolActive: Bool = false
+    @ObservedObject var metrics: ReaderFooterMetrics
+
     var body: some View {
         HStack {
-            Button { Task { await vm.goToPreviousChapter() } } label: {
-                Label("Previous", systemImage: "chevron.left")
-                    .font(.subheadline.weight(.medium))
-            }
-            .disabled(isFirstChapter)
+            Label("Previous Page", systemImage: "chevron.left")
+                .font(.subheadline.weight(.medium))
+                .opacity(isFirstChapter ? 0.35 : 1)
+                .fingerTappable(passPencilThrough: isDrawingToolActive,
+                                label: "Previous Page") {
+                    guard !isFirstChapter else { return }
+                    Task { await vm.goToPreviousChapter() }
+                }
 
             Spacer()
 
@@ -503,12 +558,15 @@ private struct ChapterNavigationFooter: View {
 
             Spacer()
 
-            Button { Task { await vm.goToNextChapter() } } label: {
-                Label("Next", systemImage: "chevron.right")
-                    .labelStyle(.titleAndIcon)
-                    .font(.subheadline.weight(.medium))
-            }
-            .disabled(isLastChapter)
+            Label("Next Page", systemImage: "chevron.right")
+                .labelStyle(.titleAndIcon)
+                .font(.subheadline.weight(.medium))
+                .opacity(isLastChapter ? 0.35 : 1)
+                .fingerTappable(passPencilThrough: isDrawingToolActive,
+                                label: "Next Page") {
+                    guard !isLastChapter else { return }
+                    Task { await vm.goToNextChapter() }
+                }
         }
         .padding(.horizontal, 24)
         .padding(.top, 16)

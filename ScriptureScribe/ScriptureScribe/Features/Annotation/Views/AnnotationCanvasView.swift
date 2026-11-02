@@ -32,6 +32,12 @@ final class PassThroughPKCanvasView: PKCanvasView {
     var isDrawingToolActive: Bool = false
     var isLassoActive:       Bool = false
 
+    /// Height of the Prev/Next footer strip at the very bottom of the page. Finger
+    /// touches landing there are passed through so those buttons stay tappable
+    /// while a drawing tool is selected. Pencil touches are unaffected, so the
+    /// pencil can still draw over the footer.
+    var fingerPassThroughBottomInset: CGFloat = 0
+
     // MARK: Auto Shapes
 
     /// Pen tool with Auto Shapes on. The hold is detected by the Coordinator, which
@@ -61,6 +67,17 @@ final class PassThroughPKCanvasView: PKCanvasView {
             return nil
         }
 
+        // Finger landing on the Prev/Next footer strip: let it reach the buttons
+        // underneath rather than drawing. Pencil touches fall through to the
+        // normal rules below, so the pencil can still draw over the footer.
+        if fingerPassThroughBottomInset > 0,
+           point.y > bounds.height - fingerPassThroughBottomInset,
+           let touches = event?.allTouches,
+           !touches.isEmpty,
+           touches.allSatisfy({ $0.type != .pencil }) {
+            return nil
+        }
+
         // Drawing tool with finger drawing: accept all touches for drawing
         if allowFingerDrawing && isDrawingToolActive {
             return super.hitTest(point, with: event)
@@ -86,12 +103,16 @@ struct AnnotationCanvasView: UIViewRepresentable {
     let chapterReference: String   // e.g. "Genesis 1" — stored in OCR index
     let contentHeight:    CGFloat
     let containerWidth:   CGFloat
+    /// Height of the Prev/Next footer at the bottom of the page, so finger taps
+    /// can reach those buttons while a drawing tool is selected.
+    var footerPassThroughHeight: CGFloat = 0
 
     func makeUIView(context: Context) -> PassThroughPKCanvasView {
         let canvas = PassThroughPKCanvasView()
         canvas.allowFingerDrawing  = vm.allowFingerDrawing
         canvas.isDrawingToolActive = vm.isDrawingTool
         canvas.isLassoActive       = vm.isLassoActive
+        canvas.fingerPassThroughBottomInset = footerPassThroughHeight
         canvas.autoShapeEnabled    = vm.highlighterStraightLines && vm.selectedTool == .pen
         canvas.backgroundColor = .clear
         canvas.isOpaque        = false
@@ -200,6 +221,7 @@ struct AnnotationCanvasView: UIViewRepresentable {
         canvas.allowFingerDrawing  = vm.allowFingerDrawing
         canvas.isDrawingToolActive = vm.isDrawingTool
         canvas.isLassoActive       = vm.isLassoActive
+        canvas.fingerPassThroughBottomInset = footerPassThroughHeight
         canvas.autoShapeEnabled    = vm.highlighterStraightLines && vm.selectedTool == .pen
 
         context.coordinator.currentChapterRef = chapterReference
