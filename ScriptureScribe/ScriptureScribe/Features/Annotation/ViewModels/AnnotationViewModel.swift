@@ -1220,6 +1220,10 @@ final class AnnotationViewModel: ObservableObject {
 
     func saveDrawing(_ drawing: PKDrawing, for chapterId: String) {
         try? drawing.dataRepresentation().write(to: drawingURL(for: chapterId), options: .atomic)
+        // Every save — including the rescale that follows a width change — puts
+        // the strokes in the current canvas's coordinate space, so the recorded
+        // geometry has to move with it or it would describe the wrong page.
+        recordGeometry(for: chapterId)
         // Keep the reactive stroke-tracking set in sync so chapter-row dots update instantly.
         if drawing.strokes.isEmpty {
             chaptersWithStrokes.remove(chapterId)
@@ -1240,7 +1244,72 @@ final class AnnotationViewModel: ObservableObject {
         } else {
             chaptersWithStrokes.insert(chapterId)
         }
+        // Backfill for drawings made before geometry was recorded. The strokes
+        // are in whatever canvas this device last displayed them at, which is
+        // the one about to be shown, so recording it now is accurate — and it
+        // only happens once, since the file then exists.
+        if !drawing.strokes.isEmpty, drawingGeometry(for: chapterId) == nil {
+            recordGeometry(for: chapterId)
+        }
         return drawing
+    }
+
+    // MARK: - Drawing Geometry
+
+    /// The page a drawing was authored on, stored beside the drawing itself.
+    ///
+    /// A `.pkdrawing` records stroke coordinates and nothing else, so on its own
+    /// it cannot be rendered anywhere but the canvas size it happens to be in.
+    /// Another device — or the iPhone's read-only view — needs to know what that
+    /// size was before it can show the strokes at the right proportions.
+    struct DrawingGeometry: Codable {
+        var width:  Double
+        var height: Double
+        /// When this geometry was recorded, so a later sync can tell which
+        /// device's copy is newer.
+        var savedAt: Date
+    }
+
+    /// The canvas size currently on screen, pushed in by `AnnotationCanvasView`
+    /// on every layout.
+    ///
+    /// Deliberately not `@Published`: it is written during view updates, and
+    /// publishing from there makes SwiftUI complain. Nothing observes it — it is
+    /// only read at save time.
+    var currentCanvasSize: CGSize = .zero
+
+    private func geometryURL(for chapterId: String) -> URL {
+        let safeId = chapterId
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: ".", with: "_")
+        return FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("annotation_\(safeId).geometry.json")
+    }
+
+    /// The page size a chapter's drawing belongs to, or nil for drawings made
+    /// before this was recorded and not yet reopened.
+    func drawingGeometry(for chapterId: String) -> DrawingGeometry? {
+        guard let data = try? Data(contentsOf: geometryURL(for: chapterId)) else { return nil }
+        return try? JSONDecoder().decode(DrawingGeometry.self, from: data)
+    }
+
+    /// Records the canvas the drawing currently lives in.
+    ///
+    /// Written as a separate file, never into the `.pkdrawing` — existing
+    /// drawings are irreplaceable and are not rewritten to add this.
+    private func recordGeometry(for chapterId: String) {
+        let size = currentCanvasSize
+        // ReaderView parks `contentHeight` at a 100pt placeholder on every
+        // chapter change, and the outgoing chapter's drawing is saved inside
+        // that window — so a bare "is it positive" check would stamp the wrong
+        // page size onto it. Nothing legitimate is anywhere near this short:
+        // the shortest chapters still lay out several hundred points. A save
+        // that lands in the gap simply records nothing, and the next real save
+        // or reopen fills it in.
+        guard size.width > 1, size.height > 150 else { return }
+        let geo = DrawingGeometry(width: size.width, height: size.height, savedAt: Date())
+        guard let data = try? JSONEncoder().encode(geo) else { return }
+        try? data.write(to: geometryURL(for: chapterId), options: .atomic)
     }
 
     private func drawingURL(for chapterId: String) -> URL {

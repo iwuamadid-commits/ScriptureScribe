@@ -218,6 +218,13 @@ struct AnnotationCanvasView: UIViewRepresentable {
     }
 
     func updateUIView(_ canvas: PassThroughPKCanvasView, context: Context) {
+        // Tell the view model which canvas the strokes currently live in, so a
+        // save can record it. Taken from the laid-out bounds rather than the
+        // passed-in contentHeight: bounds are what the strokes were actually
+        // drawn against. Set before anything below can trigger a save.
+        if canvas.bounds.width > 1, canvas.bounds.height > 1 {
+            vm.currentCanvasSize = canvas.bounds.size
+        }
         canvas.allowFingerDrawing  = vm.allowFingerDrawing
         canvas.isDrawingToolActive = vm.isDrawingTool
         canvas.isLassoActive       = vm.isLassoActive

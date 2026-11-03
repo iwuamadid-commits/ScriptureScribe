@@ -101,20 +101,17 @@ struct ReaderView: View {
 
     /// Height the typed-note layer is laid out at.
     ///
-    /// iPad keeps reading `contentHeight`, exactly as before, so its behaviour is
-    /// unchanged. iPhone uses the height measured from inside the scroll view,
-    /// because `contentHeight` is fed by a PreferenceKey that cannot escape the
-    /// hosting controller and so never leaves its 100pt placeholder — note pins
-    /// would otherwise all pile up near the top of the page.
-    private var notesLayerHeight: CGFloat {
-        guard DeviceCapabilities.isPhoneLayout else { return contentHeight }
-        return footerMetrics.pageHeight > 0 ? footerMetrics.pageHeight : contentHeight
-    }
+    /// `contentHeight` is the real laid-out page height on both devices. It is
+    /// fed by `ContentHeightKey` from inside ZoomScrollView's hosting
+    /// controller, and measurement on an iPhone and an iPad on 2026-11-03
+    /// confirmed it arrives: 100 (the per-chapter placeholder), then the true
+    /// height. An earlier note here claimed preferences cannot cross that
+    /// boundary and that this stayed at 100 — that was wrong.
+    private var notesLayerHeight: CGFloat { contentHeight }
 
     /// The area a note pin's stored 0–1 position is resolved against.
     private func notePinAreaSize(_ proposed: CGSize) -> CGSize {
-        CGSize(width:  proposed.width,
-               height: max(proposed.height, footerMetrics.pageHeight))
+        CGSize(width: proposed.width, height: max(proposed.height, contentHeight))
     }
     /// Incremented each time a new chapter loads (without a verse target) to tell
     /// ZoomScrollView to snap to the top and reset zoom — invisible because

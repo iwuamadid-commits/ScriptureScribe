@@ -178,12 +178,6 @@ struct BibleTextView: View {
             // sit underneath "Previous Page" instead of landing on top of it.
             Color.clear.frame(height: 72)
         }
-        // Publish the real page height through the shared object. Reported from
-        // in here because this view lives inside the scroll view's hosting
-        // controller, which preferences cannot escape.
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
-            footerMetrics.pageHeight = $0
-        }
         // Float a compact action bubble just below the first selected verse.
         // GeometryReader is always present so the bubble can animate in/out via transition.
         .overlayPreferenceValue(FirstSelectedVerseAnchorKey.self) { anchor in
@@ -662,15 +656,6 @@ final class ReaderFooterMetrics: ObservableObject {
     /// Horizontal inset of the buttons inside the strip — must match the
     /// `.padding(.horizontal, …)` on ChapterNavigationFooter below.
     static let horizontalInset: CGFloat = 24
-
-    /// Full height of the laid-out page, measured from inside the scroll view.
-    ///
-    /// ReaderView's own `contentHeight` cannot be used for this: it is fed by
-    /// `ContentHeightKey`, a PreferenceKey read from OUTSIDE the hosting
-    /// controller, so the value never arrives and the state stays at the 100pt
-    /// placeholder set on every chapter change. Anything that needs a real page
-    /// height should read this instead.
-    @Published var pageHeight: CGFloat = 0
 
     var height:     CGFloat { globalFrame.height }
     var globalMaxY: CGFloat { globalFrame == .zero ? .greatestFiniteMagnitude : globalFrame.maxY }
