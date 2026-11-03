@@ -289,6 +289,8 @@ final class AuthViewModel: ObservableObject {
             "streak_lastOpenedDate", "streak_openedDatesJSON",
             // Theme & translation
             "selectedTheme", "myVersionIds",
+            // Verse highlights
+            "ss_verseHighlights",
             // Saved annotation colors
             "ss_savedAnnotationColors", "ss_savedAnnotationColors_v2",
             // Annotation tool preferences

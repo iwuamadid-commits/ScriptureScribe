@@ -22,6 +22,21 @@ protocol AppTheme {
     var border: Color { get }       // dividers, input borders
 }
 
+extension AppTheme {
+    /// True when the page background is dark enough that body text is light on it.
+    ///
+    /// Derived from the background's brightness rather than a list of theme
+    /// names, so a new theme is classified correctly without anyone remembering
+    /// to add it. (ContentView keeps its own hardcoded list for the status-bar
+    /// style, which is how Slate came to be missing from it.)
+    var isDarkSurface: Bool {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        guard UIColor(background).getRed(&r, green: &g, blue: &b, alpha: &a) else { return false }
+        // Rec. 601 luma — matches how bright a color looks to the eye.
+        return (0.299 * r + 0.587 * g + 0.114 * b) < 0.5
+    }
+}
+
 // MARK: - 8 Themes
 
 struct IvoryTheme: AppTheme {

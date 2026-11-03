@@ -139,7 +139,16 @@ final class WalkthroughManager: ObservableObject {
 
     // MARK: Step list
 
-    let steps: [WalkthroughStep] = [
+    /// Steps that only make sense where the pencil tools exist. Dropped on
+    /// iPhone, which has no annotation toolbar and no saved-colour swatches to
+    /// point at — leaving them in would spotlight empty screen and stall the
+    /// walkthrough waiting for a frame that never arrives.
+    private static let pencilOnlyStepIds: Set<String> = [
+        "reader-annotation-toolbar",
+        "reader-color-swatches",
+    ]
+
+    private static let allSteps: [WalkthroughStep] = [
         // Reader tab — introduction, then navigation, then reading, then tools
         .content(id: "reader-bible-text", tab: 0,
                  message: "This is your Reader, where you'll read, annotate, and study Scripture.",
@@ -170,7 +179,7 @@ final class WalkthroughManager: ObservableObject {
                  edge: .bottom, padding: 6, radius: 12),
 
         .content(id: "reader-verse-row", tab: 0,
-                 message: "Press and hold any verse to bookmark it or start a selection.",
+                 message: "Press and hold any verse to bookmark it, or select verses to highlight them.",
                  padding: 8, radius: 12),
 
         .content(id: "reader-bible-text", tab: 0,
@@ -257,6 +266,11 @@ final class WalkthroughManager: ObservableObject {
         // Done
         .completion,
     ]
+
+    /// The steps this device actually walks through.
+    let steps: [WalkthroughStep] = allSteps.filter {
+        DeviceCapabilities.hasPencilTools || !pencilOnlyStepIds.contains($0.id)
+    }
 
     var currentStep: WalkthroughStep? {
         guard isActive, !showWelcomeCard, !isTransitioning, steps.indices.contains(currentStepIndex) else { return nil }
@@ -505,8 +519,11 @@ final class WalkthroughManager: ObservableObject {
 
     private func fallbackTabBarFrame(slot: Int, screenSize: CGSize, safeAreaTop: CGFloat, safeAreaBottom: CGFloat) -> CGRect {
         // Even distribution fallback — only used if UIKit introspection fails
-        let tabCount: CGFloat = 6
         let isIPad = UIDevice.current.userInterfaceIdiom == .pad
+        // iPhone cannot fit six items: iOS shows the first four plus a "More"
+        // button, so there are five slots to divide the bar between, not six.
+        // Dividing by six would drift every spotlight to the left.
+        let tabCount: CGFloat = isIPad ? 6 : 5
         if isIPad {
             let centerY: CGFloat = safeAreaTop > 40 ? safeAreaTop / 2 : 25
             let totalWidth: CGFloat = 500

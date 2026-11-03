@@ -41,6 +41,21 @@ struct BibleTextView: View {
     /// Shared with ReaderView so footer positions escape the scroll view's
     /// UIHostingController, which preferences cannot cross.
     @ObservedObject var footerMetrics: ReaderFooterMetrics
+    /// Owns the user's verse highlights.
+    ///
+    /// Handed in explicitly rather than read from the environment: this view
+    /// renders inside ZoomScrollView's UIHostingController, and an explicit
+    /// hand-off is guaranteed to arrive where environment propagation across
+    /// that boundary is not something to rely on.
+    @ObservedObject var highlightsVM: VerseHighlightsViewModel
+    /// Signed-in user id, or nil when signed out. Highlighting works either way;
+    /// this only decides whether the change is mirrored to Firestore.
+    var highlightUserId: String? = nil
+    /// True when the user may use all 8 highlight colors rather than the free 4.
+    var allowsAllHighlightColors: Bool = false
+    /// Called when the user taps a color they haven't paid for. The paywall is
+    /// presented by ReaderView, outside this hosted view tree.
+    var onRequestPremium: () -> Void = {}
 
     @EnvironmentObject var themeManager: ThemeManager
 
@@ -50,11 +65,28 @@ struct BibleTextView: View {
     /// stays on the correct rows while navFlashOpacity animates back to 0.
     @State private var flashVerses: Set<String> = []
 
-    // Non-contiguous selection: each element is the ForEach index of a selected verse.
-    // Using a Set<Int> lets the user pick any combination of verses (e.g. v1 + v5).
-    @State private var selectedIndices: Set<Int> = []
+    // Non-contiguous selection: each element is a selected verse NUMBER.
+    // A Set lets the user pick any combination of verses (e.g. v1 + v5).
+    //
+    // Keyed by verse number rather than ForEach index because highlights are
+    // persisted against verse numbers: indices shift when a translation adds a
+    // section heading, which would silently move a saved highlight to the wrong
+    // verse. Section headings carry the number "§" and are never selectable —
+    // VerseRow gives them no tap gesture at all.
+    @State private var selectedVerseNumbers: Set<String> = []
 
-    private var isInSelectionMode: Bool { !selectedIndices.isEmpty }
+    private var isInSelectionMode: Bool { !selectedVerseNumbers.isEmpty }
+
+    /// The chapter split into verse rows. One parse per render, shared by the
+    /// body and the selection helpers below.
+    private var verseRows: [(number: String, text: String)] {
+        Self.parseVerses(from: content.textContent)
+    }
+
+    /// Selected verses in reading order, headings excluded.
+    private var orderedSelection: [(number: String, text: String)] {
+        verseRows.filter { $0.number != "§" && selectedVerseNumbers.contains($0.number) }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -67,15 +99,20 @@ struct BibleTextView: View {
                 .padding(.top, 20)
                 .padding(.bottom, 16)
 
-            // Verse rows — long-press for context menu, tap in selection mode to toggle
-            let verses = Self.parseVerses(from: content.textContent)
+            // Verse rows — long-press for context menu, tap in selection mode to toggle.
+            // Parsed once here and reused; this used to run three times per render.
+            let verses = verseRows
             // Build a lookup from verse number → segments for red-letter rendering.
             // uniquingKeysWith: keeps the first occurrence if duplicate verse numbers appear.
             let segsByNumber: [String: [VerseSegment]] = Dictionary(
                 content.parsedVerses.map { ($0.number, $0.segments) },
                 uniquingKeysWith: { first, _ in first }
             )
-            let firstSelectedIndex = selectedIndices.min()
+            // Topmost selected row, for anchoring the action bubble.
+            let firstSelectedIndex = verses.indices.first {
+                selectedVerseNumbers.contains(verses[$0].number)
+            }
+            let chapterHighlights = highlightsVM.colors(forChapter: content.id)
             ForEach(Array(verses.enumerated()), id: \.offset) { index, verse in
                 VerseRow(
                     number:            verse.number,
@@ -92,13 +129,14 @@ struct BibleTextView: View {
                     // Section headings (§) are not addressable by the audio player.
                     onTapVerse:        verse.number == "§" ? nil : onTapVerse.map { cb in { cb(verse.number) } },
                     isInSelectionMode: isInSelectionMode,
-                    isSelected:        selectedIndices.contains(index),
+                    isSelected:        selectedVerseNumbers.contains(verse.number),
+                    highlightColorHex: chapterHighlights[verse.number],
                     onToggleSelection: {
                         withAnimation(.spring(duration: 0.25)) {
-                            if selectedIndices.contains(index) {
-                                selectedIndices.remove(index)
+                            if selectedVerseNumbers.contains(verse.number) {
+                                selectedVerseNumbers.remove(verse.number)
                             } else {
-                                selectedIndices.insert(index)
+                                selectedVerseNumbers.insert(verse.number)
                             }
                         }
                     },
@@ -140,6 +178,12 @@ struct BibleTextView: View {
             // sit underneath "Previous Page" instead of landing on top of it.
             Color.clear.frame(height: 72)
         }
+        // Publish the real page height through the shared object. Reported from
+        // in here because this view lives inside the scroll view's hosting
+        // controller, which preferences cannot escape.
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
+            footerMetrics.pageHeight = $0
+        }
         // Float a compact action bubble just below the first selected verse.
         // GeometryReader is always present so the bubble can animate in/out via transition.
         .overlayPreferenceValue(FirstSelectedVerseAnchorKey.self) { anchor in
@@ -147,7 +191,13 @@ struct BibleTextView: View {
                 if let anchor, isInSelectionMode {
                     let rect    = proxy[anchor]
                     // Clamp x so the bubble never clips the horizontal edges.
-                    let bubbleX = max(110, min(rect.midX, proxy.size.width - 110))
+                    // Half the card's natural width: 8 swatches + the optional
+                    // remove button. On a screen too narrow to clamp within,
+                    // just centre it rather than pushing it off one side.
+                    let halfCard: CGFloat = 160
+                    let bubbleX = proxy.size.width <= halfCard * 2
+                        ? proxy.size.width / 2
+                        : max(halfCard, min(rect.midX, proxy.size.width - halfCard))
                     selectionBubble
                         .fixedSize()
                         .position(x: bubbleX, y: rect.maxY + 28)
@@ -175,13 +225,80 @@ struct BibleTextView: View {
 
     // MARK: - Selection Bubble
 
-    /// Compact pill that appears below the first selected verse.
-    /// Contains: ✕ dismiss  |  label  |  Bookmark action
+    /// Compact card that appears below the first selected verse.
+    ///
+    /// Two rows: the highlight colors on top, then ✕ | label | Bookmark.
+    /// Highlighting is the action people reach for most, so it gets the row
+    /// that needs no reading.
     private var selectionBubble: some View {
+        VStack(spacing: 0) {
+            highlightColorRow
+            Divider()
+            selectionActionRow
+        }
+        .foregroundStyle(themeManager.currentTheme.primary)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(.thinMaterial)
+                .shadow(color: .black.opacity(0.18), radius: 12, y: 4)
+        )
+        .transition(.scale(scale: 0.85, anchor: .top).combined(with: .opacity))
+    }
+
+    private var highlightColorRow: some View {
+        HStack(spacing: 8) {
+            ForEach(VerseHighlight.presetColors, id: \.hex) { preset in
+                Button {
+                    if isColorLocked(preset.hex) {
+                        onRequestPremium()
+                    } else {
+                        applyHighlight(preset.hex)
+                    }
+                } label: {
+                    Circle()
+                        .fill(Color(hex: preset.hex))
+                        .frame(width: 24, height: 24)
+                        .overlay(
+                            Circle().stroke(Color.white.opacity(0.85), lineWidth: 1.5)
+                        )
+                        .overlay {
+                            if isColorLocked(preset.hex) {
+                                Image(systemName: "lock.fill")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .shadow(radius: 1)
+                            }
+                        }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(isColorLocked(preset.hex)
+                                    ? "\(preset.name) highlight, Pro"
+                                    : "\(preset.name) highlight")
+            }
+
+            // Only offered when it would change something.
+            if selectionHasHighlight {
+                Divider().frame(height: 22)
+                Button {
+                    removeHighlight()
+                } label: {
+                    Image(systemName: "slash.circle")
+                        .font(.body.weight(.semibold))
+                        .frame(width: 24, height: 24)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Remove highlight")
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+    }
+
+    private var selectionActionRow: some View {
         HStack(spacing: 0) {
             // Dismiss / cancel selection
             Button {
-                withAnimation(.spring(duration: 0.25)) { selectedIndices = [] }
+                clearSelection()
             } label: {
                 Image(systemName: "xmark")
                     .font(.footnote.weight(.bold))
@@ -213,43 +330,64 @@ struct BibleTextView: View {
                 .padding(.vertical, 10)
             }
         }
-        .foregroundStyle(themeManager.currentTheme.primary)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(.thinMaterial)
-                .shadow(color: .black.opacity(0.18), radius: 12, y: 4)
-        )
-        .transition(.scale(scale: 0.85, anchor: .top).combined(with: .opacity))
     }
 
     // MARK: - Selection Logic
 
     private var selectionLabel: String {
-        let verses = Self.parseVerses(from: content.textContent)
-        let validCount = selectedIndices.filter { $0 < verses.count && verses[$0].number != "§" }.count
-        if validCount == 0 { return "" }
-        if validCount == 1,
-           let idx = selectedIndices.first(where: { $0 < verses.count && verses[$0].number != "§" }) {
-            return "Verse \(verses[idx].number)"
+        let selection = orderedSelection
+        switch selection.count {
+        case 0:  return ""
+        case 1:  return "Verse \(selection[0].number)"
+        default: return "\(selection.count) verses"
         }
-        return "\(validCount) verses"
+    }
+
+    private func clearSelection() {
+        withAnimation(.spring(duration: 0.25)) { selectedVerseNumbers = [] }
     }
 
     private func commitSelection() {
-        guard !selectedIndices.isEmpty else { return }
-        let verses  = Self.parseVerses(from: content.textContent)
-        let sorted  = selectedIndices.sorted()
-        let validIndices = sorted.filter { $0 < verses.count && verses[$0].number != "§" }
-        guard !validIndices.isEmpty else {
-            withAnimation(.spring(duration: 0.25)) { selectedIndices = [] }
-            return
-        }
-        let verseNumbers = validIndices.map { verses[$0].number }
-        let combinedText = validIndices
-            .map    { verses[$0].text }
-            .joined(separator: " ")
-        onLongPressVerse(verseNumbers, combinedText)
-        withAnimation(.spring(duration: 0.25)) { selectedIndices = [] }
+        let selection = orderedSelection
+        guard !selection.isEmpty else { clearSelection(); return }
+        onLongPressVerse(selection.map(\.number),
+                         selection.map(\.text).joined(separator: " "))
+        clearSelection()
+    }
+
+    // MARK: - Highlighting
+
+    /// True when the user hasn't paid for this color yet.
+    /// Mirrors how bookmark colors are already gated, so the same 4 colors are
+    /// free in both places and highlights aren't a side door to the other 4.
+    private func isColorLocked(_ hex: String) -> Bool {
+        !allowsAllHighlightColors && !PremiumLimits.freeBookmarkColors.contains(hex)
+    }
+
+    /// True when at least one selected verse already carries a highlight, so the
+    /// "remove" button only appears when it would actually do something.
+    private var selectionHasHighlight: Bool {
+        highlightsVM.hasAnyHighlight(chapterId:    content.id,
+                                     verseNumbers: orderedSelection.map(\.number))
+    }
+
+    private func applyHighlight(_ hex: String) {
+        let numbers = orderedSelection.map(\.number)
+        guard !numbers.isEmpty else { clearSelection(); return }
+        highlightsVM.setHighlight(chapterId:    content.id,
+                                  verseNumbers: numbers,
+                                  colorHex:     hex,
+                                  userId:       highlightUserId)
+        clearSelection()
+    }
+
+    private func removeHighlight() {
+        let numbers = orderedSelection.map(\.number)
+        guard !numbers.isEmpty else { clearSelection(); return }
+        highlightsVM.removeHighlight(chapterId:    content.id,
+                                     verseNumbers: numbers,
+                                     userId:       highlightUserId)
+        clearSelection()
     }
 
     // MARK: - Font
@@ -340,6 +478,8 @@ private struct VerseRow: View {
     let isInSelectionMode: Bool
     /// True when this row is currently in the selection set.
     let isSelected:        Bool
+    /// The user's highlight color for this verse, or nil when not highlighted.
+    let highlightColorHex: String?
     /// Toggles this verse in/out of the selection. Called on tap (in selection mode) or
     /// when the user picks "Select Verse" from the context menu (to start a selection).
     let onToggleSelection: () -> Void
@@ -437,52 +577,55 @@ private struct VerseRow: View {
         }
     }
 
-    @ViewBuilder
     private var verseContent: some View {
-        if showRedLetters, let segs = segments, segs.contains(where: { $0.isRedLetter }) {
-            // Show the red-letter text underneath; overlay a solid-gold version whose
-            // opacity is animated in/out by navFlashOpacity.
-            Text(attributedString(from: segs))
-                .font(font)
-                .lineSpacing(spacing)
-                .multilineTextAlignment(alignment)
-                .overlay(
-                    // AttributedString colors override foregroundStyle, so use plain
-                    // Text(text) here — the flash is solid gold regardless of red letters.
-                    Text(text)
-                        .font(font)
-                        .foregroundStyle(navHighlightColor)
-                        .lineSpacing(spacing)
-                        .multilineTextAlignment(alignment)
-                        .opacity(navFlashOpacity)
-                )
-        } else {
-            // Plain text: overlay a gold copy whose opacity fades in then out.
-            Text(text)
-                .font(font)
-                .foregroundStyle(theme.text)
-                .lineSpacing(spacing)
-                .multilineTextAlignment(alignment)
-                .overlay(
-                    Text(text)
-                        .font(font)
-                        .foregroundStyle(navHighlightColor)
-                        .lineSpacing(spacing)
-                        .multilineTextAlignment(alignment)
-                        .opacity(navFlashOpacity)
-                )
-        }
+        // Both the red-letter and plain cases go through one AttributedString so
+        // the highlight is applied in exactly one place.
+        Text(attributedVerse)
+            .font(font)
+            .lineSpacing(spacing)
+            .multilineTextAlignment(alignment)
+            .overlay(
+                // AttributedString colors override foregroundStyle, so the flash
+                // is a separate plain Text on top — solid gold regardless of red
+                // letters or highlighting underneath.
+                Text(text)
+                    .font(font)
+                    .foregroundStyle(navHighlightColor)
+                    .lineSpacing(spacing)
+                    .multilineTextAlignment(alignment)
+                    .opacity(navFlashOpacity)
+            )
     }
 
     /// Warm gold color used for the brief text-color flash when navigating from Community.
     private var navHighlightColor: Color { Color(red: 0.85, green: 0.60, blue: 0.10) }
 
-    /// Builds an AttributedString that colors Jesus' words in redLetter and all other text normally.
-    private func attributedString(from segs: [VerseSegment]) -> AttributedString {
+    /// The verse with Jesus' words in red where the translation marks them, and
+    /// the user's highlight painted behind the words when there is one.
+    ///
+    /// The highlight is a per-run `backgroundColor` rather than a band behind the
+    /// whole row, so it hugs the text and re-wraps with it — the way a highlighter
+    /// behaves on paper, and what the Bible app does. It also avoids measuring
+    /// text geometry, which cannot escape the Reader's hosting controller anyway.
+    private var attributedVerse: AttributedString {
+        let runs: [VerseSegment]
+        if showRedLetters, let segs = segments, segs.contains(where: { $0.isRedLetter }) {
+            runs = segs
+        } else {
+            runs = [VerseSegment(text: text, isRedLetter: false)]
+        }
+
+        // Painted at partial strength: four of the eight themes are dark, and a
+        // solid pale fill behind light text is unreadable.
+        let fill = highlightColorHex.map {
+            Color(hex: $0).opacity(VerseHighlight.fillOpacity(onDarkTheme: theme.isDarkSurface))
+        }
+
         var result = AttributedString()
-        for seg in segs {
+        for seg in runs {
             var part = AttributedString(seg.text)
             part.swiftUI.foregroundColor = seg.isRedLetter ? theme.redLetter : theme.text
+            if let fill { part.swiftUI.backgroundColor = fill }
             result += part
         }
         return result
@@ -519,6 +662,15 @@ final class ReaderFooterMetrics: ObservableObject {
     /// Horizontal inset of the buttons inside the strip — must match the
     /// `.padding(.horizontal, …)` on ChapterNavigationFooter below.
     static let horizontalInset: CGFloat = 24
+
+    /// Full height of the laid-out page, measured from inside the scroll view.
+    ///
+    /// ReaderView's own `contentHeight` cannot be used for this: it is fed by
+    /// `ContentHeightKey`, a PreferenceKey read from OUTSIDE the hosting
+    /// controller, so the value never arrives and the state stays at the 100pt
+    /// placeholder set on every chapter change. Anything that needs a real page
+    /// height should read this instead.
+    @Published var pageHeight: CGFloat = 0
 
     var height:     CGFloat { globalFrame.height }
     var globalMaxY: CGFloat { globalFrame == .zero ? .greatestFiniteMagnitude : globalFrame.maxY }

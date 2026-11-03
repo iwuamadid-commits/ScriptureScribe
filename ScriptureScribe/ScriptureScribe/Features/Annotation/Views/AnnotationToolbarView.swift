@@ -71,20 +71,24 @@ struct AnnotationToolbarView: View {
 
             // ── Tool buttons + camera ────────────────────────────────────
             HStack(spacing: isCompact ? 4 : 8) {
-                ForEach(AnnotationViewModel.DrawingTool.allCases, id: \.self) { tool in
+                ForEach(AnnotationViewModel.DrawingTool.availableCases, id: \.self) { tool in
                     toolButton(for: tool)
                 }
 
-                // Camera button — sits right next to the hand tool
-                Button {
-                    showPhotoSourcePicker = true
-                } label: {
-                    Image(systemName: "camera")
-                        .font(isCompact ? .footnote : .title3)
-                        .frame(width: isCompact ? 32 : 44, height: isCompact ? 32 : 44)
-                        .foregroundStyle(themeManager.currentTheme.textSecondary)
+                // Camera button — sits right next to the hand tool.
+                // Placing photos on a page is part of the pencil feature set,
+                // so it follows the drawing tools off the phone.
+                if DeviceCapabilities.hasPencilTools {
+                    Button {
+                        showPhotoSourcePicker = true
+                    } label: {
+                        Image(systemName: "camera")
+                            .font(isCompact ? .footnote : .title3)
+                            .frame(width: isCompact ? 32 : 44, height: isCompact ? 32 : 44)
+                            .foregroundStyle(themeManager.currentTheme.textSecondary)
+                    }
+                    .accessibilityLabel("Add Photo")
                 }
-                .accessibilityLabel("Add Photo")
             }
             .coachMark("reader-annotation-toolbar")
 

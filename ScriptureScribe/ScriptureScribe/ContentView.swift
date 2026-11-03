@@ -15,6 +15,7 @@ struct ContentView: View {
     @EnvironmentObject var authVM:              AuthViewModel
     @EnvironmentObject var bookmarksVM:         BookmarksViewModel
     @EnvironmentObject var notesVM:             NotesViewModel
+    @EnvironmentObject var verseHighlightsVM:   VerseHighlightsViewModel
     @EnvironmentObject var savedDevotionalsVM:  SavedDevotionalsViewModel
     @EnvironmentObject var habitsVM:            HabitsViewModel
     @EnvironmentObject var streakVM:            StreakViewModel
@@ -92,6 +93,7 @@ struct ContentView: View {
                             streakVM.updateStreak()
                             await bookmarksVM.syncOnSignIn(userId: userId)
                             await notesVM.syncOnSignIn(userId: userId)
+                            await verseHighlightsVM.syncOnSignIn(userId: userId)
                             await savedDevotionalsVM.load(userId: userId)
                             await habitsVM.syncOnSignIn(userId: userId)
                         }

@@ -53,6 +53,7 @@ struct ReaderView: View {
     @EnvironmentObject var appNav:        AppNavigation
     @EnvironmentObject var bookmarksVM:   BookmarksViewModel
     @EnvironmentObject var notesVM:       NotesViewModel
+    @EnvironmentObject var highlightsVM:  VerseHighlightsViewModel
     @EnvironmentObject var subscriptionVM: SubscriptionViewModel
     @EnvironmentObject var authVM:        AuthViewModel
     @Environment(\.scenePhase) private var scenePhase
@@ -97,6 +98,24 @@ struct ReaderView: View {
     /// annotations flash over the old text. Shown again when the new text arrives.
     @State private var hideAnnotationsDuringTransition = false
     private var annotationLayerOpacity: Double { hideAnnotationsDuringTransition ? 0 : 1 }
+
+    /// Height the typed-note layer is laid out at.
+    ///
+    /// iPad keeps reading `contentHeight`, exactly as before, so its behaviour is
+    /// unchanged. iPhone uses the height measured from inside the scroll view,
+    /// because `contentHeight` is fed by a PreferenceKey that cannot escape the
+    /// hosting controller and so never leaves its 100pt placeholder — note pins
+    /// would otherwise all pile up near the top of the page.
+    private var notesLayerHeight: CGFloat {
+        guard DeviceCapabilities.isPhoneLayout else { return contentHeight }
+        return footerMetrics.pageHeight > 0 ? footerMetrics.pageHeight : contentHeight
+    }
+
+    /// The area a note pin's stored 0–1 position is resolved against.
+    private func notePinAreaSize(_ proposed: CGSize) -> CGSize {
+        CGSize(width:  proposed.width,
+               height: max(proposed.height, footerMetrics.pageHeight))
+    }
     /// Incremented each time a new chapter loads (without a verse target) to tell
     /// ZoomScrollView to snap to the top and reset zoom — invisible because
     /// contentOpacity is 0 during the snap.
@@ -133,15 +152,23 @@ struct ReaderView: View {
                 // In split-view mode we embed them INSIDE the Bible column
                 // (via splitViewContent) so the Notebook side stays clean.
                 if annotationVM.layoutMode == .fullWidth {
-                    BookSelectorRow(
-                        sortedBooks:    vm.sortedBooks,
-                        selectedBookId: vm.selectedBook?.id,
-                        bookSortOrder:  vm.bookSortOrder,
-                        isLoadingBooks: vm.isLoadingBooks,
-                        vm:             vm,
-                        onOpenBrowser:  { browserScrollTarget = .book; showBookBrowser = true }
-                    )
-                    Divider()
+                    // The book row is dropped on iPhone — the navigation title
+                    // already names the book, and a scrolling strip of all 66 is
+                    // a poor use of a third of a phone's reading area. The book
+                    // browser moves to a toolbar button instead, which is more
+                    // discoverable than the row's "tap the selected chapter"
+                    // gesture.
+                    if DeviceCapabilities.hasPencilTools {
+                        BookSelectorRow(
+                            sortedBooks:    vm.sortedBooks,
+                            selectedBookId: vm.selectedBook?.id,
+                            bookSortOrder:  vm.bookSortOrder,
+                            isLoadingBooks: vm.isLoadingBooks,
+                            vm:             vm,
+                            onOpenBrowser:  { browserScrollTarget = .book; showBookBrowser = true }
+                        )
+                        Divider()
+                    }
                     ChapterSelectorRow(
                         chapters:            vm.chapters,
                         selectedChapterId:   vm.selectedChapter?.id,
@@ -149,9 +176,14 @@ struct ReaderView: View {
                         vm:                  vm,
                         onOpenBrowser:       { browserScrollTarget = .chapter; showBookBrowser = true }
                     )
-                    Divider()
-                    // Annotation toolbar (always visible, positioned under book/chapter selectors)
-                    AnnotationToolbarView(vm: annotationVM)
+                    // Annotation toolbar (positioned under book/chapter selectors).
+                    // iPhone has no pencil tools, so the row is omitted entirely
+                    // rather than rendered empty — it buys back ~44pt of the
+                    // screen before the first verse.
+                    if DeviceCapabilities.hasPencilTools {
+                        Divider()
+                        AnnotationToolbarView(vm: annotationVM)
+                    }
                     Divider()
                 }
 
@@ -377,9 +409,20 @@ struct ReaderView: View {
                     }
                     // Calculate the verse's Y position using NSString.boundingRect
                     // for pixel-accurate text layout (real character widths + word wrap).
-                    let screenW    = UIScreen.main.bounds.width
-                    let effectiveW = annotationVM.layoutMode == .splitView
-                        ? floor(screenW * 0.60) : screenW
+                    // Measure against the real reading column, not the whole
+                    // screen. pageAreaGlobalFrame is the laid-out page area, so it
+                    // is already correct for split view, iPad multitasking and
+                    // landscape — where screen width is not. On a phone the
+                    // difference is large enough to land the scroll on the wrong
+                    // verse. Falls back to screen width before the first measure.
+                    let effectiveW: CGFloat = {
+                        // pageAreaGlobalFrame spans the whole page, so split view
+                        // still needs its 60% Bible-column factor applied.
+                        let measured = pageAreaGlobalFrame.width
+                        let base = measured > 1 ? measured : UIScreen.main.bounds.width
+                        return annotationVM.layoutMode == .splitView
+                            ? floor(base * 0.60) : base
+                    }()
                     // 20 leading pad + 22 verse# minWidth + 6 HStack gap + 20 trailing pad
                     let textAreaW  = effectiveW - 68
 
@@ -772,7 +815,11 @@ struct ReaderView: View {
                             },
                             highlightedVerses: highlightedVerses,
                             isDrawingToolActive: annotationVM.isDrawingTool,
-                            footerMetrics: footerMetrics
+                            footerMetrics: footerMetrics,
+                            highlightsVM: highlightsVM,
+                            highlightUserId: authVM.currentUserID,
+                            allowsAllHighlightColors: subscriptionVM.isPremium,
+                            onRequestPremium: { showPaywall = true }
                         )
                         .frame(width: bibleWidth)
                         .background(
@@ -997,7 +1044,11 @@ struct ReaderView: View {
                         },
                         highlightedVerses: highlightedVerses,
                         isDrawingToolActive: annotationVM.isDrawingTool,
-                            footerMetrics: footerMetrics
+                        footerMetrics: footerMetrics,
+                        highlightsVM: highlightsVM,
+                        highlightUserId: authVM.currentUserID,
+                        allowsAllHighlightColors: subscriptionVM.isPremium,
+                        onRequestPremium: { showPaywall = true }
                     )
                     .background(
                         GeometryReader { g in
@@ -1008,39 +1059,52 @@ struct ReaderView: View {
 
                     // Layer 2 — Photo annotations (below canvas so strokes draw on top)
                     // Unselected photos stay here; selected photo is promoted above canvas.
+                    //
+                    // Photos are part of the pencil feature set, and their
+                    // positions are stored in absolute points against the page
+                    // they were placed on, so they would land wrongly on a phone
+                    // anyway. The files are untouched and still show on iPad.
                     let photoChapterId = vm.selectedChapter?.id ?? ""
-                    GeometryReader { _ in
-                        ForEach((annotationVM.photoAnnotations[photoChapterId] ?? []).filter { $0.id != annotationVM.selectedPhotoId }) { photo in
-                            PhotoAnnotationOverlay(
-                                photo:           photo,
-                                chapterId:       photoChapterId,
-                                isDrawingActive: annotationVM.isDrawingTool,
-                                annotationVM:    annotationVM
-                            )
-                            .overlay(
-                                annotationVM.lassoState.selectedPhotoIds.contains(photo.id)
-                                    ? RoundedRectangle(cornerRadius: 4)
-                                        .stroke(Color.blue, style: StrokeStyle(lineWidth: 2, dash: [5, 3]))
-                                    : nil
-                            )
+                    if DeviceCapabilities.hasPencilTools {
+                        GeometryReader { _ in
+                            ForEach((annotationVM.photoAnnotations[photoChapterId] ?? []).filter { $0.id != annotationVM.selectedPhotoId }) { photo in
+                                PhotoAnnotationOverlay(
+                                    photo:           photo,
+                                    chapterId:       photoChapterId,
+                                    isDrawingActive: annotationVM.isDrawingTool,
+                                    annotationVM:    annotationVM
+                                )
+                                .overlay(
+                                    annotationVM.lassoState.selectedPhotoIds.contains(photo.id)
+                                        ? RoundedRectangle(cornerRadius: 4)
+                                            .stroke(Color.blue, style: StrokeStyle(lineWidth: 2, dash: [5, 3]))
+                                        : nil
+                                )
+                            }
                         }
+                        .frame(height: contentHeight)
+                        .opacity(annotationLayerOpacity)
                     }
-                    .frame(height: contentHeight)
-                    .opacity(annotationLayerOpacity)
 
-                    // Layer 3 — Drawing canvas
-                    AnnotationCanvasView(
-                        vm:               annotationVM,
-                        chapterId:        vm.selectedChapter?.id ?? "",
-                        chapterReference: vm.selectedChapter?.reference ?? "",
-                        contentHeight:    contentHeight,
-                        containerWidth:   geo.size.width,
-                        footerPassThroughHeight: footerMetrics.height
-                    )
-                    .frame(height: contentHeight)
-                    .id(vm.selectedChapter?.id ?? "")
-                    .allowsHitTesting(annotationVM.isDrawingTool || annotationVM.isLassoActive)
-                    .opacity(annotationLayerOpacity)
+                    // Layer 3 — Drawing canvas.
+                    // Omitted on iPhone: nothing there can draw, and drawings
+                    // made on an iPad are not synced to this device yet. Keeping
+                    // the canvas would also risk its container-width rescale
+                    // rewriting the iPad's strokes at phone scale.
+                    if DeviceCapabilities.hasPencilTools {
+                        AnnotationCanvasView(
+                            vm:               annotationVM,
+                            chapterId:        vm.selectedChapter?.id ?? "",
+                            chapterReference: vm.selectedChapter?.reference ?? "",
+                            contentHeight:    contentHeight,
+                            containerWidth:   geo.size.width,
+                            footerPassThroughHeight: footerMetrics.height
+                        )
+                        .frame(height: contentHeight)
+                        .id(vm.selectedChapter?.id ?? "")
+                        .allowsHitTesting(annotationVM.isDrawingTool || annotationVM.isLassoActive)
+                        .opacity(annotationLayerOpacity)
+                    }
 
                     // Layer 3.5 — Gold verse accent bar
                     if let iy = navIndicatorY {
@@ -1053,7 +1117,7 @@ struct ReaderView: View {
                     }
 
                     // Layer 4 — Photo tap targets (above canvas so fingers can select photos in any mode)
-                    if !annotationVM.isLassoActive {
+                    if !annotationVM.isLassoActive, DeviceCapabilities.hasPencilTools {
                         GeometryReader { _ in
                             // Tap outside any photo → deselect the selected photo
                             Color.clear
@@ -1084,7 +1148,8 @@ struct ReaderView: View {
                     }
 
                     // Layer 5 — Selected photo (above everything for easy finger/pencil drag)
-                    if let selectedId = annotationVM.selectedPhotoId,
+                    if DeviceCapabilities.hasPencilTools,
+                       let selectedId = annotationVM.selectedPhotoId,
                        let photo = (annotationVM.photoAnnotations[photoChapterId] ?? []).first(where: { $0.id == selectedId }) {
                         GeometryReader { _ in
                             PhotoAnnotationOverlay(
@@ -1111,23 +1176,30 @@ struct ReaderView: View {
                             .allowsHitTesting(notesVM.expandedNoteId != nil)
 
                         ForEach(notesVM.notes(for: vm.selectedChapter?.id ?? "")) { note in
-                            NoteTileView(note: note, areaSize: g.size, notesVM: notesVM)
-                                .overlay(
-                                    annotationVM.lassoState.selectedNoteIds.contains(note.id)
-                                        ? RoundedRectangle(cornerRadius: 6)
-                                            .stroke(Color.blue, style: StrokeStyle(lineWidth: 2, dash: [5, 3]))
-                                        : nil
-                                )
-                                .transition(.opacity)
+                            if DeviceCapabilities.hasPencilTools {
+                                NoteTileView(note: note, areaSize: g.size, notesVM: notesVM)
+                                    .overlay(
+                                        annotationVM.lassoState.selectedNoteIds.contains(note.id)
+                                            ? RoundedRectangle(cornerRadius: 6)
+                                                .stroke(Color.blue, style: StrokeStyle(lineWidth: 2, dash: [5, 3]))
+                                            : nil
+                                    )
+                                    .transition(.opacity)
+                            } else {
+                                // Phone: a tap-to-open marker instead of a tile
+                                // wide enough to bury the verse underneath it.
+                                NotePinView(note: note, areaSize: notePinAreaSize(g.size), notesVM: notesVM)
+                                    .transition(.opacity)
+                            }
                         }
                     }
-                    .frame(height: contentHeight)
+                    .frame(height: notesLayerHeight)
                     .opacity(annotationLayerOpacity)
                     // Note tiles are always hittable so the user can drag them
                     // with a finger regardless of the active annotation tool.
 
                     // Layer 4.5 — Custom lasso selection overlay (only during active selection)
-                    if annotationVM.lassoState.phase == .selected {
+                    if annotationVM.lassoState.phase == .selected, DeviceCapabilities.hasPencilTools {
                         LassoOverlayView(
                             annotationVM: annotationVM,
                             notesVM:      notesVM,
@@ -1139,7 +1211,7 @@ struct ReaderView: View {
                     }
 
                     // Layer 5 — Guide lines
-                    if annotationVM.showGuidelines {
+                    if annotationVM.showGuidelines, DeviceCapabilities.hasPencilTools {
                         GuideLineOverlayView(spacing: annotationVM.guideSpacing)
                             .frame(height: contentHeight)
                             .allowsHitTesting(false)
@@ -1197,6 +1269,20 @@ struct ReaderView: View {
             }
         }
 
+        // Left: book browser — iPhone only, replacing the book row
+        if DeviceCapabilities.isPhoneLayout {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    browserScrollTarget = .book
+                    showBookBrowser = true
+                } label: {
+                    Image(systemName: "book.closed")
+                        .foregroundStyle(themeManager.currentTheme.primary)
+                }
+                .accessibilityLabel("Browse books")
+            }
+        }
+
         // Right: more menu
         ToolbarItemGroup(placement: .topBarTrailing) {
 
@@ -1215,6 +1301,21 @@ struct ReaderView: View {
                             Label("Add Note", systemImage: "note.text.badge.plus")
                         }
                         .disabled(vm.chapterContent == nil)
+
+                        // On iPad this toggle lives in the annotation toolbar's
+                        // settings menu. iPhone doesn't show that toolbar, so the
+                        // setting is surfaced here instead of becoming unreachable.
+                        if DeviceCapabilities.isPhoneLayout {
+                            Button { annotationVM.useDoubleTapForNote.toggle() } label: {
+                                Label(
+                                    annotationVM.useDoubleTapForNote
+                                        ? "Double-Tap Note: On"
+                                        : "Double-Tap Note: Off",
+                                    systemImage: annotationVM.useDoubleTapForNote
+                                        ? "hand.tap.fill" : "hand.tap"
+                                )
+                            }
+                        }
                     }
 
                     Section("Bookmarks") {
@@ -1223,20 +1324,25 @@ struct ReaderView: View {
                         }
                     }
 
-                    Section("Layout") {
-                        Button {
-                            withAnimation { annotationVM.layoutMode = .fullWidth }
-                        } label: {
-                            Label("Full-Width Bible",
-                                  systemImage: annotationVM.layoutMode == .fullWidth
-                                      ? "checkmark" : "rectangle")
-                        }
-                        Button {
-                            withAnimation { annotationVM.layoutMode = .splitView }
-                        } label: {
-                            Label("Bible + Notebook",
-                                  systemImage: annotationVM.layoutMode == .splitView
-                                      ? "checkmark" : "rectangle.split.2x1")
+                    // iPhone is always full width, so there is nothing to choose
+                    // between — the whole section is hidden rather than showing a
+                    // single option that is already selected.
+                    if DeviceCapabilities.hasPencilTools {
+                        Section("Layout") {
+                            Button {
+                                withAnimation { annotationVM.layoutMode = .fullWidth }
+                            } label: {
+                                Label("Full-Width Bible",
+                                      systemImage: annotationVM.layoutMode == .fullWidth
+                                          ? "checkmark" : "rectangle")
+                            }
+                            Button {
+                                withAnimation { annotationVM.layoutMode = .splitView }
+                            } label: {
+                                Label("Bible + Notebook",
+                                      systemImage: annotationVM.layoutMode == .splitView
+                                          ? "checkmark" : "rectangle.split.2x1")
+                            }
                         }
                     }
 

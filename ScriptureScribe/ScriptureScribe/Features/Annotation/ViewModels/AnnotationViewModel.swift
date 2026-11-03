@@ -62,6 +62,17 @@ final class AnnotationViewModel: ObservableObject {
             }
         }
         var label: String { rawValue.capitalized }
+
+        /// The tools this device can actually offer.
+        ///
+        /// iPhone has no Apple Pencil, so it gets finger-based verse
+        /// highlighting instead of the drawing tools and is left with only
+        /// `.hand` (plain reading). iPad keeps every tool.
+        ///
+        /// Use this instead of `allCases` anywhere the user picks a tool.
+        static var availableCases: [DrawingTool] {
+            DeviceCapabilities.hasPencilTools ? allCases : [.hand]
+        }
     }
 
     enum EraserType: String, CaseIterable {
@@ -265,7 +276,11 @@ final class AnnotationViewModel: ObservableObject {
     init() {
         // ── Restore layout mode ──────────────────────────────────────────
         if let raw  = UserDefaults.standard.string(forKey: "ss_layoutMode"),
-           let mode = LayoutMode(rawValue: raw) {
+           let mode = LayoutMode(rawValue: raw),
+           // The split view puts a 40%-wide ruled notebook beside the Bible.
+           // There is no room for that on a phone, and nothing to write in it
+           // with, so iPhone is always full width.
+           DeviceCapabilities.hasPencilTools {
             layoutMode = mode
         }
 
@@ -291,10 +306,16 @@ final class AnnotationViewModel: ObservableObject {
 
         // ── Restore last-used tool (default to hand if not saved) ───────
         if let raw  = UserDefaults.standard.string(forKey: "ss_selectedTool"),
-           let tool = DrawingTool(rawValue: raw) {
+           let tool = DrawingTool(rawValue: raw),
+           // Never restore a drawing tool on a device that has none. The app has
+           // always shipped universal, so an iPhone can have "pen" saved here
+           // from finger-drawing in an earlier version — restoring it would
+           // leave an invisible pen active and kill verse taps.
+           DrawingTool.availableCases.contains(tool) {
             selectedTool = tool
             loadToolSettings(for: tool)
         } else {
+            selectedTool = .hand
             loadToolSettings(for: .hand)
         }
 

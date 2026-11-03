@@ -710,6 +710,49 @@ final class FirestoreService {
         )
     }
 
+    // MARK: - Verse Highlights
+
+    func saveVerseHighlight(_ highlight: VerseHighlight, userId: String) async throws {
+        let ref = db.collection("users").document(userId)
+            .collection("verseHighlights").document(highlight.id)
+        try await ref.setData([
+            "chapterId":   highlight.chapterId,
+            "verseNumber": highlight.verseNumber,
+            "colorHex":    highlight.colorHex,
+            "createdAt":   Timestamp(date: highlight.createdAt)
+        ])
+    }
+
+    func deleteVerseHighlight(id: String, userId: String) async throws {
+        try await db.collection("users").document(userId)
+            .collection("verseHighlights").document(id).delete()
+    }
+
+    func fetchVerseHighlights(userId: String) async throws -> [VerseHighlight] {
+        let snapshot = try await db.collection("users").document(userId)
+            .collection("verseHighlights")
+            .order(by: "createdAt")
+            .getDocuments()
+        return snapshot.documents.compactMap { decodeVerseHighlight($0) }
+    }
+
+    private func decodeVerseHighlight(_ doc: DocumentSnapshot) -> VerseHighlight? {
+        guard let data = doc.data() else { return nil }
+        let chapterId   = data["chapterId"]   as? String ?? ""
+        let verseNumber = data["verseNumber"] as? String ?? ""
+        // A highlight with no chapter or verse can't be drawn anywhere — drop it
+        // rather than carrying a dead record around in memory.
+        guard !chapterId.isEmpty, !verseNumber.isEmpty else { return nil }
+        // The document id is "<chapterId>:<verseNumber>" and is reproduced from
+        // those two fields, so it isn't passed in.
+        return VerseHighlight(
+            chapterId:   chapterId,
+            verseNumber: verseNumber,
+            colorHex:    data["colorHex"] as? String ?? "F5C842",
+            createdAt:   (data["createdAt"] as? Timestamp)?.dateValue() ?? Date()
+        )
+    }
+
     // MARK: - Daily Content (AI-generated, shared across all users)
 
     /// Fetches a cached AI-generated DailyEntry for the given date string ("YYYY-MM-DD").
@@ -941,7 +984,7 @@ final class FirestoreService {
         let userRef = db.collection("users").document(userId)
 
         // Delete all subcollections under users/{uid}
-        let subcollections = ["bookmarks", "notes", "bookmarkGroups", "habits", "habitLogs", "savedItems", "preferences", "syncData"]
+        let subcollections = ["bookmarks", "notes", "verseHighlights", "bookmarkGroups", "habits", "habitLogs", "savedItems", "preferences", "syncData"]
         for sub in subcollections {
             let docs = try await userRef.collection(sub).getDocuments()
             for doc in docs.documents {
