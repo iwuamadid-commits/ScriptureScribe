@@ -85,6 +85,15 @@ struct ContentView: View {
                 .toolbarBackground(.visible, for: .tabBar)
                 // Drives status bar, title, and system icon rendering across all child views
                 .preferredColorScheme(preferredColorScheme)
+                // Keep the syncing view models told who is signed in. `initial: true`
+                // covers a launch that restores an already-signed-in session, where
+                // isSignedIn never changes and so never fires. Clearing it on
+                // sign-out stops later local edits reaching the previous account.
+                .onChange(of: authVM.currentUserID, initial: true) { _, userId in
+                    bookmarksVM.signedInUserId       = userId
+                    notesVM.signedInUserId           = userId
+                    verseHighlightsVM.signedInUserId = userId
+                }
                 // When the user signs in, sync their content from Firestore
                 .onChange(of: authVM.isSignedIn) { _, signedIn in
                     if signedIn, let userId = authVM.currentUserID {

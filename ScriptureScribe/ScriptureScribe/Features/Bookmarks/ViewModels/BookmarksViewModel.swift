@@ -25,6 +25,18 @@ final class BookmarksViewModel: ObservableObject {
     private let groupsStorageKey = "scripture_scribe_bookmark_groups"
     private let firestore        = FirestoreService()
 
+    /// The signed-in user, mirrored here so a caller that forgets `userId:`
+    /// still syncs.
+    ///
+    /// Every sync method takes `userId: String? = nil` and skipped the cloud
+    /// entirely when it was nil — silently, with no error and no sign on
+    /// screen. ReaderView forgot it for bookmarks and every note call site
+    /// forgot it, so those edits never left the device. Falling back to this
+    /// makes forgetting harmless instead of invisible. Set from ContentView,
+    /// and cleared on sign-out so edits made signed-out are never pushed to
+    /// the previous account.
+    var signedInUserId: String?
+
     init() {
         load()
         loadGroups()
@@ -130,7 +142,7 @@ final class BookmarksViewModel: ObservableObject {
         bookmarks.append(bookmark)
         save()
 
-        if let userId {
+        if let userId = userId ?? signedInUserId {
             Task { try? await firestore.saveBookmark(bookmark, userId: userId) }
         }
     }
@@ -141,7 +153,7 @@ final class BookmarksViewModel: ObservableObject {
         bookmarks.removeAll { $0.chapterId == chapterId }
         save()
 
-        if let userId {
+        if let userId = userId ?? signedInUserId {
             for b in toRemove {
                 Task { try? await firestore.deleteBookmark(id: b.id, userId: userId) }
             }
@@ -153,7 +165,7 @@ final class BookmarksViewModel: ObservableObject {
         bookmarks.removeAll { $0.id == id }
         save()
 
-        if let userId {
+        if let userId = userId ?? signedInUserId {
             Task { try? await firestore.deleteBookmark(id: id, userId: userId) }
         }
     }
@@ -177,7 +189,7 @@ final class BookmarksViewModel: ObservableObject {
         groups.append(group)
         saveGroups()
 
-        if let userId {
+        if let userId = userId ?? signedInUserId {
             Task { try? await firestore.saveBookmarkGroup(group, userId: userId) }
         }
         return group
@@ -190,7 +202,7 @@ final class BookmarksViewModel: ObservableObject {
         groups[index].colorHex = colorHex
         groups[index].emoji    = emoji
         saveGroups()
-        if let userId {
+        if let userId = userId ?? signedInUserId {
             Task { try? await firestore.saveBookmarkGroup(groups[index], userId: userId) }
         }
     }
@@ -205,7 +217,7 @@ final class BookmarksViewModel: ObservableObject {
         saveGroups()
         save()
 
-        if let userId {
+        if let userId = userId ?? signedInUserId {
             Task { try? await firestore.deleteBookmarkGroup(id: id, userId: userId) }
         }
     }
@@ -225,7 +237,7 @@ final class BookmarksViewModel: ObservableObject {
         bookmarks[index].verseText        = verseText
         bookmarks[index].chapterReference = chapterReference
         save()
-        if let userId {
+        if let userId = userId ?? signedInUserId {
             Task { try? await firestore.saveBookmark(bookmarks[index], userId: userId) }
         }
     }
@@ -236,7 +248,7 @@ final class BookmarksViewModel: ObservableObject {
         bookmarks[index].colorHex = colorHex
         bookmarks[index].emoji    = emoji
         save()
-        if let userId {
+        if let userId = userId ?? signedInUserId {
             Task { try? await firestore.saveBookmark(bookmarks[index], userId: userId) }
         }
     }
@@ -250,7 +262,7 @@ final class BookmarksViewModel: ObservableObject {
             bookmarks[index].groupIds.append(groupId)
         }
         save()
-        if let userId {
+        if let userId = userId ?? signedInUserId {
             Task { try? await firestore.saveBookmark(bookmarks[index], userId: userId) }
         }
     }
@@ -260,7 +272,7 @@ final class BookmarksViewModel: ObservableObject {
         guard let index = bookmarks.firstIndex(where: { $0.id == bookmarkId }) else { return }
         bookmarks[index].groupIds = groupIds
         save()
-        if let userId {
+        if let userId = userId ?? signedInUserId {
             Task { try? await firestore.saveBookmark(bookmarks[index], userId: userId) }
         }
     }
@@ -275,7 +287,7 @@ final class BookmarksViewModel: ObservableObject {
             bookmarks[index].groupIds.append(new)
         }
         save()
-        if let userId {
+        if let userId = userId ?? signedInUserId {
             Task { try? await firestore.saveBookmark(bookmarks[index], userId: userId) }
         }
     }

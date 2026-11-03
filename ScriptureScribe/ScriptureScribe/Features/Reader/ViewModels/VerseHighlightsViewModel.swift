@@ -30,6 +30,18 @@ final class VerseHighlightsViewModel: ObservableObject {
     private let storageKey = "ss_verseHighlights"
     private let firestore  = FirestoreService()
 
+    /// The signed-in user, mirrored here so a caller that forgets `userId:`
+    /// still syncs.
+    ///
+    /// Every sync method takes `userId: String? = nil` and skipped the cloud
+    /// entirely when it was nil — silently, with no error and no sign on
+    /// screen. ReaderView forgot it for bookmarks and every note call site
+    /// forgot it, so those edits never left the device. Falling back to this
+    /// makes forgetting harmless instead of invisible. Set from ContentView,
+    /// and cleared on sign-out so edits made signed-out are never pushed to
+    /// the previous account.
+    var signedInUserId: String?
+
     init() {
         load()
         rebuildIndex()
@@ -113,7 +125,7 @@ final class VerseHighlightsViewModel: ObservableObject {
                 guard highlights[existingIndex].colorHex != colorHex else { continue }
                 highlights[existingIndex].colorHex = colorHex
                 let updated = highlights[existingIndex]
-                if let userId {
+                if let userId = userId ?? signedInUserId {
                     Task { try? await firestore.saveVerseHighlight(updated, userId: userId) }
                 }
             } else {
@@ -121,7 +133,7 @@ final class VerseHighlightsViewModel: ObservableObject {
                                          verseNumber: verseNumber,
                                          colorHex:    colorHex)
                 highlights.append(new)
-                if let userId {
+                if let userId = userId ?? signedInUserId {
                     Task { try? await firestore.saveVerseHighlight(new, userId: userId) }
                 }
             }
@@ -144,7 +156,7 @@ final class VerseHighlightsViewModel: ObservableObject {
 
         let doomedIds = Set(doomed.map(\.id))
         highlights.removeAll { doomedIds.contains($0.id) }
-        if let userId {
+        if let userId = userId ?? signedInUserId {
             for id in doomedIds {
                 Task { try? await firestore.deleteVerseHighlight(id: id, userId: userId) }
             }

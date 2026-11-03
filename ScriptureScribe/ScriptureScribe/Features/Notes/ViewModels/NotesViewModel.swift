@@ -25,6 +25,18 @@ final class NotesViewModel: ObservableObject {
     private let storageKey = "scripture_scribe_notes"
     private let firestore  = FirestoreService()
 
+    /// The signed-in user, mirrored here so a caller that forgets `userId:`
+    /// still syncs.
+    ///
+    /// Every sync method takes `userId: String? = nil` and skipped the cloud
+    /// entirely when it was nil — silently, with no error and no sign on
+    /// screen. ReaderView forgot it for bookmarks and every note call site
+    /// forgot it, so those edits never left the device. Falling back to this
+    /// makes forgetting harmless instead of invisible. Set from ContentView,
+    /// and cleared on sign-out so edits made signed-out are never pushed to
+    /// the previous account.
+    var signedInUserId: String?
+
     init() {
         load()
     }
@@ -94,12 +106,12 @@ final class NotesViewModel: ObservableObject {
         if updated.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             notes.remove(at: idx)
             save()
-            if let userId {
+            if let userId = userId ?? signedInUserId {
                 Task { try? await firestore.deleteNote(id: updated.id, userId: userId) }
             }
             return
         }
-        if let userId {
+        if let userId = userId ?? signedInUserId {
             Task { try? await firestore.saveNote(updated, userId: userId) }
         }
     }
@@ -110,24 +122,28 @@ final class NotesViewModel: ObservableObject {
         notes[idx].positionX = x
         notes[idx].positionY = y
         save()
-        if let userId {
+        if let userId = userId ?? signedInUserId {
             let updated = notes[idx]
             Task { try? await firestore.saveNote(updated, userId: userId) }
         }
     }
 
     /// Updates the width of a note (called when the user resizes it).
-    func updateWidth(id: String, width: Double) {
+    func updateWidth(id: String, width: Double, userId: String? = nil) {
         guard let idx = notes.firstIndex(where: { $0.id == id }) else { return }
         notes[idx].noteWidth = width
         save()
+        if let userId = userId ?? signedInUserId {
+            let updated = notes[idx]
+            Task { try? await firestore.saveNote(updated, userId: userId) }
+        }
     }
 
     /// Permanently removes a note.
     func deleteNote(id: String, userId: String? = nil) {
         notes.removeAll { $0.id == id }
         save()
-        if let userId {
+        if let userId = userId ?? signedInUserId {
             Task { try? await firestore.deleteNote(id: id, userId: userId) }
         }
     }

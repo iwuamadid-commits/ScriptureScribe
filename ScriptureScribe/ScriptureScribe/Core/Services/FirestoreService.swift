@@ -253,6 +253,10 @@ final class FirestoreService {
             "chapterReference": bookmark.chapterReference,
             "verseId":          bookmark.verseId,
             "verseIdEnd":       bookmark.verseIdEnd,
+            // The exact verses picked. verseId/verseIdEnd only carry the first
+            // and last, so without this a selection of 1, 3 and 5 comes back
+            // from the cloud as the range 1-5.
+            "verseNumbers":     bookmark.verseNumbers,
             "verseText":        bookmark.verseText,
             "colorHex":         bookmark.colorHex,
             "emoji":            bookmark.emoji,
@@ -285,6 +289,19 @@ final class FirestoreService {
             chapterReference: data["chapterReference"]  as? String ?? "",
             verseId:          data["verseId"]           as? String ?? "",
             verseIdEnd:       data["verseIdEnd"]        as? String ?? "",
+            // Mirrors Bookmark's own Codable init: prefer the stored list, and
+            // for documents written before it was saved, treat the stored pair
+            // as the range it used to mean.
+            verseNumbers: {
+                if let nums = data["verseNumbers"] as? [String], !nums.isEmpty { return nums }
+                let first = data["verseId"]    as? String ?? ""
+                let last  = data["verseIdEnd"] as? String ?? ""
+                guard !first.isEmpty else { return [] }
+                if let start = Int(first), let end = Int(last), end > start {
+                    return (start...end).map { String($0) }
+                }
+                return [first]
+            }(),
             verseText:        data["verseText"]         as? String ?? "",
             colorHex:         data["colorHex"]          as? String ?? "F5C842",
             emoji:            data["emoji"]             as? String ?? "⭐",
@@ -680,6 +697,9 @@ final class FirestoreService {
             "colorHex":  note.colorHex,
             "positionX": note.positionX,
             "positionY": note.positionY,
+            // Without this a resized note reverts to the 160pt default after a
+            // cloud round-trip, discarding the width the user set.
+            "noteWidth": note.noteWidth,
             "createdAt": Timestamp(date: note.createdAt)
         ])
     }
@@ -706,6 +726,7 @@ final class FirestoreService {
             colorHex:  data["colorHex"] as? String ?? "FFFDE7",
             positionX: data["positionX"] as? Double ?? 0.5,
             positionY: data["positionY"] as? Double ?? 0.3,
+            noteWidth: data["noteWidth"] as? Double ?? 160,
             createdAt: (data["createdAt"] as? Timestamp)?.dateValue() ?? Date()
         )
     }
