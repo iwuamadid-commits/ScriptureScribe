@@ -109,6 +109,14 @@ struct ReaderView: View {
     /// boundary and that this stayed at 100 — that was wrong.
     private var notesLayerHeight: CGFloat { contentHeight }
 
+    /// Whether this chapter has handwriting on either surface — the page
+    /// overlay or the separate notebook page.
+    private var chapterHasHandwriting: Bool {
+        guard let id = vm.selectedChapter?.id else { return false }
+        return annotationVM.chaptersWithStrokes.contains(id)
+            || annotationVM.chaptersWithStrokes.contains("notebook_\(id)")
+    }
+
     /// The area a note pin's stored 0–1 position is resolved against.
     private func notePinAreaSize(_ proposed: CGSize) -> CGSize {
         CGSize(width: proposed.width, height: max(proposed.height, contentHeight))
@@ -121,6 +129,7 @@ struct ReaderView: View {
     // ── Book browser ─────────────────────────────────────────────────────────
     enum BrowserScrollTarget { case book, chapter }
     @State private var showBookBrowser = false
+    @State private var showHandwriting = false
     @State private var browserScrollTarget: BrowserScrollTarget = .book
 
     // ── Interactive swipe-to-turn-page ──────────────────────────────────────
@@ -241,6 +250,14 @@ struct ReaderView: View {
             // ── Sheets ──────────────────────────────────────────────────────
             .sheet(isPresented: $vm.showTranslationBrowser) {
                 TranslationBrowserView(vm: vm)
+            }
+            .sheet(isPresented: $showHandwriting) {
+                HandwritingPageView(
+                    annotationVM:     annotationVM,
+                    chapterId:        vm.selectedChapter?.id ?? "",
+                    chapterReference: vm.selectedChapter?.reference ?? ""
+                )
+                .environmentObject(themeManager)
             }
             .sheet(isPresented: $showBookBrowser) {
                 BookBrowserView(
@@ -1263,6 +1280,22 @@ struct ReaderView: View {
                 }
                 .foregroundStyle(themeManager.currentTheme.primary)
                 .coachMark("reader-version-button")
+            }
+        }
+
+        // Right: handwriting — iPhone only, and only when this chapter has any.
+        // The phone cannot draw, so this is the one way to reach notes written
+        // on the iPad. Hidden entirely when there is nothing to show rather than
+        // offering a button that opens an empty page.
+        if DeviceCapabilities.isPhoneLayout, chapterHasHandwriting {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showHandwriting = true
+                } label: {
+                    Image(systemName: "hand.draw")
+                        .foregroundStyle(themeManager.currentTheme.primary)
+                }
+                .accessibilityLabel("View handwriting")
             }
         }
 
