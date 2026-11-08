@@ -1234,6 +1234,15 @@ struct ReaderView: View {
                 .frame(width: geo.size.width)
             }
             .onPreferenceChange(ContentHeightKey.self) { h in if h > 0 { contentHeight = h } }
+            // Handwriting sync lives here rather than in ContentView because
+            // ReaderView owns annotationVM. `initial: true` covers a launch that
+            // restores an existing session, where the id never changes.
+            .onChange(of: authVM.currentUserID, initial: true) { _, userId in
+                annotationVM.signedInUserId = userId
+                if let userId {
+                    Task { await annotationVM.syncOnSignIn(userId: userId) }
+                }
+            }
             .opacity(contentOpacity)
         }
     }

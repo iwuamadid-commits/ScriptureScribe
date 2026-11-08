@@ -1224,6 +1224,7 @@ final class AnnotationViewModel: ObservableObject {
         // the strokes in the current canvas's coordinate space, so the recorded
         // geometry has to move with it or it would describe the wrong page.
         recordGeometry(for: chapterId)
+        scheduleUpload(for: chapterId)
         // Keep the reactive stroke-tracking set in sync so chapter-row dots update instantly.
         if drawing.strokes.isEmpty {
             chaptersWithStrokes.remove(chapterId)
@@ -1252,6 +1253,98 @@ final class AnnotationViewModel: ObservableObject {
             recordGeometry(for: chapterId)
         }
         return drawing
+    }
+
+    // MARK: - Handwriting Sync
+
+    private let firestore = FirestoreService()
+
+    /// The signed-in user, set from ContentView. Nil means signed out, and
+    /// nothing is uploaded — same fallback pattern as the other syncing models.
+    var signedInUserId: String?
+
+    /// Pending uploads, keyed by chapter.
+    ///
+    /// `saveDrawing` runs on every stroke, so uploading from there directly
+    /// would mean a network write per pen lift. Each save instead replaces the
+    /// chapter's pending task with a fresh one that waits first, so a burst of
+    /// drawing collapses into a single upload once the pen rests.
+    private var uploadTasks: [String: Task<Void, Never>] = [:]
+
+    /// How long the pen must rest before the chapter is uploaded.
+    private static let uploadDebounce: Duration = .seconds(3)
+
+    /// Set when an upload was refused for being too large, so the UI can say so.
+    @Published var drawingTooLargeChapter: String?
+
+    private func scheduleUpload(for chapterId: String) {
+        guard let userId = signedInUserId else { return }
+        uploadTasks[chapterId]?.cancel()
+        uploadTasks[chapterId] = Task { [weak self] in
+            try? await Task.sleep(for: Self.uploadDebounce)
+            guard !Task.isCancelled else { return }
+            await self?.uploadDrawing(for: chapterId, userId: userId)
+        }
+    }
+
+    private func uploadDrawing(for chapterId: String, userId: String) async {
+        let url = drawingURL(for: chapterId)
+        guard let data = try? Data(contentsOf: url) else { return }
+
+        // An empty drawing means the chapter was cleared; remove it from the
+        // cloud rather than leaving the old strokes to come back on sync.
+        guard let drawing = try? PKDrawing(data: data), !drawing.strokes.isEmpty else {
+            try? await firestore.deleteDrawing(chapterId: chapterId, userId: userId)
+            return
+        }
+
+        let geo = drawingGeometry(for: chapterId)
+        do {
+            try await firestore.saveDrawing(
+                chapterId: chapterId,
+                userId:    userId,
+                data:      data,
+                width:     geo?.width  ?? 0,
+                height:    geo?.height ?? 0,
+                updatedAt: geo?.savedAt ?? Date()
+            )
+            if drawingTooLargeChapter == chapterId { drawingTooLargeChapter = nil }
+        } catch is FirestoreService.DrawingTooLarge {
+            // Keep the local drawing exactly as it is — it is the real one.
+            // Only the cloud copy is skipped, and the user is told.
+            drawingTooLargeChapter = chapterId
+        } catch {
+            // Offline or a transient failure: the next save retries.
+        }
+    }
+
+    /// Pulls down handwriting made on another device.
+    ///
+    /// Newest wins, compared on the geometry's `savedAt`. A chapter missing
+    /// locally is always taken — unlike notes, a drawing cannot currently be
+    /// deleted from one device and have that deletion reach another, so there
+    /// is no risk of resurrecting something deliberately removed here.
+    func syncOnSignIn(userId: String) async {
+        signedInUserId = userId
+        guard let cloud = try? await firestore.fetchDrawings(userId: userId) else { return }
+
+        for item in cloud {
+            let localSavedAt = drawingGeometry(for: item.chapterId)?.savedAt
+            let localExists = FileManager.default.fileExists(atPath: drawingURL(for: item.chapterId).path)
+
+            if localExists, let localSavedAt, localSavedAt >= item.updatedAt { continue }
+
+            try? item.data.write(to: drawingURL(for: item.chapterId), options: .atomic)
+            if item.width > 1, item.height > 1 {
+                let geo = DrawingGeometry(width: item.width, height: item.height, savedAt: item.updatedAt)
+                if let encoded = try? JSONEncoder().encode(geo) {
+                    try? encoded.write(to: geometryURL(for: item.chapterId), options: .atomic)
+                }
+            }
+            if let drawing = try? PKDrawing(data: item.data), !drawing.strokes.isEmpty {
+                chaptersWithStrokes.insert(item.chapterId)
+            }
+        }
     }
 
     // MARK: - Drawing Geometry

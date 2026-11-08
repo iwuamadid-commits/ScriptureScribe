@@ -749,6 +749,78 @@ final class FirestoreService {
             .collection("verseHighlights").document(id).delete()
     }
 
+    // MARK: - Handwriting
+
+    /// One chapter's handwriting as it exists in the cloud.
+    struct CloudDrawing {
+        let chapterId: String
+        let data:      Data
+        let width:     Double
+        let height:    Double
+        let updatedAt: Date
+    }
+
+    /// Firestore caps a document at 1 MB including field names and overhead.
+    /// Strokes are vector data and a heavily marked page runs to a few hundred
+    /// KB, so this is generous — but a drawing that somehow exceeds it must be
+    /// refused outright rather than failing halfway and leaving a torn record.
+    static let maxDrawingBytes = 900_000
+
+    /// Chapter ids contain dots ("GEN.1"), which are path separators in
+    /// Firestore field paths and awkward in document ids.
+    private func drawingDocId(_ chapterId: String) -> String {
+        chapterId
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: ".", with: "_")
+    }
+
+    /// Uploads one chapter's handwriting. Throws `DrawingTooLarge` rather than
+    /// letting Firestore reject an oversized write with a less obvious error.
+    func saveDrawing(
+        chapterId: String,
+        userId:    String,
+        data:      Data,
+        width:     Double,
+        height:    Double,
+        updatedAt: Date
+    ) async throws {
+        guard data.count <= Self.maxDrawingBytes else { throw DrawingTooLarge() }
+        try await db.collection("users").document(userId)
+            .collection("drawings").document(drawingDocId(chapterId))
+            .setData([
+                "chapterId": chapterId,
+                "data":      data,          // stored as a Firestore Blob
+                "width":     width,
+                "height":    height,
+                "updatedAt": Timestamp(date: updatedAt)
+            ])
+    }
+
+    struct DrawingTooLarge: Error {}
+
+    func fetchDrawings(userId: String) async throws -> [CloudDrawing] {
+        let snapshot = try await db.collection("users").document(userId)
+            .collection("drawings").getDocuments()
+        return snapshot.documents.compactMap { doc in
+            let d = doc.data()
+            guard let chapterId = d["chapterId"] as? String,
+                  let data = d["data"] as? Data,
+                  !data.isEmpty else { return nil }
+            return CloudDrawing(
+                chapterId: chapterId,
+                data:      data,
+                width:     d["width"]  as? Double ?? 0,
+                height:    d["height"] as? Double ?? 0,
+                updatedAt: (d["updatedAt"] as? Timestamp)?.dateValue() ?? .distantPast
+            )
+        }
+    }
+
+    func deleteDrawing(chapterId: String, userId: String) async throws {
+        try await db.collection("users").document(userId)
+            .collection("drawings").document(drawingDocId(chapterId)).delete()
+    }
+
     func fetchVerseHighlights(userId: String) async throws -> [VerseHighlight] {
         let snapshot = try await db.collection("users").document(userId)
             .collection("verseHighlights")
@@ -1005,7 +1077,9 @@ final class FirestoreService {
         let userRef = db.collection("users").document(userId)
 
         // Delete all subcollections under users/{uid}
-        let subcollections = ["bookmarks", "notes", "verseHighlights", "bookmarkGroups", "habits", "habitLogs", "savedItems", "preferences", "syncData"]
+        // Hardcoded: a new subcollection must be added here by hand or deleting
+        // an account quietly leaves it behind. "drawings" holds handwriting.
+        let subcollections = ["bookmarks", "notes", "verseHighlights", "bookmarkGroups", "habits", "habitLogs", "savedItems", "preferences", "syncData", "drawings"]
         for sub in subcollections {
             let docs = try await userRef.collection(sub).getDocuments()
             for doc in docs.documents {
