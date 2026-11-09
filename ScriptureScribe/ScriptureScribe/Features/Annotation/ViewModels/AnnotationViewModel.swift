@@ -4,8 +4,10 @@
 //
 
 import Combine
+import FirebaseFirestore
 import SwiftUI
 import PencilKit
+import UIKit
 
 // MARK: - SavedColor
 
@@ -1233,6 +1235,14 @@ final class AnnotationViewModel: ObservableObject {
         }
     }
 
+    /// Reads a chapter's saved drawing without updating anything else. For views
+    /// that only display handwriting: `loadDrawing` also refreshes the chapter
+    /// dots, and doing that while a view is drawing makes it redraw endlessly.
+    func storedDrawing(for chapterId: String) -> PKDrawing? {
+        guard let data = try? Data(contentsOf: drawingURL(for: chapterId)) else { return nil }
+        return try? PKDrawing(data: data)
+    }
+
     func loadDrawing(for chapterId: String) -> PKDrawing? {
         let url = drawingURL(for: chapterId)
         guard FileManager.default.fileExists(atPath: url.path),
@@ -1248,9 +1258,11 @@ final class AnnotationViewModel: ObservableObject {
         // Backfill for drawings made before geometry was recorded. The strokes
         // are in whatever canvas this device last displayed them at, which is
         // the one about to be shown, so recording it now is accurate — and it
-        // only happens once, since the file then exists.
-        if !drawing.strokes.isEmpty, drawingGeometry(for: chapterId) == nil {
-            recordGeometry(for: chapterId)
+        // only happens once, since the file then exists. Sent up too, so the
+        // iPhone gets the exact page size in place of the estimate it had.
+        if !drawing.strokes.isEmpty, drawingGeometry(for: chapterId) == nil,
+           recordGeometry(for: chapterId) {
+            scheduleUpload(for: chapterId)
         }
         return drawing
     }
@@ -1279,42 +1291,84 @@ final class AnnotationViewModel: ObservableObject {
 
     private func scheduleUpload(for chapterId: String) {
         guard let userId = signedInUserId else { return }
+        // Only devices that can draw ever upload. The iPhone is a read-only mirror;
+        // an upload from it could replace the iPad's copy with a rescaled one.
+        guard DeviceCapabilities.hasPencilTools else { return }
         uploadTasks[chapterId]?.cancel()
         uploadTasks[chapterId] = Task { [weak self] in
             try? await Task.sleep(for: Self.uploadDebounce)
-            guard !Task.isCancelled else { return }
-            await self?.uploadDrawing(for: chapterId, userId: userId)
+            guard !Task.isCancelled, let self else { return }
+            self.uploadTasks[chapterId] = nil   // no longer pending
+            await self.uploadDrawing(for: chapterId, userId: userId)
         }
     }
 
-    private func uploadDrawing(for chapterId: String, userId: String) async {
+    /// Uploads anything still waiting out the debounce right away. Called when the
+    /// app goes to the background, so handwriting finished just before leaving
+    /// still reaches other devices. Firestore keeps the write queued if offline.
+    func flushPendingUploads() {
+        guard let userId = signedInUserId, !uploadTasks.isEmpty else { return }
+        let chapterIds = Array(uploadTasks.keys)
+        uploadTasks.values.forEach { $0.cancel() }
+        uploadTasks.removeAll()
+
+        var backgroundTask = UIBackgroundTaskIdentifier.invalid
+        backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "UploadHandwriting") {
+            UIApplication.shared.endBackgroundTask(backgroundTask)
+            backgroundTask = .invalid
+        }
+        Task {
+            for chapterId in chapterIds {
+                await uploadDrawing(for: chapterId, userId: userId)
+            }
+            if backgroundTask != .invalid {
+                UIApplication.shared.endBackgroundTask(backgroundTask)
+                backgroundTask = .invalid
+            }
+        }
+    }
+
+    /// `cloudDate`: when only the page details are being filled in, the date of
+    /// the cloud copy, kept so the handwriting doesn't look newly changed.
+    private func uploadDrawing(for chapterId: String, userId: String, cloudDate: Date? = nil) async {
         let url = drawingURL(for: chapterId)
         guard let data = try? Data(contentsOf: url) else { return }
 
-        // An empty drawing means the chapter was cleared; remove it from the
-        // cloud rather than leaving the old strokes to come back on sync.
+        // An empty drawing means the chapter was cleared. Mark it cleared in the
+        // cloud (rather than deleting it) so the old strokes can't come back on
+        // sync, and so an iPhone that was offline still clears its copy later.
         guard let drawing = try? PKDrawing(data: data), !drawing.strokes.isEmpty else {
-            try? await firestore.deleteDrawing(chapterId: chapterId, userId: userId)
+            try? await firestore.markDrawingCleared(chapterId: chapterId, userId: userId)
             return
         }
 
         let geo = drawingGeometry(for: chapterId)
+        // Handwriting from before page sizes were recorded has none, and the
+        // iPhone can't place it over the Bible text without one. Send an estimate
+        // instead (cloud only: opening the chapter here records the exact size).
+        let size = geo.map { (width: $0.width, height: $0.height) }
+            ?? estimatedPageSize(for: chapterId, drawing: drawing)
         do {
             try await firestore.saveDrawing(
                 chapterId: chapterId,
                 userId:    userId,
                 data:      data,
-                width:     geo?.width  ?? 0,
-                height:    geo?.height ?? 0,
-                updatedAt: geo?.savedAt ?? Date()
+                width:     size?.width  ?? 0,
+                height:    size?.height ?? 0,
+                updatedAt: geo?.savedAt ?? cloudDate ?? Date(),
+                page:      (geo?.page ?? currentPageStyle()).json
             )
             if drawingTooLargeChapter == chapterId { drawingTooLargeChapter = nil }
+            syncLog("uploaded \(chapterId) (\(data.count / 1024) KB)")
         } catch is FirestoreService.DrawingTooLarge {
             // Keep the local drawing exactly as it is — it is the real one.
             // Only the cloud copy is skipped, and the user is told.
             drawingTooLargeChapter = chapterId
         } catch {
-            // Offline or a transient failure: the next save retries.
+            // Offline or a transient failure: the next save (or launch) retries.
+            #if DEBUG
+            print("[Handwriting sync] upload of \(chapterId) failed: \(error)")
+            #endif
         }
     }
 
@@ -1326,25 +1380,198 @@ final class AnnotationViewModel: ObservableObject {
     /// is no risk of resurrecting something deliberately removed here.
     func syncOnSignIn(userId: String) async {
         signedInUserId = userId
-        guard let cloud = try? await firestore.fetchDrawings(userId: userId) else { return }
+        let cloud: [FirestoreService.CloudDrawing]
+        do {
+            cloud = try await firestore.fetchDrawings(userId: userId)
+        } catch {
+            #if DEBUG
+            print("[Handwriting sync] download failed: \(error)")
+            #endif
+            return
+        }
+        syncLog("cloud has \(cloud.count) handwriting records for this account")
+        for item in cloud where !item.data.isEmpty { storeCloudDrawing(item) }
+        await uploadMissingDrawings(cloud: cloud, userId: userId)
+    }
 
-        for item in cloud {
-            let localSavedAt = drawingGeometry(for: item.chapterId)?.savedAt
-            let localExists = FileManager.default.fileExists(atPath: drawingURL(for: item.chapterId).path)
-
-            if localExists, let localSavedAt, localSavedAt >= item.updatedAt { continue }
-
-            try? item.data.write(to: drawingURL(for: item.chapterId), options: .atomic)
-            if item.width > 1, item.height > 1 {
-                let geo = DrawingGeometry(width: item.width, height: item.height, savedAt: item.updatedAt)
-                if let encoded = try? JSONEncoder().encode(geo) {
-                    try? encoded.write(to: geometryURL(for: item.chapterId), options: .atomic)
-                }
+    /// Sends up handwriting on this iPad that the cloud doesn't have yet, or only
+    /// has an older copy of: notes written before sync existed, or while signed
+    /// out. Uploads normally happen only when a chapter is edited, so without this
+    /// those notes would never reach the iPhone. One chapter at a time, in the
+    /// background, and only what's missing, so later launches upload nothing.
+    private func uploadMissingDrawings(cloud: [FirestoreService.CloudDrawing], userId: String) async {
+        guard DeviceCapabilities.hasPencilTools else { return }
+        var cloudLatest: [String: FirestoreService.CloudDrawing] = [:]
+        for item in cloud where item.updatedAt >= (cloudLatest[item.chapterId]?.updatedAt ?? .distantPast) {
+            cloudLatest[item.chapterId] = item
+        }
+        syncLog("this iPad has handwriting on \(chaptersWithStrokes.count) pages; checking which the cloud is missing")
+        for chapterId in chaptersWithStrokes.sorted() {
+            guard signedInUserId == userId else { return }   // signed out meanwhile
+            var cloudDate: Date?
+            if let record = cloudLatest[chapterId] {
+                // The cloud has this chapter (or a "cleared" marker). Send ours if
+                // it's genuinely newer, or if it's the same version but the cloud
+                // copy predates page settings or has no page size (either way the
+                // iPhone can't show the text under it).
+                let localDate = drawingGeometry(for: chapterId)?.savedAt
+                let isNewer = localDate.map { $0 > record.updatedAt } ?? false
+                let sameVersion = !record.data.isEmpty
+                    && (localDate.map { $0 >= record.updatedAt } ?? true)
+                let addsPageSettings = sameVersion && record.page == nil
+                let addsPageSize = sameVersion && (record.width <= 1 || record.height <= 1)
+                    && canEstimatePageSize(for: chapterId)
+                guard isNewer || addsPageSettings || addsPageSize else { continue }
+                if !isNewer { cloudDate = record.updatedAt }
             }
-            if let drawing = try? PKDrawing(data: item.data), !drawing.strokes.isEmpty {
-                chaptersWithStrokes.insert(item.chapterId)
+            // Read the file directly: loadDrawing would stamp the on-screen page
+            // size onto chapters that aren't on screen.
+            guard let data = try? Data(contentsOf: drawingURL(for: chapterId)),
+                  let drawing = try? PKDrawing(data: data),
+                  !drawing.strokes.isEmpty else { continue }
+            await uploadDrawing(for: chapterId, userId: userId, cloudDate: cloudDate)
+        }
+    }
+
+    /// Whether a page size can be estimated for a chapter's handwriting. Not for
+    /// notebook pages: the iPhone shows those as handwriting alone, sized to fit.
+    private func canEstimatePageSize(for chapterId: String) -> Bool {
+        !chapterId.hasPrefix("notebook_") && readerWindowWidth() != nil
+    }
+
+    /// A page size for handwriting that has none recorded. The width is the
+    /// reader's (the drawing canvas spans it in both layouts), which is the width
+    /// this iPad shows the drawing at when its chapter opens: strokes are never
+    /// rescaled on opening. The height only needs to reach the last stroke; the
+    /// iPhone makes the page as tall as the text needs.
+    private func estimatedPageSize(for chapterId: String,
+                                   drawing: PKDrawing) -> (width: Double, height: Double)? {
+        guard canEstimatePageSize(for: chapterId), let width = readerWindowWidth() else { return nil }
+        return (width, Double(drawing.bounds.maxY) + 24)
+    }
+
+    /// The width of the window the reader fills. Not `currentCanvasSize`: that
+    /// isn't set until a chapter's canvas has laid out, and this runs at launch.
+    private func readerWindowWidth() -> Double? {
+        let window = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first { $0.isKeyWindow }
+        guard let width = window?.bounds.width, width > 1 else { return nil }
+        return Double(width)
+    }
+
+    /// Saves a cloud drawing locally if it's newer than the copy here (or there
+    /// is none). Returns whether anything was written.
+    @discardableResult
+    private func storeCloudDrawing(_ item: FirestoreService.CloudDrawing) -> Bool {
+        guard !item.data.isEmpty else { return false }   // a cleared marker, not strokes
+        let localSavedAt = drawingGeometry(for: item.chapterId)?.savedAt
+        let localExists = FileManager.default.fileExists(atPath: drawingURL(for: item.chapterId).path)
+
+        if localExists, let localSavedAt, localSavedAt >= item.updatedAt {
+            // Same strokes, but the cloud now knows how the page looked: keep that.
+            if var geo = drawingGeometry(for: item.chapterId), geo.page == nil,
+               let page = PageStyle(json: item.page) {
+                geo.page = page
+                writeGeometry(geo, for: item.chapterId)
+                return true
+            }
+            return false
+        }
+
+        try? item.data.write(to: drawingURL(for: item.chapterId), options: .atomic)
+        if item.width > 1, item.height > 1 {
+            writeGeometry(DrawingGeometry(width: item.width, height: item.height,
+                                          savedAt: item.updatedAt, page: PageStyle(json: item.page)),
+                          for: item.chapterId)
+        }
+        if let drawing = try? PKDrawing(data: item.data), !drawing.strokes.isEmpty {
+            chaptersWithStrokes.insert(item.chapterId)
+        }
+        return true
+    }
+
+    /// Debug-build status messages for handwriting sync (search the Xcode console
+    /// for "Handwriting sync"). Compiled out of App Store builds.
+    private func syncLog(_ message: @autoclosure () -> String) {
+        #if DEBUG
+        print("[Handwriting sync] \(message())")
+        #endif
+    }
+
+    // MARK: - Sign-in routing
+
+    /// Called whenever the signed-in account changes (including at launch).
+    ///   • iPad: pulls down handwriting from other devices once, as before.
+    ///   • iPhone: keeps a live mirror of the iPad's handwriting while the app is
+    ///     open, so new notes show up within seconds without signing in again.
+    func handleSignedInUserChanged(_ userId: String?) {
+        signedInUserId = userId
+        stopDrawingListener()
+        syncLog("\(DeviceCapabilities.hasPencilTools ? "iPad" : "iPhone"): "
+              + (userId.map { "signed in as account …\($0.suffix(6))" } ?? "signed out, nothing syncs"))
+        guard let userId else { return }
+        if DeviceCapabilities.hasPencilTools {
+            Task { await syncOnSignIn(userId: userId) }
+        } else {
+            startDrawingListener(userId: userId)
+        }
+    }
+
+    // MARK: - Live handwriting mirror (iPhone)
+
+    private var drawingListener: ListenerRegistration?
+
+    /// Bumped whenever handwriting arrives from another device, so a handwriting
+    /// page that's already open redraws with the new strokes.
+    @Published private(set) var drawingSyncRevision = 0
+
+    /// Where the live mirror last caught up to (server time), per account, so the
+    /// next launch only fetches what changed since rather than every drawing.
+    private func syncCursorKey(_ userId: String) -> String { "ss_drawingSyncCursor_\(userId)" }
+
+    private func startDrawingListener(userId: String) {
+        let saved = UserDefaults.standard.double(forKey: syncCursorKey(userId))
+        let since: Date? = saved > 0 ? Date(timeIntervalSince1970: saved) : nil
+        syncLog(since.map { "listening for handwriting changed since \($0)" } ?? "listening for all handwriting (first run)")
+        drawingListener = firestore.listenToDrawings(userId: userId, changedAfter: since) { [weak self] changes in
+            self?.applyRemoteDrawingChanges(changes, userId: userId)
+        }
+    }
+
+    func stopDrawingListener() {
+        drawingListener?.remove()
+        drawingListener = nil
+    }
+
+    private func applyRemoteDrawingChanges(_ changes: [FirestoreService.DrawingChange], userId: String) {
+        // A late callback for an account that has since signed out.
+        guard signedInUserId == userId else { return }
+
+        syncLog("received \(changes.count) handwriting change(s)")
+        var cursor = UserDefaults.standard.double(forKey: syncCursorKey(userId))
+        var changedSomething = false
+        for change in changes {
+            switch change {
+            case .updated(let item):
+                if storeCloudDrawing(item) { changedSomething = true }
+                if let t = item.serverUpdatedAt?.timeIntervalSince1970 { cursor = max(cursor, t) }
+            case .cleared(let chapterId, let serverUpdatedAt):
+                removeLocalDrawing(for: chapterId)
+                changedSomething = true
+                if let t = serverUpdatedAt?.timeIntervalSince1970 { cursor = max(cursor, t) }
             }
         }
+        UserDefaults.standard.set(cursor, forKey: syncCursorKey(userId))
+        if changedSomething { drawingSyncRevision &+= 1 }
+    }
+
+    /// Removes this device's copy of a chapter's handwriting (iPhone mirror only).
+    private func removeLocalDrawing(for chapterId: String) {
+        try? FileManager.default.removeItem(at: drawingURL(for: chapterId))
+        try? FileManager.default.removeItem(at: geometryURL(for: chapterId))
+        chaptersWithStrokes.remove(chapterId)
     }
 
     // MARK: - Drawing Geometry
@@ -1361,6 +1588,74 @@ final class AnnotationViewModel: ObservableObject {
         /// When this geometry was recorded, so a later sync can tell which
         /// device's copy is newer.
         var savedAt: Date
+        /// How the Bible text looked under the drawing. Nil for drawings recorded
+        /// before this existed.
+        var page: PageStyle? = nil
+    }
+
+    /// How the Bible text looked when a drawing was made, so a device that can't
+    /// draw (iPhone) can rebuild the same page under the handwriting: same
+    /// translation, layout, font, size, spacing, theme and system text size, at
+    /// the same width, so every line wraps exactly where it did.
+    struct PageStyle: Codable, Equatable {
+        var bibleId:        String
+        var layout:         String   // LayoutMode raw value
+        var leftHanded:     Bool
+        var fontChoice:     String
+        var fontSize:       Double
+        var lineSpacing:    Double
+        var textAlignment:  String
+        var showRedLetters: Bool
+        var themeName:      String
+        var contentSize:    String   // UIContentSizeCategory raw value
+
+        var textStyle: ReaderTextStyle {
+            ReaderTextStyle(fontChoice: fontChoice, fontSize: fontSize, lineSpacing: lineSpacing,
+                            textAlignment: textAlignment, showRedLetters: showRedLetters)
+        }
+
+        /// Stored in the cloud as a JSON string.
+        var json: String? {
+            (try? JSONEncoder().encode(self)).flatMap { String(data: $0, encoding: .utf8) }
+        }
+
+        init?(json: String?) {
+            guard let data = json?.data(using: .utf8),
+                  let decoded = try? JSONDecoder().decode(PageStyle.self, from: data) else { return nil }
+            self = decoded
+        }
+
+        init(bibleId: String, layout: String, leftHanded: Bool, fontChoice: String,
+             fontSize: Double, lineSpacing: Double, textAlignment: String,
+             showRedLetters: Bool, themeName: String, contentSize: String) {
+            self.bibleId = bibleId; self.layout = layout; self.leftHanded = leftHanded
+            self.fontChoice = fontChoice; self.fontSize = fontSize; self.lineSpacing = lineSpacing
+            self.textAlignment = textAlignment; self.showRedLetters = showRedLetters
+            self.themeName = themeName; self.contentSize = contentSize
+        }
+    }
+
+    /// The reading settings in effect right now (the same keys ReaderViewModel and
+    /// ThemeManager store them under, with the same defaults).
+    func currentPageStyle() -> PageStyle {
+        let d = UserDefaults.standard
+        return PageStyle(
+            bibleId:        d.string(forKey: "lastBibleId") ?? "",
+            layout:         layoutMode.rawValue,
+            leftHanded:     isLeftHanded,
+            fontChoice:     d.string(forKey: "fontChoice") ?? "System",
+            fontSize:       d.object(forKey: "fontSize") as? Double ?? 18,
+            lineSpacing:    d.object(forKey: "lineSpacing") as? Double ?? 10,
+            textAlignment:  d.string(forKey: "textAlignment") ?? "leading",
+            showRedLetters: d.object(forKey: "showRedLetters") as? Bool ?? true,
+            themeName:      d.string(forKey: "selectedTheme") ?? "Ivory",
+            contentSize:    UIApplication.shared.preferredContentSizeCategory.rawValue
+        )
+    }
+
+    private func writeGeometry(_ geo: DrawingGeometry, for chapterId: String) {
+        guard let data = try? JSONEncoder().encode(geo) else { return }
+        try? data.write(to: geometryURL(for: chapterId), options: .atomic)
     }
 
     /// The canvas size currently on screen, pushed in by `AnnotationCanvasView`
@@ -1386,11 +1681,12 @@ final class AnnotationViewModel: ObservableObject {
         return try? JSONDecoder().decode(DrawingGeometry.self, from: data)
     }
 
-    /// Records the canvas the drawing currently lives in.
+    /// Records the canvas the drawing currently lives in. Returns whether it did.
     ///
     /// Written as a separate file, never into the `.pkdrawing` — existing
     /// drawings are irreplaceable and are not rewritten to add this.
-    private func recordGeometry(for chapterId: String) {
+    @discardableResult
+    private func recordGeometry(for chapterId: String) -> Bool {
         let size = currentCanvasSize
         // ReaderView parks `contentHeight` at a 100pt placeholder on every
         // chapter change, and the outgoing chapter's drawing is saved inside
@@ -1399,10 +1695,11 @@ final class AnnotationViewModel: ObservableObject {
         // the shortest chapters still lay out several hundred points. A save
         // that lands in the gap simply records nothing, and the next real save
         // or reopen fills it in.
-        guard size.width > 1, size.height > 150 else { return }
-        let geo = DrawingGeometry(width: size.width, height: size.height, savedAt: Date())
-        guard let data = try? JSONEncoder().encode(geo) else { return }
-        try? data.write(to: geometryURL(for: chapterId), options: .atomic)
+        guard size.width > 1, size.height > 150 else { return false }
+        writeGeometry(DrawingGeometry(width: size.width, height: size.height,
+                                      savedAt: Date(), page: currentPageStyle()),
+                      for: chapterId)
+        return true
     }
 
     private func drawingURL(for chapterId: String) -> URL {

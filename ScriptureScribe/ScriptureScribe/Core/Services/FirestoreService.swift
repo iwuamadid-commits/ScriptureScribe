@@ -758,6 +758,19 @@ final class FirestoreService {
         let width:     Double
         let height:    Double
         let updatedAt: Date
+        /// When Firestore received the write (server clock). Missing on drawings
+        /// uploaded before live sync existed.
+        var serverUpdatedAt: Date? = nil
+        /// How the Bible text looked under the drawing (JSON), when known.
+        var page: String? = nil
+    }
+
+    /// One change to a user's handwriting, as seen by the live listener.
+    enum DrawingChange {
+        /// New or updated strokes for a chapter.
+        case updated(CloudDrawing)
+        /// The chapter was cleared, so its handwriting should go.
+        case cleared(chapterId: String, serverUpdatedAt: Date?)
     }
 
     /// Firestore caps a document at 1 MB including field names and overhead.
@@ -782,36 +795,103 @@ final class FirestoreService {
         data:      Data,
         width:     Double,
         height:    Double,
-        updatedAt: Date
+        updatedAt: Date,
+        page:      String? = nil
     ) async throws {
         guard data.count <= Self.maxDrawingBytes else { throw DrawingTooLarge() }
+        var fields: [String: Any] = [
+            "chapterId": chapterId,
+            "data":      data,          // stored as a Firestore Blob
+            "width":     width,
+            "height":    height,
+            "updatedAt": Timestamp(date: updatedAt),
+            // Server time, so a listening device can ask for "everything
+            // since I last looked" without trusting each device's clock.
+            "serverUpdatedAt": FieldValue.serverTimestamp()
+        ]
+        if let page { fields["page"] = page }
         try await db.collection("users").document(userId)
             .collection("drawings").document(drawingDocId(chapterId))
-            .setData([
-                "chapterId": chapterId,
-                "data":      data,          // stored as a Firestore Blob
-                "width":     width,
-                "height":    height,
-                "updatedAt": Timestamp(date: updatedAt)
-            ])
+            .setData(fields)
     }
 
     struct DrawingTooLarge: Error {}
 
+    /// Records that a chapter's handwriting was cleared. Written as a small
+    /// marker rather than deleting the document, so a device that was offline
+    /// at the time still learns about it the next time it catches up.
+    func markDrawingCleared(chapterId: String, userId: String) async throws {
+        try await db.collection("users").document(userId)
+            .collection("drawings").document(drawingDocId(chapterId))
+            .setData([
+                "chapterId":       chapterId,
+                "data":            Data(),
+                "cleared":         true,
+                "width":           0.0,
+                "height":          0.0,
+                "updatedAt":       Timestamp(date: Date()),
+                "serverUpdatedAt": FieldValue.serverTimestamp()
+            ])
+    }
+
+    /// Live updates to a user's handwriting. With `changedAfter`, only drawings
+    /// written after that server time are fetched (cheap on later launches);
+    /// without it, every drawing is. Calls back on the main thread.
+    func listenToDrawings(
+        userId: String,
+        changedAfter since: Date?,
+        onChange: @escaping ([DrawingChange]) -> Void
+    ) -> ListenerRegistration {
+        var query: Query = db.collection("users").document(userId).collection("drawings")
+        if let since {
+            query = query.whereField("serverUpdatedAt", isGreaterThan: Timestamp(date: since))
+        }
+        return query.addSnapshotListener { snapshot, error in
+            guard let snapshot else {
+                #if DEBUG
+                print("[Handwriting sync] listener failed: \(String(describing: error))")
+                #endif
+                return
+            }
+            let changes: [DrawingChange] = snapshot.documentChanges.compactMap { change in
+                let d = change.document.data()
+                guard let chapterId = d["chapterId"] as? String else { return nil }
+                let serverUpdatedAt = (d["serverUpdatedAt"] as? Timestamp)?.dateValue()
+                // A removed document (deleted by an older version of the app) or a
+                // cleared marker both mean the chapter's handwriting is gone.
+                guard change.type != .removed,
+                      let data = d["data"] as? Data, !data.isEmpty
+                else { return .cleared(chapterId: chapterId, serverUpdatedAt: serverUpdatedAt) }
+                return .updated(CloudDrawing(
+                    chapterId:       chapterId,
+                    data:            data,
+                    width:           d["width"]  as? Double ?? 0,
+                    height:          d["height"] as? Double ?? 0,
+                    updatedAt:       (d["updatedAt"] as? Timestamp)?.dateValue() ?? .distantPast,
+                    serverUpdatedAt: serverUpdatedAt,
+                    page:            d["page"] as? String
+                ))
+            }
+            if !changes.isEmpty { onChange(changes) }
+        }
+    }
+
+    /// Every handwriting record for the user, including cleared markers (which
+    /// have empty `data`), so callers can tell "cleared" apart from "never synced".
     func fetchDrawings(userId: String) async throws -> [CloudDrawing] {
         let snapshot = try await db.collection("users").document(userId)
             .collection("drawings").getDocuments()
         return snapshot.documents.compactMap { doc in
             let d = doc.data()
-            guard let chapterId = d["chapterId"] as? String,
-                  let data = d["data"] as? Data,
-                  !data.isEmpty else { return nil }
+            guard let chapterId = d["chapterId"] as? String else { return nil }
             return CloudDrawing(
-                chapterId: chapterId,
-                data:      data,
-                width:     d["width"]  as? Double ?? 0,
-                height:    d["height"] as? Double ?? 0,
-                updatedAt: (d["updatedAt"] as? Timestamp)?.dateValue() ?? .distantPast
+                chapterId:       chapterId,
+                data:            d["data"] as? Data ?? Data(),
+                width:           d["width"]  as? Double ?? 0,
+                height:          d["height"] as? Double ?? 0,
+                updatedAt:       (d["updatedAt"] as? Timestamp)?.dateValue() ?? .distantPast,
+                serverUpdatedAt: (d["serverUpdatedAt"] as? Timestamp)?.dateValue(),
+                page:            d["page"] as? String
             )
         }
     }

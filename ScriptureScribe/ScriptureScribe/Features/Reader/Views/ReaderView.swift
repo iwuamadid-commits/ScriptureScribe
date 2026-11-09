@@ -18,6 +18,66 @@
 
 import SwiftUI
 
+// MARK: - HandwritingPageIcon
+/// A sideways iPad with a squiggle of handwriting on its screen, for the iPhone
+/// button that opens the iPad page with its handwriting. There's no built-in
+/// symbol for this, so it draws the squiggle inside the iPad outline, nudged up so
+/// it doesn't touch the outline's home-bar line. Monochrome keeps it an outline
+/// like the neighbouring toolbar icons.
+private struct HandwritingPageIcon: View {
+    var body: some View {
+        ZStack {
+            Image(systemName: "ipad.landscape")
+                .font(.system(size: 18))
+                .symbolRenderingMode(.monochrome)
+            HandwrittenSquiggle()
+                .stroke(style: StrokeStyle(lineWidth: 1.3, lineCap: .round, lineJoin: .round))
+                .frame(width: 12, height: 5)
+                .offset(y: -1.5)
+        }
+    }
+}
+
+/// One hand-drawn squiggle: uneven bumps around a level line, like a quick
+/// scribble. (Level rather than rising, so it doesn't read as a chart.)
+private struct HandwrittenSquiggle: Shape {
+    /// Points 0–1 across the box (y grows downward), joined smoothly.
+    private static let points: [CGPoint] = [
+        CGPoint(x: 0.00, y: 0.60), CGPoint(x: 0.22, y: 0.20), CGPoint(x: 0.42, y: 0.85),
+        CGPoint(x: 0.62, y: 0.15), CGPoint(x: 0.80, y: 0.75), CGPoint(x: 1.00, y: 0.40)
+    ]
+
+    func path(in rect: CGRect) -> Path {
+        let pts = Self.points.map { CGPoint(x: rect.minX + $0.x * rect.width, y: rect.minY + $0.y * rect.height) }
+        var path = Path()
+        path.move(to: pts[0])
+        // A smooth curve through every point (Catmull-Rom, as cubic curves).
+        for i in 0..<(pts.count - 1) {
+            let p0 = pts[max(i - 1, 0)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[min(i + 2, pts.count - 1)]
+            path.addCurve(to: p2,
+                          control1: CGPoint(x: p1.x + (p2.x - p0.x) / 6, y: p1.y + (p2.y - p0.y) / 6),
+                          control2: CGPoint(x: p2.x - (p3.x - p1.x) / 6, y: p2.y - (p3.y - p1.y) / 6))
+        }
+        return path
+    }
+}
+
+// MARK: - WalkthroughActiveWatcher
+/// Tells the reader whether the tutorial is running. A separate view so the
+/// reader itself doesn't observe WalkthroughManager: its spotlight frames are
+/// rewritten on every scroll, which would redraw the whole reader each time.
+private struct WalkthroughActiveWatcher: View {
+    @EnvironmentObject private var walkthroughManager: WalkthroughManager
+    @Binding var isActive: Bool
+
+    var body: some View {
+        Color.clear
+            .onChange(of: walkthroughManager.isActive, initial: true) { _, active in
+                isActive = active
+            }
+    }
+}
+
 // MARK: - ContentHeightKey
 // Measures the rendered height of the Bible text so the canvas can match it.
 private struct ContentHeightKey: PreferenceKey {
@@ -130,6 +190,9 @@ struct ReaderView: View {
     enum BrowserScrollTarget { case book, chapter }
     @State private var showBookBrowser = false
     @State private var showHandwriting = false
+    /// iPhone only: the tutorial is running, so the handwriting button shows even
+    /// on a chapter without any, giving its tutorial step something to point at.
+    @State private var isTutorialRunning = false
     @State private var browserScrollTarget: BrowserScrollTarget = .book
 
     // ── Interactive swipe-to-turn-page ──────────────────────────────────────
@@ -180,8 +243,13 @@ struct ReaderView: View {
                         selectedChapterId:   vm.selectedChapter?.id,
                         annotatedChapterIds: annotatedChapterIds,
                         vm:                  vm,
-                        onOpenBrowser:       { browserScrollTarget = .chapter; showBookBrowser = true }
+                        onOpenBrowser:       { browserScrollTarget = .chapter; showBookBrowser = true },
+                        // The tutorial points at the selected chapter on iPad. A
+                        // phone shows only the first few, so the selected one is
+                        // often scrolled out of view: point at the whole row instead.
+                        showCoachMarks:      DeviceCapabilities.hasPencilTools
                     )
+                    .coachMark("reader-chapter-row", active: DeviceCapabilities.isPhoneLayout)
                     // Annotation toolbar (positioned under book/chapter selectors).
                     // iPhone has no pencil tools, so the row is omitted entirely
                     // rather than rendered empty — it buys back ~44pt of the
@@ -254,6 +322,8 @@ struct ReaderView: View {
             .sheet(isPresented: $showHandwriting) {
                 HandwritingPageView(
                     annotationVM:     annotationVM,
+                    readerVM:         vm,
+                    highlightsVM:     highlightsVM,
                     chapterId:        vm.selectedChapter?.id ?? "",
                     chapterReference: vm.selectedChapter?.reference ?? ""
                 )
@@ -334,10 +404,25 @@ struct ReaderView: View {
             await vm.loadInitialData()
             annotationVM.notesVMRef = notesVM
         }
-        // Save reading position + My Versions when the app goes to background
+        // Save reading position + My Versions when the app goes to background,
+        // and send any handwriting still waiting to upload.
         .onChange(of: scenePhase) { _, phase in
-            if phase == .background, let userId = authVM.currentUserID {
-                Task { await vm.syncToCloud(userId: userId) }
+            if phase == .background {
+                annotationVM.flushPendingUploads()
+                if let userId = authVM.currentUserID {
+                    Task { await vm.syncToCloud(userId: userId) }
+                }
+            }
+        }
+        // Handwriting sync. Lives on the Reader itself (ReaderView owns annotationVM)
+        // so it runs in every layout, including split view. `initial: true` covers
+        // a launch that restores an existing session, where the id never changes.
+        .onChange(of: authVM.currentUserID, initial: true) { _, userId in
+            annotationVM.handleSignedInUserChanged(userId)
+        }
+        .background {
+            if DeviceCapabilities.isPhoneLayout {
+                WalkthroughActiveWatcher(isActive: $isTutorialRunning)
             }
         }
         // When any tab sends the user here via a chapter/verse link, navigate and
@@ -1234,15 +1319,6 @@ struct ReaderView: View {
                 .frame(width: geo.size.width)
             }
             .onPreferenceChange(ContentHeightKey.self) { h in if h > 0 { contentHeight = h } }
-            // Handwriting sync lives here rather than in ContentView because
-            // ReaderView owns annotationVM. `initial: true` covers a launch that
-            // restores an existing session, where the id never changes.
-            .onChange(of: authVM.currentUserID, initial: true) { _, userId in
-                annotationVM.signedInUserId = userId
-                if let userId {
-                    Task { await annotationVM.syncOnSignIn(userId: userId) }
-                }
-            }
             .opacity(contentOpacity)
         }
     }
@@ -1295,14 +1371,16 @@ struct ReaderView: View {
         // Right: handwriting — iPhone only, and only when this chapter has any.
         // The phone cannot draw, so this is the one way to reach notes written
         // on the iPad. Hidden entirely when there is nothing to show rather than
-        // offering a button that opens an empty page.
-        if DeviceCapabilities.isPhoneLayout, chapterHasHandwriting {
+        // offering a button that opens an empty page. The tutorial is the one
+        // exception: it shows the button for its step, which points at it.
+        if DeviceCapabilities.isPhoneLayout, chapterHasHandwriting || isTutorialRunning {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     showHandwriting = true
                 } label: {
-                    Image(systemName: "hand.draw")
+                    HandwritingPageIcon()
                         .foregroundStyle(themeManager.currentTheme.primary)
+                        .coachMark("reader-handwriting-button")
                 }
                 .accessibilityLabel("View handwriting")
             }
@@ -1317,6 +1395,7 @@ struct ReaderView: View {
                 } label: {
                     Image(systemName: "book.closed")
                         .foregroundStyle(themeManager.currentTheme.primary)
+                        .coachMark("reader-book-button")
                 }
                 .accessibilityLabel("Browse books")
             }

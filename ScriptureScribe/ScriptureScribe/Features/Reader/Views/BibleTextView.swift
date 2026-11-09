@@ -22,6 +22,17 @@ private struct FirstSelectedVerseAnchorKey: PreferenceKey {
 
 // MARK: - BibleTextView
 
+/// Reading settings to draw the text with, in place of this device's own
+/// preferences. Used to rebuild an iPad page on iPhone under its handwriting,
+/// so the text wraps exactly as it did when the notes were written.
+struct ReaderTextStyle: Equatable {
+    var fontChoice:     String
+    var fontSize:       Double
+    var lineSpacing:    Double
+    var textAlignment:  String
+    var showRedLetters: Bool
+}
+
 struct BibleTextView: View {
 
     let content:            BibleChapterContent
@@ -56,6 +67,10 @@ struct BibleTextView: View {
     /// Called when the user taps a color they haven't paid for. The paywall is
     /// presented by ReaderView, outside this hosted view tree.
     var onRequestPremium: () -> Void = {}
+    /// When set, draws with these settings instead of this device's reading
+    /// preferences (see ReaderTextStyle). Nil everywhere except the iPhone's
+    /// handwriting page.
+    var textStyle: ReaderTextStyle? = nil
 
     @EnvironmentObject var themeManager: ThemeManager
 
@@ -118,9 +133,9 @@ struct BibleTextView: View {
                     number:            verse.number,
                     text:              verse.text,
                     segments:          segsByNumber[verse.number],
-                    showRedLetters:    vm.showRedLetters,
+                    showRedLetters:    textStyle?.showRedLetters ?? vm.showRedLetters,
                     font:              bodyFont,
-                    spacing:           vm.lineSpacing,
+                    spacing:           textStyle?.lineSpacing ?? vm.lineSpacing,
                     alignment:         swiftUIAlignment,
                     theme:             themeManager.currentTheme,
                     navFlashOpacity:   flashVerses.contains(verse.number) ? navFlashOpacity : 0.0,
@@ -387,8 +402,8 @@ struct BibleTextView: View {
     // MARK: - Font
 
     private var bodyFont: Font {
-        let size = vm.fontSize
-        switch vm.fontChoice {
+        let size = textStyle?.fontSize ?? vm.fontSize
+        switch textStyle?.fontChoice ?? vm.fontChoice {
         case "Georgia":     return .custom("Georgia",        size: size)
         case "Palatino":    return .custom("Palatino-Roman", size: size)
         case "Baskerville": return .custom("Baskerville",    size: size)
@@ -397,7 +412,7 @@ struct BibleTextView: View {
     }
 
     private var swiftUIAlignment: TextAlignment {
-        switch vm.textAlignment {
+        switch textStyle?.textAlignment ?? vm.textAlignment {
         case "center":   return .center
         case "trailing": return .trailing
         default:         return .leading
