@@ -80,6 +80,11 @@ struct DailyView: View {
     @State private var sectionDragOffset: CGFloat = 0
     @State private var sectionSizes: [String: CGFloat] = [:]
     @State private var sectionSourceIndex: Int = 0
+    // iPhone tutorial: the scroll position, where each section starts and how far
+    // the page can scroll, so the tour can scroll straight to a section.
+    @State private var tourScroll = ScrollPosition()
+    @State private var sectionTops: [String: CGFloat] = [:]
+    @State private var maxScrollY: CGFloat = 0
 
     // ── Reminders ──────────────────────────────────────────────────────────
     @ObservedObject private var notifications = NotificationManager.shared
@@ -193,6 +198,13 @@ struct DailyView: View {
                                     VStack(spacing: 0) {
                                         sectionView(for: section, entry: entry)
                                     }
+                                    .phoneOnly { $0
+                                        .onGeometryChange(for: CGFloat.self) {
+                                            $0.frame(in: .named("dailyContent")).minY
+                                        } action: { top in
+                                            sectionTops[section.rawValue] = top
+                                        }
+                                    }
                                     .background(
                                         GeometryReader { g in
                                             Color.clear.preference(
@@ -281,8 +293,17 @@ struct DailyView: View {
 
                                 Spacer().frame(height: 32)
                             }
+                            .coordinateSpace(.named("dailyContent"))
                         }
                         .scrollDisabled(draggedSectionID != nil)
+                        .phoneOnly { $0
+                            .scrollPosition($tourScroll)
+                            .onScrollGeometryChange(for: CGFloat.self) {
+                                max(0, $0.contentSize.height + $0.contentInsets.bottom - $0.containerSize.height)
+                            } action: { _, maxY in
+                                maxScrollY = maxY
+                            }
+                        }
                         // Scroll to the relevant section when walkthrough step changes
                         .onChange(of: walkthroughManager.currentStepIndex) { _, _ in
                             scrollToWalkthroughSection(proxy: scrollProxy)
@@ -474,10 +495,23 @@ struct DailyView: View {
             "daily-devotion-section": "daily-devotion",
             "daily-reflection-section": "daily-reflection"
         ]
-        if let scrollID = sectionMap[step.id] {
-            withAnimation(.easeInOut(duration: 0.3)) {
-                proxy.scrollTo(scrollID, anchor: .top)
+        guard let scrollID = sectionMap[step.id] else { return }
+        // iPhone: scroll straight to where the section starts. `proxy.scrollTo`
+        // leaves this page where it is on a phone (the request was made at every
+        // step and the page never moved), so the devotion and reflection stayed
+        // below the screen. Waits a moment for the tour's step animation to finish.
+        if DeviceCapabilities.isPhoneLayout {
+            let section = String(scrollID.dropFirst("daily-".count))
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                guard let top = sectionTops[section] else { return }
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    tourScroll.scrollTo(y: min(max(0, top), maxScrollY))
+                }
             }
+            return
+        }
+        withAnimation(.easeInOut(duration: 0.3)) {
+            proxy.scrollTo(scrollID, anchor: .top)
         }
     }
 
@@ -1070,4 +1104,16 @@ private struct SectionSizeKey: PreferenceKey {
         .environmentObject(AppNavigation())
         .environmentObject(AuthViewModel())
         .environmentObject(SavedDevotionalsViewModel())
+}
+
+private extension View {
+    /// Applies `modify` on iPhone only; on iPad the view is left exactly as it was.
+    @ViewBuilder
+    func phoneOnly<Modified: View>(_ modify: (Self) -> Modified) -> some View {
+        if DeviceCapabilities.isPhoneLayout {
+            modify(self)
+        } else {
+            self
+        }
+    }
 }

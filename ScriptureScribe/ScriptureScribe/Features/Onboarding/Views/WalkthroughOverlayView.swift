@@ -63,6 +63,77 @@ enum WalkthroughLayout {
         return CGRect(x: screenSize.width / 2, y: screenSize.height / 2, width: 100, height: 50)
     }
 
+    /// Where the tooltip's centre goes. iPad keeps its original placement; iPhone
+    /// measures the tooltip and keeps it on screen and off what it points at.
+    static func tooltipCenterY(
+        step: WalkthroughStep,
+        frame: CGRect,
+        screenSize: CGSize,
+        safeAreaTop: CGFloat,
+        safeAreaBottom: CGFloat,
+        maxW: CGFloat
+    ) -> CGFloat {
+        if step.isTabBarTarget { return screenSize.height / 2 }
+        if DeviceCapabilities.isPhoneLayout {
+            return phoneTooltipY(step: step, frame: frame, screenSize: screenSize,
+                                 safeAreaTop: safeAreaTop, safeAreaBottom: safeAreaBottom, maxW: maxW)
+        }
+        return tooltipY(step: step, frame: frame, screenHeight: screenSize.height)
+    }
+
+    /// iPhone placement. `tooltipY` assumes every tooltip is about two lines tall,
+    /// which holds on iPad but not on a phone, where longer messages wrap further
+    /// and the tooltip spilled over its target or off the top of the screen.
+    ///
+    /// Goes on the step's preferred side if it fits there, else the other side.
+    /// When neither fits (the target fills the screen, like the Bible text), it
+    /// sits over the target at the bottom of the screen, clear of the tab bar.
+    private static func phoneTooltipY(
+        step: WalkthroughStep,
+        frame: CGRect,
+        screenSize: CGSize,
+        safeAreaTop: CGFloat,
+        safeAreaBottom: CGFloat,
+        maxW: CGFloat
+    ) -> CGFloat {
+        let height = phoneTooltipHeight(step: step, maxW: maxW)
+        let gap: CGFloat = 12
+        let topLimit = safeAreaTop + 4
+        let bottomLimit = screenSize.height - max(safeAreaBottom, 8) - 58   // above the tab bar
+        let cutout = frame.insetBy(dx: -step.spotlightPadding, dy: -step.spotlightPadding)
+
+        let belowY = cutout.maxY + gap + height / 2
+        let aboveY = cutout.minY - gap - height / 2
+        let fitsBelow = belowY + height / 2 <= bottomLimit
+        let fitsAbove = aboveY - height / 2 >= topLimit
+
+        let y: CGFloat
+        if step.tooltipEdge == .bottom {
+            y = fitsBelow ? belowY : fitsAbove ? aboveY : bottomLimit - height / 2
+        } else {
+            y = fitsAbove ? aboveY : fitsBelow ? belowY : bottomLimit - height / 2
+        }
+        return min(max(y, topLimit + height / 2), bottomLimit - height / 2)
+    }
+
+    /// The tooltip's height on iPhone, worked out the same way it lays out:
+    /// padding, the message wrapped to the tooltip's width, the optional
+    /// "Try it!" badge, the arrow row and the Skip row.
+    static func phoneTooltipHeight(step: WalkthroughStep, maxW: CGFloat) -> CGFloat {
+        let message = (step.message as NSString).boundingRect(
+            with: CGSize(width: maxW - 32, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: UIFont.preferredFont(forTextStyle: .subheadline)],
+            context: nil
+        ).height
+        let caption = UIFont.preferredFont(forTextStyle: .caption1).lineHeight
+        let badge = step.isInteractive ? 12 + ceil(caption) + 8 : 0
+        return 16 + ceil(message) + badge + 12 + 32 + 2 + phoneSkipRowHeight + 16
+    }
+
+    /// The Skip row inside the iPhone tooltip.
+    static let phoneSkipRowHeight: CGFloat = 22
+
     static func tooltipY(step: WalkthroughStep, frame: CGRect, screenHeight: CGFloat) -> CGFloat {
         let pad = step.spotlightPadding
         let tooltipHalfHeight: CGFloat = 70 // approximate half-height of tooltip card
@@ -84,6 +155,29 @@ enum WalkthroughLayout {
     static func clampX(_ x: CGFloat, screenWidth: CGFloat) -> CGFloat {
         let halfW = min(screenWidth - 40, 360) / 2
         return min(max(x, halfW + 20), screenWidth - halfW - 20)
+    }
+}
+
+extension View {
+    /// Sizes a tooltip (and its invisible twin in the controls layer, so the
+    /// buttons line up). iPad: as wide as its message needs, up to `maxW`.
+    /// iPhone: always `maxW` wide and as tall as the wrapped message needs.
+    /// Sized the iPad way, the box was laid out for one line of text, and a
+    /// message that wraps to three lines on a phone spilled out of it.
+    @ViewBuilder
+    func walkthroughTooltipFrame<Background: View>(
+        maxW: CGFloat,
+        @ViewBuilder background: () -> Background
+    ) -> some View {
+        if DeviceCapabilities.isPhoneLayout {
+            frame(width: maxW)
+                .background(background())
+                .fixedSize(horizontal: false, vertical: true)
+        } else {
+            frame(maxWidth: maxW)
+                .background(background())
+                .fixedSize()
+        }
     }
 }
 
@@ -112,7 +206,10 @@ struct WalkthroughDimOverlay: View {
                             screenSize: size, safeAreaTop: top, safeAreaBottom: bottom
                         )
                         let tipX = step.isTabBarTarget ? size.width / 2 : WalkthroughLayout.clampX(frame.midX, screenWidth: size.width)
-                        let tipY = step.isTabBarTarget ? size.height / 2 : WalkthroughLayout.tooltipY(step: step, frame: frame, screenHeight: size.height)
+                        let tipY = WalkthroughLayout.tooltipCenterY(
+                            step: step, frame: frame, screenSize: size,
+                            safeAreaTop: top, safeAreaBottom: bottom, maxW: min(size.width - 40, 360)
+                        )
 
                         ZStack {
                             Color.black.opacity(0.45)
@@ -179,37 +276,47 @@ struct WalkthroughDimOverlay: View {
                 .background(Color(theme.primary).opacity(0.12), in: Capsule())
             }
 
-            // Bottom row: < counter >
-            HStack {
-                // Back arrow placeholder (invisible — real button is in controls layer)
-                Image(systemName: "chevron.left")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(manager.currentStepIndex > 0 ? Color(theme.textSecondary) : .clear)
-                    .frame(width: 32, height: 32)
+            VStack(spacing: 2) {
+                // Bottom row: < counter >
+                HStack {
+                    // Back arrow placeholder (invisible — real button is in controls layer)
+                    Image(systemName: "chevron.left")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(manager.currentStepIndex > 0 ? Color(theme.textSecondary) : .clear)
+                        .frame(width: 32, height: 32)
 
-                Spacer()
+                    Spacer()
 
-                Text("\(manager.currentStepIndex + 1) of \(manager.totalSteps - 1)")
-                    .font(.caption)
-                    .foregroundStyle(Color(theme.textSecondary))
+                    Text("\(manager.currentStepIndex + 1) of \(manager.totalSteps - 1)")
+                        .font(.caption)
+                        .foregroundStyle(Color(theme.textSecondary))
 
-                Spacer()
+                    Spacer()
 
-                // Next arrow (visual only — real button is in controls layer)
-                Image(systemName: "chevron.right")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color(theme.primary))
-                    .frame(width: 32, height: 32)
+                    // Next arrow (visual only — real button is in controls layer)
+                    Image(systemName: "chevron.right")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color(theme.primary))
+                        .frame(width: 32, height: 32)
+                }
+
+                // iPhone: Skip lives in the tooltip (real button in controls layer).
+                // In the screen's corner it covered the last tab and whatever
+                // else was there.
+                if DeviceCapabilities.isPhoneLayout {
+                    Text("Skip tour")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(Color(theme.textSecondary))
+                        .frame(height: WalkthroughLayout.phoneSkipRowHeight)
+                }
             }
         }
         .padding(16)
-        .frame(maxWidth: maxW)
-        .background(
+        .walkthroughTooltipFrame(maxW: maxW) {
             RoundedRectangle(cornerRadius: 16)
                 .fill(Color(theme.surface))
                 .shadow(color: .black.opacity(0.3), radius: 12, y: 4)
-        )
-        .fixedSize()
+        }
         .position(x: tipX, y: tipY)
     }
 
@@ -246,7 +353,10 @@ struct WalkthroughControlsOverlay: View {
                             screenSize: size, safeAreaTop: top, safeAreaBottom: bottom
                         )
                         let tipX = step.isTabBarTarget ? size.width / 2 : WalkthroughLayout.clampX(frame.midX, screenWidth: size.width)
-                        let tipY = step.isTabBarTarget ? size.height / 2 : WalkthroughLayout.tooltipY(step: step, frame: frame, screenHeight: size.height)
+                        let tipY = WalkthroughLayout.tooltipCenterY(
+                            step: step, frame: frame, screenSize: size,
+                            safeAreaTop: top, safeAreaBottom: bottom, maxW: min(size.width - 40, 360)
+                        )
 
                         controlStrip(tipX: tipX, tipY: tipY, maxW: min(size.width - 40, 360), step: step)
                             .id(manager.currentStepIndex)
@@ -255,17 +365,20 @@ struct WalkthroughControlsOverlay: View {
                                 removal:   .opacity.animation(.easeIn(duration: 0.15))
                             ))
 
-                        Button("Skip") { manager.skip() }
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(Color(theme.textSecondary))
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                            .background(.ultraThinMaterial, in: Capsule())
-                            .contentShape(Rectangle())
-                            .position(
-                                x: size.width - 55,
-                                y: size.height - bottom - 36
-                            )
+                        // iPad only: on iPhone, Skip is inside the tooltip.
+                        if !DeviceCapabilities.isPhoneLayout {
+                            Button("Skip") { manager.skip() }
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(Color(theme.textSecondary))
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                                .background(.ultraThinMaterial, in: Capsule())
+                                .contentShape(Rectangle())
+                                .position(
+                                    x: size.width - 55,
+                                    y: size.height - bottom - 36
+                                )
+                        }
                     }
                 }
 
@@ -312,40 +425,53 @@ struct WalkthroughControlsOverlay: View {
                 .hidden()
             }
 
-            // Real buttons (not hidden)
-            HStack {
-                Button(action: { manager.previous() }) {
-                    Image(systemName: "chevron.left")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.clear) // invisible — visual layer shows this
-                        .frame(width: 32, height: 32)
-                        .contentShape(Rectangle())
+            VStack(spacing: 2) {
+                // Real buttons (not hidden)
+                HStack {
+                    Button(action: { manager.previous() }) {
+                        Image(systemName: "chevron.left")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.clear) // invisible — visual layer shows this
+                            .frame(width: 32, height: 32)
+                            .contentShape(Rectangle())
+                    }
+                    .opacity(manager.currentStepIndex > 0 ? 1 : 0)
+                    .disabled(manager.currentStepIndex == 0)
+
+                    Spacer()
+
+                    // Invisible counter placeholder — keeps layout matching visual layer
+                    Text("\(manager.currentStepIndex + 1) of \(manager.totalSteps - 1)")
+                        .font(.caption)
+                        .foregroundStyle(.clear)
+                        .allowsHitTesting(false)
+
+                    Spacer()
+
+                    Button(action: { manager.next() }) {
+                        Image(systemName: "chevron.right")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.clear) // invisible — visual layer shows this
+                            .frame(width: 32, height: 32)
+                            .contentShape(Rectangle())
+                    }
                 }
-                .opacity(manager.currentStepIndex > 0 ? 1 : 0)
-                .disabled(manager.currentStepIndex == 0)
 
-                Spacer()
-
-                // Invisible counter placeholder — keeps layout matching visual layer
-                Text("\(manager.currentStepIndex + 1) of \(manager.totalSteps - 1)")
-                    .font(.caption)
-                    .foregroundStyle(.clear)
-                    .allowsHitTesting(false)
-
-                Spacer()
-
-                Button(action: { manager.next() }) {
-                    Image(systemName: "chevron.right")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.clear) // invisible — visual layer shows this
-                        .frame(width: 32, height: 32)
-                        .contentShape(Rectangle())
+                if DeviceCapabilities.isPhoneLayout {
+                    Button(action: { manager.skip() }) {
+                        Text("Skip tour")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.clear) // invisible — visual layer shows this
+                            .frame(height: WalkthroughLayout.phoneSkipRowHeight)
+                            .padding(.horizontal, 12)
+                            .contentShape(Rectangle())
+                    }
+                    .accessibilityLabel("Skip tour")
                 }
             }
         }
         .padding(16)
-        .frame(maxWidth: maxW)
-        .fixedSize()
+        .walkthroughTooltipFrame(maxW: maxW) { Color.clear }
         .position(x: tipX, y: tipY)
     }
 

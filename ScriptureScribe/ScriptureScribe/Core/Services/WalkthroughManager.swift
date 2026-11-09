@@ -139,13 +139,22 @@ final class WalkthroughManager: ObservableObject {
 
     // MARK: Step list
 
-    /// Steps that only make sense where the pencil tools exist. Dropped on
-    /// iPhone, which has no annotation toolbar and no saved-colour swatches to
-    /// point at — leaving them in would spotlight empty screen and stall the
-    /// walkthrough waiting for a frame that never arrives.
-    private static let pencilOnlyStepIds: Set<String> = [
+    /// Steps that only make sense on iPad. Dropped on iPhone, which has no
+    /// annotation toolbar, no saved-colour swatches and no row of book names
+    /// to point at — leaving them in would spotlight empty screen.
+    private static let iPadOnlyStepIds: Set<String> = [
+        "reader-selected-book",
+        "reader-sort-button",
         "reader-annotation-toolbar",
         "reader-color-swatches",
+    ]
+
+    /// Steps that only make sense on iPhone. Dropped on iPad, which has the
+    /// book row instead of a book button, and writes handwriting right on the
+    /// page rather than having a button for viewing it.
+    private static let phoneOnlyStepIds: Set<String> = [
+        "reader-book-button",
+        "reader-handwriting-button",
     ]
 
     private static let allSteps: [WalkthroughStep] = [
@@ -156,6 +165,11 @@ final class WalkthroughManager: ObservableObject {
 
         .content(id: "reader-version-button", tab: 0,
                  message: "Tap here to switch Bible translations like KJV, NIV, ESV, and more.",
+                 edge: .bottom, padding: 10, radius: 14),
+
+        // iPhone has a book button in place of the book row (the next two steps).
+        .content(id: "reader-book-button", tab: 0,
+                 message: "Tap here to browse every book and chapter of the Bible.",
                  edge: .bottom, padding: 10, radius: 14),
 
         .content(id: "reader-selected-book", tab: 0,
@@ -169,6 +183,12 @@ final class WalkthroughManager: ObservableObject {
         .content(id: "reader-chapter-row", tab: 0,
                  message: "Scroll through chapters here. Tap any number to jump to it.",
                  padding: 6, radius: 10),
+
+        // iPhone's place in the tools: it can't draw, so instead of the pencil
+        // tools below it gets the button that shows what was written on the iPad.
+        .content(id: "reader-handwriting-button", tab: 0,
+                 message: "Write on your iPad with Apple Pencil, then read your handwriting here. This button shows up on any chapter you've written on.",
+                 edge: .bottom, padding: 10, radius: 14),
 
         .content(id: "reader-annotation-toolbar", tab: 0,
                  message: "Draw, highlight, erase, and lasso to select and move your annotations.",
@@ -269,7 +289,9 @@ final class WalkthroughManager: ObservableObject {
 
     /// The steps this device actually walks through.
     let steps: [WalkthroughStep] = allSteps.filter {
-        DeviceCapabilities.hasPencilTools || !pencilOnlyStepIds.contains($0.id)
+        DeviceCapabilities.hasPencilTools
+            ? !phoneOnlyStepIds.contains($0.id)
+            : !iPadOnlyStepIds.contains($0.id)
     }
 
     var currentStep: WalkthroughStep? {
